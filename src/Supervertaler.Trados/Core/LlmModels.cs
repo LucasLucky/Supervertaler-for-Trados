@@ -79,26 +79,20 @@ namespace Supervertaler.Trados.Core
             },
             new LlmModelInfo
             {
-                Id = "claude-sonnet-4-6", DisplayName = "Claude Sonnet 4.6",
-                Description = "Previous generation – kept as a fallback",
-                Provider = LlmProvider.Claude
-            },
-            new LlmModelInfo
-            {
                 Id = "claude-haiku-4-5-20251001", DisplayName = "Claude Haiku 4.5",
                 Description = "Fast and affordable – good for large batch jobs",
                 Provider = LlmProvider.Claude
             },
             new LlmModelInfo
             {
-                Id = "claude-opus-4-8", DisplayName = "Claude Opus 4.8",
-                Description = "Highest quality – Anthropic's most capable Opus model, 1M context",
+                Id = "claude-opus-5", DisplayName = "Claude Opus 5",
+                Description = "Premium – Anthropic's flagship Opus; near-Fable-5 intelligence at half the price ($5/$25), 1M context. Top choice for hard legal/technical work",
                 Provider = LlmProvider.Claude
             },
             new LlmModelInfo
             {
                 Id = "claude-fable-5", DisplayName = "Claude Fable 5",
-                Description = "Maximum capability – always-on reasoning at double Opus pricing; for the hardest jobs, overkill for routine translation",
+                Description = "Maximum capability – always-on reasoning at double Opus pricing; rarely worth it now that Opus 5 exists",
                 Provider = LlmProvider.Claude
             }
         };
@@ -211,14 +205,14 @@ namespace Supervertaler.Trados.Core
         {
             new LlmModelInfo
             {
-                Id = "anthropic/claude-sonnet-4.6", DisplayName = "Claude Sonnet 4.6",
+                Id = "anthropic/claude-sonnet-5", DisplayName = "Claude Sonnet 5",
                 Description = "Recommended – best balance of speed, quality, and cost",
                 Provider = LlmProvider.OpenRouter
             },
             new LlmModelInfo
             {
-                Id = "anthropic/claude-opus-4.8", DisplayName = "Claude Opus 4.8",
-                Description = "Highest quality – Anthropic's most capable model, 1M context",
+                Id = "anthropic/claude-opus-5", DisplayName = "Claude Opus 5",
+                Description = "Highest quality – Anthropic's flagship Opus, 1M context",
                 Provider = LlmProvider.OpenRouter
             },
             new LlmModelInfo

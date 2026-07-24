@@ -7,6 +7,13 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.122 / 19.20.122] – 2026-07-24
+
+### Changed (AI models · Claude Opus 5 added, superseded models retired)
+
+- **Claude Opus 5 added** (released 24 July 2026). Anthropic’s new flagship Opus: near-Fable-5 intelligence at **$5/$25 per million tokens** – the same price as Opus 4.8 and half of Fable 5 – with no always-on-thinking surcharge. It is now the premium choice for hard legal/technical translation and long-context jobs. **Claude Sonnet 5 remains the recommended default** for routine work.
+- **Claude Opus 4.8 and Claude Sonnet 4.6 removed from the model picker** – both are superseded (Opus 5 costs the same as Opus 4.8 and is better; Sonnet 5 supersedes Sonnet 4.6), so keeping them only made the list harder to choose from. The OpenRouter routes were updated to match (Sonnet 5 / Opus 5). Their prices stay in the shared pricing list, so cost figures for existing projects and past usage logs still resolve. If you had one of the retired models selected, pick a current one in **Settings → AI Settings**.
+
 ## [18.20.121 / 19.20.121] – 2026-07-24
 
 ### Fixed (MCP Server · non-ASCII search terms now match)
