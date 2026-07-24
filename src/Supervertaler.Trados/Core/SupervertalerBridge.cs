@@ -1263,13 +1263,13 @@ namespace Supervertaler.Trados.Core
             if (method == "GET" && path == "/v1/projects")
             {
                 HandleDiskTool(context, "studio_list_projects",
-                    "{\"status_filter\":" + JsonQuote(context.Request.QueryString["status"] ?? "") + "}");
+                    "{\"status_filter\":" + JsonQuote(QueryUtf8(context.Request)["status"] ?? "") + "}");
                 return;
             }
             if (method == "GET" && path == "/v1/project-info")
             {
                 HandleDiskTool(context, "studio_get_project",
-                    "{\"project_name\":" + JsonQuote(context.Request.QueryString["name"] ?? "") + "}");
+                    "{\"project_name\":" + JsonQuote(QueryUtf8(context.Request)["name"] ?? "") + "}");
                 return;
             }
             if (method == "GET" && path == "/v1/tms")
@@ -1548,7 +1548,7 @@ namespace Supervertaler.Trados.Core
                 return;
             }
 
-            var qs = context.Request.QueryString;
+            var qs = QueryUtf8(context.Request);
             var query = new BridgeSegmentsQuery
             {
                 Status = qs["status"],
@@ -1585,7 +1585,7 @@ namespace Supervertaler.Trados.Core
 
         private void HandleTmSearch(HttpListenerContext context)
         {
-            var query = context.Request.QueryString["q"];
+            var query = QueryUtf8(context.Request)["q"];
             if (string.IsNullOrWhiteSpace(query))
             {
                 WriteJson(context, 400, new BridgeTmSearchResponse { Ok = false, Error = "missing 'q'" });
@@ -1593,7 +1593,7 @@ namespace Supervertaler.Trados.Core
             }
 
             int limit;
-            if (!int.TryParse(context.Request.QueryString["limit"], out limit) || limit <= 0)
+            if (!int.TryParse(QueryUtf8(context.Request)["limit"], out limit) || limit <= 0)
                 limit = 5;
             limit = Math.Min(limit, 50);
 
@@ -1674,7 +1674,7 @@ namespace Supervertaler.Trados.Core
 
         private void HandleTermLookup(HttpListenerContext context)
         {
-            var term = context.Request.QueryString["q"];
+            var term = QueryUtf8(context.Request)["q"];
             if (string.IsNullOrWhiteSpace(term))
             {
                 WriteJson(context, 400, new BridgeTermLookupResponse { Ok = false, Error = "missing 'q'" });
@@ -1753,7 +1753,7 @@ namespace Supervertaler.Trados.Core
                     // ones whose Read tick is off. Flag hits from inactive termbases,
                     // and drop them entirely when the caller asked activeOnly=true.
                     bool activeOnly = string.Equals(
-                        context.Request.QueryString["activeOnly"], "true", StringComparison.OrdinalIgnoreCase);
+                        QueryUtf8(context.Request)["activeOnly"], "true", StringComparison.OrdinalIgnoreCase);
                     HashSet<long> disabledTbs;
                     try
                     {
@@ -1997,7 +1997,7 @@ namespace Supervertaler.Trados.Core
             // through projects.xml – the name lookup misses recently-created
             // projects and projects registered under a different Studio version
             // (Studio 2024 vs 2026 keep separate projects.xml files).
-            var projectName = context.Request.QueryString["project"];
+            var projectName = QueryUtf8(context.Request)["project"];
 
             string liveName = null, livePath = null;
             try
@@ -2068,8 +2068,8 @@ namespace Supervertaler.Trados.Core
         {
             try
             {
-                var category = context.Request.QueryString["category"];
-                var query = context.Request.QueryString["query"];
+                var category = QueryUtf8(context.Request)["category"];
+                var query = QueryUtf8(context.Request)["query"];
 
                 var lib = new PromptLibrary();
                 var items = new List<BridgePromptInfo>();
@@ -2117,8 +2117,8 @@ namespace Supervertaler.Trados.Core
         {
             try
             {
-                var relPath = context.Request.QueryString["path"];
-                var name = context.Request.QueryString["name"];
+                var relPath = QueryUtf8(context.Request)["path"];
+                var name = QueryUtf8(context.Request)["name"];
                 if (string.IsNullOrWhiteSpace(relPath) && string.IsNullOrWhiteSpace(name))
                 {
                     WriteJson(context, 400, new BridgePromptResponse { Ok = false, Error = "pass 'path' (relativePath from list_prompts) or 'name'" });
@@ -2298,7 +2298,7 @@ namespace Supervertaler.Trados.Core
                 return;
             }
 
-            var query = context.Request.QueryString["q"];
+            var query = QueryUtf8(context.Request)["q"];
             if (string.IsNullOrWhiteSpace(query))
             {
                 WriteJson(context, 400, new BridgeTmSearchResponse { Ok = false, Error = "missing 'q'" });
@@ -2306,10 +2306,10 @@ namespace Supervertaler.Trados.Core
             }
 
             var q = new BridgeStudioTmQuery { Query = query };
-            var inParam = context.Request.QueryString["in"];
+            var inParam = QueryUtf8(context.Request)["in"];
             if (!string.IsNullOrEmpty(inParam)) q.In = inParam;
             int limit;
-            if (int.TryParse(context.Request.QueryString["limit"], out limit) && limit > 0)
+            if (int.TryParse(QueryUtf8(context.Request)["limit"], out limit) && limit > 0)
                 q.Limit = Math.Min(limit, 50);
 
             BridgeTmSearchResponse response;
@@ -2334,7 +2334,7 @@ namespace Supervertaler.Trados.Core
                 return;
             }
 
-            var type = (context.Request.QueryString["type"] ?? "").ToLowerInvariant();
+            var type = (QueryUtf8(context.Request)["type"] ?? "").ToLowerInvariant();
             if (type != "numbers" && type != "tags" && type != "terminology")
             {
                 WriteJson(context, 400, new BridgeQaResponse
@@ -2347,7 +2347,7 @@ namespace Supervertaler.Trados.Core
 
             var q = new BridgeQaQuery { Type = type };
             int limit;
-            if (int.TryParse(context.Request.QueryString["limit"], out limit) && limit > 0)
+            if (int.TryParse(QueryUtf8(context.Request)["limit"], out limit) && limit > 0)
                 q.Limit = Math.Min(limit, 200);
 
             BridgeQaResponse response;
@@ -2395,7 +2395,7 @@ namespace Supervertaler.Trados.Core
             }
 
             int limit;
-            if (!int.TryParse(context.Request.QueryString["limit"], out limit) || limit <= 0)
+            if (!int.TryParse(QueryUtf8(context.Request)["limit"], out limit) || limit <= 0)
                 limit = 50;
             limit = Math.Min(limit, 200);
 
@@ -2419,6 +2419,34 @@ namespace Supervertaler.Trados.Core
 
         private static string SerializeProjectNameJson(string projectName)
             => "{\"project_name\":" + JsonQuote(projectName) + "}";
+
+        /// <summary>
+        /// Parses the request query with explicit UTF-8 decoding. .NET Framework's
+        /// HttpListenerRequest.QueryString does not reliably UTF-8-decode percent-
+        /// escaped non-ASCII values, so a "contains"/"q" search for a word like
+        /// "orientatie" (with a diaeresis) or a Greek letter silently matched nothing.
+        /// RawUrl preserves the on-the-wire escapes; Uri.UnescapeDataString reverses
+        /// the MCP client's Uri.EscapeDataString (UTF-8). ASCII values are unchanged,
+        /// and the collection is case-insensitive like HttpListenerRequest.QueryString.
+        /// </summary>
+        private static System.Collections.Specialized.NameValueCollection QueryUtf8(HttpListenerRequest request)
+        {
+            var result = new System.Collections.Specialized.NameValueCollection();
+            var raw = request?.RawUrl ?? "";
+            int qi = raw.IndexOf('?');
+            if (qi < 0) return result;
+            foreach (var pair in raw.Substring(qi + 1).Split('&'))
+            {
+                if (pair.Length == 0) continue;
+                int eq = pair.IndexOf('=');
+                string k = eq >= 0 ? pair.Substring(0, eq) : pair;
+                string v = eq >= 0 ? pair.Substring(eq + 1) : "";
+                try { k = Uri.UnescapeDataString(k); } catch { }
+                try { v = Uri.UnescapeDataString(v); } catch { }
+                result.Add(k, v);
+            }
+            return result;
+        }
 
         private static string JsonQuote(string s)
         {
@@ -2548,7 +2576,7 @@ namespace Supervertaler.Trados.Core
                 return;
             }
 
-            var id = context.Request.QueryString["id"];
+            var id = QueryUtf8(context.Request)["id"];
             if (string.IsNullOrWhiteSpace(id))
             {
                 WriteJson(context, 400, new BridgeTaskStatusResponse { Ok = false, Error = "missing 'id' (the jobId returned by a batch task)" });
@@ -2580,7 +2608,7 @@ namespace Supervertaler.Trados.Core
             // maxSegments override: absent -> -1 (use the AI Settings default);
             // 0 -> whole document; >0 -> cap.
             int maxSegments = -1;
-            var q = context.Request.QueryString["maxSegments"];
+            var q = QueryUtf8(context.Request)["maxSegments"];
             if (!string.IsNullOrWhiteSpace(q) && int.TryParse(q, out var m))
                 maxSegments = m < 0 ? -1 : m;
 
@@ -2671,7 +2699,7 @@ namespace Supervertaler.Trados.Core
                 return;
             }
 
-            var id = context.Request.QueryString["id"];
+            var id = QueryUtf8(context.Request)["id"];
             if (string.IsNullOrWhiteSpace(id))
             {
                 WriteJson(context, 400, new BridgeCommentsResponse { Ok = false, Error = "missing 'id'" });

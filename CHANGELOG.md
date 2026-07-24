@@ -7,6 +7,12 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.121 / 19.20.121] – 2026-07-24
+
+### Fixed (MCP Server · non-ASCII search terms now match)
+
+- **`get_segments` (and every other query-based tool) returned zero results for any non-ASCII search text.** A `contains=` / `q=` filter for a word like *oriëntatie*, or a symbol like *α*, matched nothing even when the document plainly contained it, while ASCII words (*hoek*, *strok*) worked. Cause: the bridge read query parameters via .NET Framework’s `HttpListenerRequest.QueryString`, which does not reliably UTF-8-decode percent-escaped non-ASCII (the MCP client correctly sends `ori%C3%ABntatie`, but the plugin decoded it to mojibake that never matched). The bridge now parses the raw query with explicit UTF-8 decoding, so accented, Greek, CJK and other non-ASCII searches work across all tools (`get_segments`, TM/termbase search, lookups, etc.). ASCII queries are unaffected. Found via the Supervertaler MCP Server while chatting to Claude about a live project.
+
 ## [18.20.120 / 19.20.120] – 2026-07-24
 
 ### Fixed (TermLens · terms with an apostrophe, e.g. "SDG’s", now match) — [#19](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/19)
