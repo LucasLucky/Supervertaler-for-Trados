@@ -270,7 +270,7 @@ namespace Supervertaler.Trados.Core
             {
                 if ((c >= '\u2080' && c <= '\u2089') || c == '\u2070' ||
                     c == '\u00B9' || c == '\u00B2' || c == '\u00B3' ||
-                    (c >= '\u2074' && c <= '\u2079') || IsSpaceVariant(c))
+                    (c >= '\u2074' && c <= '\u2079') || IsSpaceVariant(c) || IsApostropheVariant(c))
                 {
                     hasScript = true;
                     break;
@@ -288,9 +288,25 @@ namespace Supervertaler.Trados.Core
                 else if (c == '\u00B3')                  sb.Append('3');  // ³
                 else if (c >= '\u2074' && c <= '\u2079') sb.Append((char)('0' + (c - '\u2070'))); // ⁴-⁹
                 else if (IsSpaceVariant(c))              sb.Append(' ');
+                else if (IsApostropheVariant(c))         sb.Append('\'');  // curly / modifier apostrophes -> '
                 else                                     sb.Append(c);
             }
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Apostrophe / single-quote code points that fold to a plain ASCII
+        /// apostrophe (U+0027) for matching. Word, InDesign and most DTP tools
+        /// auto-convert a typed apostrophe to the curly U+2019, so a termbase
+        /// entry stored with one apostrophe form still matches a segment that
+        /// carries the other (SDG + curly-apostrophe-s vs SDG + straight-quote-s).
+        /// </summary>
+        private static bool IsApostropheVariant(char c)
+        {
+            return c == '\u2018'   // left single quotation mark
+                || c == '\u2019'   // right single quotation mark (the usual smart apostrophe)
+                || c == '\u02BC'   // modifier letter apostrophe
+                || c == '\uFF07';  // fullwidth apostrophe
         }
 
         /// <summary>
@@ -419,11 +435,20 @@ namespace Supervertaler.Trados.Core
         {
             if (_termIndex == null) return;
 
-            // Use cached multi-word term list (rebuilt only when index changes)
+            // Cached list of terms matched by substring search rather than by the
+            // word tokenizer (rebuilt only when the index changes). Two groups need
+            // this because the tokenizer can't reconstruct them token-by-token:
+            //   • multi-word terms (contain a space), and
+            //   • single-word terms containing an apostrophe (e.g. "SDG's") — the
+            //     WordPattern splits on the apostrophe, so "SDG's" tokenizes to
+            //     "SDG" + "s" and the whole term is never looked up. Keys are
+            //     already apostrophe-normalised (NormalizeScriptChars folds curly
+            //     forms to a straight '), so testing for the ASCII apostrophe is
+            //     enough. (See issue #19.)
             if (_multiWordTermsCache == null)
             {
                 _multiWordTermsCache = _termIndex.Keys
-                    .Where(k => k.Contains(" "))
+                    .Where(k => k.Contains(" ") || k.Contains('\''))
                     .OrderByDescending(k => k.Length)
                     .ToList();
             }

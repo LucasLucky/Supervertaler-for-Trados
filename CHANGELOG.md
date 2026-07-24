@@ -7,6 +7,14 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.120 / 19.20.120] – 2026-07-24
+
+### Fixed (TermLens · terms with an apostrophe, e.g. "SDG’s", now match) — [#19](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/19)
+
+- **Single-word terms containing an apostrophe were never matched.** The word tokeniser splits on apostrophes, so a segment like "SDG’s" was cut into "SDG" + "s" and a termbase entry "SDG’s" could never be looked up. Such terms now go through the same substring matcher that multi-word terms use, so they are found whole.
+- **Curly vs straight apostrophes now fold together.** Word, InDesign and most DTP tools auto-convert a typed apostrophe to the "smart" curly form (U+2019), so a term stored with one apostrophe form silently failed to match a segment carrying the other. Matching now folds curly/modifier/fullwidth apostrophes to a plain ' on both sides (the same length-preserving normalisation that already folds Unicode spaces and sub/superscripts). A term stored as "SDG’s" matches "SDG's" in the text and vice versa.
+- Terms *without* an apostrophe are unaffected: "SDG" still matches "SDG’s" as before.
+
 ## [18.20.119 / 19.20.119] – 2026-07-24
 
 ### Fixed (Keyboard shortcuts · "Translate active segment" no longer collides with Ctrl+T)
