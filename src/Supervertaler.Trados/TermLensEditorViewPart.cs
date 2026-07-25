@@ -62,6 +62,12 @@ namespace Supervertaler.Trados
         private List<TerminologyProviderFallback> _fallbackProviders;
         private Dictionary<string, DateTime> _multiTermFileTimestamps;
 
+        // Source texts already queried against the fallback terminology providers
+        // (issue #38). Prevents a repeat batch re-running the same per-segment
+        // lookups. Cleared whenever the MultiTerm set is rebuilt.
+        private readonly HashSet<string> _prewarmedTexts = new HashSet<string>(StringComparer.Ordinal);
+        private readonly object _prewarmedTextsLock = new object();
+
         // Prompt library (shared – used by settings dialog)
         private PromptLibrary _promptLibrary;
 
@@ -946,6 +952,12 @@ namespace Supervertaler.Trados
                 }
                 _fallbackProviders = null;
             }
+
+            // The pre-warm cache (issue #38) is only valid for the providers that
+            // produced it – forget it when they go, so a new project/termbase set
+            // re-queries instead of assuming the index is already populated.
+            lock (_prewarmedTextsLock)
+                _prewarmedTexts.Clear();
         }
 
         /// <summary>
@@ -967,24 +979,43 @@ namespace Supervertaler.Trados
         /// </summary>
         public static List<MultiTermTermbaseInfo> GetMultiTermInfosForSettings()
         {
-            // Prefer the editor instance's already-loaded list (accurate term counts).
+            // Start from the editor instance's already-loaded list (accurate term
+            // counts), then reconcile against what the project actually has
+            // attached. Returning `live` as-is was not enough (#38, Bug 2): if the
+            // snapshot held SOME termbases but was missing one — e.g. it was taken
+            // before that termbase finished loading — the missing one had no row at
+            // all, not even "Failed to load", so its AI tick box was unreachable
+            // even though TermLens was showing its terms. Detection below fills any
+            // such gap, so every attached termbase always gets a row.
             var live = _currentInstance?._multiTermInfos;
-            if (live != null && live.Count > 0)
-                return live;
-
             var result = new List<MultiTermTermbaseInfo>();
+            var seenIds = new HashSet<long>();
+            if (live != null)
+            {
+                foreach (var info in live)
+                {
+                    result.Add(info);
+                    seenIds.Add(info.SyntheticId);
+                }
+            }
+
             try
             {
                 var doc = SdlTradosStudio.Application.GetController<EditorController>()?.ActiveDocument;
                 if (doc == null)
                 {
-                    DiagnosticLog.Log("MultiTerm", "GetMultiTermInfosForSettings: no live infos and no active document → no MultiTerm rows.");
+                    if (result.Count == 0)
+                        DiagnosticLog.Log("MultiTerm", "GetMultiTermInfosForSettings: no live infos and no active document → no MultiTerm rows.");
                     return result;
                 }
 
                 var configs = MultiTermProjectDetector.DetectTermbases(doc);
                 foreach (var config in configs)
                 {
+                    // Already represented by the live snapshot – keep that row (its
+                    // term count came from the real load).
+                    if (seenIds.Contains(config.SyntheticId))
+                        continue;
                     try
                     {
                         using (var reader = TermbaseReaderFactory.Create(config.FilePath))
@@ -1015,8 +1046,14 @@ namespace Supervertaler.Trados
                         LoadMode = MultiTermLoadMode.Failed
                     });
                 }
-                DiagnosticLog.Log("MultiTerm",
-                    $"GetMultiTermInfosForSettings: editor instance had no infos; detected {result.Count} from the active project directly.");
+                int liveCount = live?.Count ?? 0;
+                int added = result.Count - liveCount;
+                if (added > 0)
+                {
+                    DiagnosticLog.Log("MultiTerm",
+                        $"GetMultiTermInfosForSettings: live snapshot had {liveCount} termbase(s); " +
+                        $"detection added {added} missing one(s) from the active project, so the grid shows all {result.Count}.");
+                }
             }
             catch (Exception ex)
             {
@@ -2271,6 +2308,74 @@ namespace Supervertaler.Trados
             if (_currentInstance == null) return new List<TermEntry>();
             try { return _control.Value.GetAllLoadedTerms() ?? new List<TermEntry>(); }
             catch { return new List<TermEntry>(); }
+        }
+
+        /// <summary>
+        /// Ensures fallback-served MultiTerm terms for the given source texts are
+        /// present in the shared term index, so <see cref="GetCurrentTermbaseTerms"/>
+        /// returns them to the AI (issue #38, Bug 1).
+        ///
+        /// Why this is needed: a `.sdltb` that cannot be read directly (no ACE/JET
+        /// driver, 64-bit host, Studio 2026) is served by
+        /// <see cref="TerminologyProviderFallback"/>, which only supports
+        /// per-segment lookups – there is no bulk load. TermLens queries it for the
+        /// segment the user is *looking at* and merges the hits into the shared
+        /// index, so those terms do reach the AI. But a batch job translates
+        /// segments the user has never visited, so their terms were never queried
+        /// and silently never reached the prompt – while TermLens still showed hits
+        /// for the current segment, making it look as though terminology was being
+        /// sent. Call this with the batch's source texts before assembling terms.
+        ///
+        /// Already-queried texts are remembered for the life of the document, so
+        /// repeat batches over the same segments cost nothing. Safe to call from a
+        /// background thread; never throws.
+        /// </summary>
+        /// <returns>The number of source texts newly queried (0 when no fallback
+        /// provider is in play, i.e. every termbase was bulk-loaded).</returns>
+        public static int PrewarmFallbackTermsFor(IEnumerable<string> sourceTexts)
+        {
+            var inst = _currentInstance;
+            if (inst == null || sourceTexts == null) return 0;
+
+            var providers = inst._fallbackProviders;
+            if (providers == null || providers.Count == 0) return 0;
+
+            int queried = 0;
+            try
+            {
+                foreach (var text in sourceTexts)
+                {
+                    if (string.IsNullOrWhiteSpace(text)) continue;
+
+                    lock (inst._prewarmedTextsLock)
+                    {
+                        if (!inst._prewarmedTexts.Add(text)) continue;   // already queried
+                    }
+                    queried++;
+
+                    foreach (var fb in providers)
+                    {
+                        try
+                        {
+                            var results = fb.SearchSegment(text);
+                            if (results != null && results.Count > 0)
+                                inst.SafeInvoke(() => _control.Value.MergeMultiTermEntries(results, null));
+                        }
+                        catch
+                        {
+                            // One bad lookup must not abort the rest of the batch.
+                        }
+                    }
+                }
+
+                if (queried > 0)
+                    Core.BridgeLog.Write($"[TermLens] Prewarmed fallback MultiTerm lookups for {queried} segment text(s) so their terms reach the AI prompt.");
+            }
+            catch
+            {
+                // Never let term pre-warming break a translation run.
+            }
+            return queried;
         }
 
         /// <summary>

@@ -6634,6 +6634,11 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 }
 
                 // Get termbase terms for prompt injection (filtered by AI-disabled list)
+                // Fallback-served MultiTerm termbases only answer per-segment lookups, so
+                // terms for segments the user never visited would silently miss the prompt
+                // (#38). Query them for this batch before assembling the term list.
+                TermLensEditorViewPart.PrewarmFallbackTermsFor(segments.Select(sg => sg.SourceText));
+
                 var allTerms = TermLensEditorViewPart.GetCurrentTermbaseTerms();
                 var aiCfgC = _settings?.AiSettings ?? new AiSettings();
                 var termbaseTerms = allTerms.Where(t => aiCfgC.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
@@ -7003,6 +7008,11 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     segments = segments.Take(clipLimit).ToList();
 
                 // Get termbase terms (filtered by AI-disabled list)
+                // Fallback-served MultiTerm termbases only answer per-segment lookups, so
+                // terms for segments the user never visited would silently miss the prompt
+                // (#38). Query them for this batch before assembling the term list.
+                TermLensEditorViewPart.PrewarmFallbackTermsFor(segments.Select(sg => sg.SourceText));
+
                 var allTerms = TermLensEditorViewPart.GetCurrentTermbaseTerms();
                 var aiCfgB = aiSettings ?? new AiSettings();
                 var termbaseTerms = allTerms.Where(t => aiCfgB.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
@@ -7124,6 +7134,11 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     segments = segments.Take(clipLimit).ToList();
 
                 // Termbase terms, prompt path, custom prompt \u2014 same flow as the copy path
+                // Fallback-served MultiTerm termbases only answer per-segment lookups, so
+                // terms for segments the user never visited would silently miss the prompt
+                // (#38). Query them for this batch before assembling the term list.
+                TermLensEditorViewPart.PrewarmFallbackTermsFor(segments.Select(sg => sg.SourceText));
+
                 var allTerms = TermLensEditorViewPart.GetCurrentTermbaseTerms();
                 var aiCfgB = aiSettings ?? new AiSettings();
                 var termbaseTerms = allTerms.Where(t => aiCfgB.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
@@ -7482,6 +7497,11 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 }
 
                 // Get termbase terms for prompt injection (filtered by AI-disabled list)
+                // Fallback-served MultiTerm termbases only answer per-segment lookups, so
+                // terms for segments the user never visited would silently miss the prompt
+                // (#38). Query them for this batch before assembling the term list.
+                TermLensEditorViewPart.PrewarmFallbackTermsFor(segments.Select(sg => sg.SourceText));
+
                 var allTerms = TermLensEditorViewPart.GetCurrentTermbaseTerms();
                 var aiCfgC = _settings?.AiSettings ?? new AiSettings();
                 var termbaseTerms = allTerms.Where(t => aiCfgC.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
@@ -8758,6 +8778,10 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     }
 
                     // Get termbase terms for prompt injection (filtered by AI-disabled list)
+                    // Single segment, but a fallback-served MultiTerm termbase still needs an
+                    // explicit lookup for it to reach the prompt (#38).
+                    TermLensEditorViewPart.PrewarmFallbackTermsFor(new[] { sourceText });
+
                     var allTbTerms = TermLensEditorViewPart.GetCurrentTermbaseTerms();
                     var aiCfgE = settings?.AiSettings ?? new AiSettings();
                     var termbaseTerms = allTbTerms.Where(t => aiCfgE.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
@@ -9182,6 +9206,10 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         TagMap = hasTags ? serialization.TagMap : null
                     }
                 };
+
+                // Single segment, but a fallback-served MultiTerm termbase still needs an
+                // explicit lookup for it to reach the prompt (#38).
+                TermLensEditorViewPart.PrewarmFallbackTermsFor(new[] { sourceText });
 
                 var allTerms = TermLensEditorViewPart.GetCurrentTermbaseTerms();
                 var termbaseTerms = allTerms.Where(t => aiSettings.IsTermbaseAiEnabled(t.TermbaseId)).ToList();

@@ -7,6 +7,13 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.123 / 19.20.123] – 2026-07-25
+
+### Fixed (Terminology · MultiTerm termbases now reliably reach the AI and the Termbases tab) — [#38](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/38)
+
+- **A MultiTerm/Trados termbase’s terms could silently miss the AI prompt in batch jobs.** When a `.sdltb`/`.ttb` can’t be read directly (no ACE/JET driver, 64-bit host, Studio 2026), Supervertaler falls back to Trados’s own terminology provider – which only answers **one segment at a time**. TermLens queried it for the segment you were looking at, so its terms appeared on screen *and* reached the prompt for that segment – but a Batch Translate, Proofread or clipboard run covers segments you never visited, and those were never queried, so their terms were silently absent from the prompt. Because TermLens kept showing hits, it looked as though terminology was being sent. Batch Translate, Batch Proofread, the clipboard and preview paths, and both single-segment (Alt+T) paths now query the fallback provider for exactly the segments being processed before assembling the term list. Results are cached per document, so a repeat run costs nothing, and the bridge log records how many lookups were pre-warmed. Termbases read directly (the normal case) were never affected.
+- **An attached termbase could be missing entirely from Settings → Termbases.** The grid was built from a snapshot of the editor’s loaded termbase list, with a fallback that only kicked in when that snapshot was **completely** empty. If it held some termbases but was missing one (for example taken before that one finished loading), the missing termbase had no row at all – not even “Failed to load” – so its **AI** tick box was unreachable even while TermLens was showing its terms. The grid now reconciles the snapshot against the termbases actually attached to the project and adds a row for anything missing, so every attached termbase is always listed and tickable.
+
 ## [18.20.122 / 19.20.122] – 2026-07-24
 
 ### Changed (AI models · Claude Opus 5 added, superseded models retired)
