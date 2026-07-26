@@ -7,6 +7,14 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.127 / 19.20.127] – 2026-07-26
+
+### Changed (Voice commands · integrated indicator + more default commands) — [#48](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/48)
+
+- **The voice indicator now lives in the TermLens header** as a permanent 🎤 button next to ↻ – grey when off (click to start), orange while starting, green while listening; heard commands flash briefly in the panel's status label, and right-clicking the mic opens the Advanced command editor. The floating strip no longer covers any part of the UI when TermLens is open; it remains only as a fallback for sessions without the TermLens panel, and is now draggable with its position remembered.
+- **New default commands**: "match one"–"match nine" (apply Translation Results match N, Ctrl+1–9), "escape" (close the focused popup/dialog – term popup, TermPicker…), "go to the top" / "go to the bottom" (Ctrl+Home / Ctrl+End), and "add term" (Alt+Down, write termbases) is now distinct from "add project term" (Alt+Up, project termbase).
+- If you saved custom commands in the Advanced dialog on an earlier build, click **Restore defaults** there to pick up the new command set.
+
 ## [18.20.126 / 19.20.126] – 2026-07-26
 
 ### Added (Voice commands · hands-free Studio control) — [#48](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/48)
