@@ -7,6 +7,12 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.134 / 19.20.134] – 2026-07-26
+
+### Fixed (MCP Server · tools failing with a UI-thread error) — [#44](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/44)
+
+- **MCP tools could fail with "This method/property must be called on the UI thread"** – reported for `add_comment`, but it could affect any tool that reads or changes the Studio document. It happened whenever the Supervertaler Assistant panel had not been opened in that Studio session: the plugin decided whether it needed to hand work to Studio's UI thread by asking that panel, and a panel that has never been shown answers misleadingly, so the call went ahead on the wrong thread and Studio rejected it. Working only in TermLens – as the new voice-command workflow encourages – made it reliably reproducible. The plugin now captures Studio's UI thread at startup and always routes bridge work through it, independently of which panels are open.
+
 ## [18.20.133 / 19.20.133] – 2026-07-26
 
 ### Added (MCP Server · filter segments by TM match rate) — [#44](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/44)
