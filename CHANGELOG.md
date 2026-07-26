@@ -7,6 +7,12 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.124 / 19.20.124] – 2026-07-26
+
+### Added (TermLens · term capitalisation now follows the segment)
+
+- **Displayed and inserted terms now adapt their capitalisation to the source occurrence in the segment.** A term stored as "More preferably" ↦ "Meer bij voorkeur" used to show and insert with the stored capital even when the segment contained it lower-case mid-sentence; the chip and every insertion path (chip click, Alt+digit shortcuts, the TermLens popup and the TermPicker dialog) now follow the segment: lower-case occurrences show a lower-case term, sentence-initial occurrences are capitalised, and ALL-CAPS occurrences (headings) upper-case the whole term. The rules are deliberately conservative – acronyms and mixed-case terms (MRI, pH) are never altered, and abbreviation or suffix-tolerant (Korean/Japanese) matches are left untouched. Can be switched off with the new **Adapt term capitalisation to the segment** option in TermLens settings (on by default).
+
 ## [18.20.123 / 19.20.123] – 2026-07-25
 
 ### Fixed (Terminology · MultiTerm termbases now reliably reach the AI and the Termbases tab) — [#38](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/38)
