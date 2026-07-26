@@ -47,6 +47,14 @@ namespace Supervertaler.Trados.VoiceControl
     internal class VoiceCommandFile
     {
         [DataMember(Name = "commands")] public List<VoiceCommand> Commands { get; set; }
+
+        /// <summary>
+        /// The defaults generation the file was last synced with. When the
+        /// built-in default set grows, files saved under an older generation
+        /// get the NEW defaults merged in on load – without touching the
+        /// user's customisations. Absent in old files → 0 → merge runs.
+        /// </summary>
+        [DataMember(Name = "defaults_version")] public int DefaultsVersion { get; set; }
     }
 
     /// <summary>
@@ -57,6 +65,15 @@ namespace Supervertaler.Trados.VoiceControl
     /// </summary>
     public static class VoiceCommandSet
     {
+        /// <summary>
+        /// Bump whenever commands are ADDED to Defaults(). Saved files from an
+        /// older generation get the new commands merged in on load, so users
+        /// with customised command sets still receive new defaults.
+        /// History: 1 = initial set (20.126), 2 = match 1–9 / escape /
+        /// top+bottom / add-term split (20.127), 3 = zoom in/out (20.128).
+        /// </summary>
+        internal const int CurrentDefaultsVersion = 3;
+
         public static string CommandsFilePath =>
             Path.Combine(UserDataPath.TradosSettingsDir, "voice_commands.json");
 
@@ -130,21 +147,38 @@ namespace Supervertaler.Trados.VoiceControl
             {
                 if (File.Exists(CommandsFilePath))
                 {
+                    VoiceCommandFile data;
                     using (var fs = File.OpenRead(CommandsFilePath))
                     {
                         var ser = new DataContractJsonSerializer(typeof(VoiceCommandFile));
-                        var data = (VoiceCommandFile)ser.ReadObject(fs);
-                        if (data?.Commands != null && data.Commands.Count > 0)
+                        data = (VoiceCommandFile)ser.ReadObject(fs);
+                    }
+                    if (data?.Commands != null && data.Commands.Count > 0)
+                    {
+                        // AHK-tier commands from a Workbench export can't run here
+                        foreach (var c in data.Commands)
                         {
-                            // AHK-tier commands from a Workbench export can't run here
-                            foreach (var c in data.Commands)
-                            {
-                                if (c.ActionType != null && c.ActionType.StartsWith("ahk", StringComparison.OrdinalIgnoreCase))
-                                    c.Enabled = false;
-                                if (c.Aliases == null) c.Aliases = new List<string>();
-                            }
-                            return data.Commands;
+                            if (c.ActionType != null && c.ActionType.StartsWith("ahk", StringComparison.OrdinalIgnoreCase))
+                                c.Enabled = false;
+                            if (c.Aliases == null) c.Aliases = new List<string>();
                         }
+
+                        // File saved under an older defaults generation: merge
+                        // in any default command whose phrase the user doesn't
+                        // have (deliberate deletions of OLD defaults stay
+                        // deleted – only newly shipped defaults are added).
+                        // Persist so the merge runs once per generation.
+                        if (data.DefaultsVersion < CurrentDefaultsVersion)
+                        {
+                            var known = new HashSet<string>(
+                                data.Commands.Select(c => (c.Phrase ?? "").Trim()),
+                                StringComparer.OrdinalIgnoreCase);
+                            foreach (var def in Defaults())
+                                if (!known.Contains((def.Phrase ?? "").Trim()))
+                                    data.Commands.Add(def);
+                            Save(data.Commands);
+                        }
+                        return data.Commands;
                     }
                 }
             }
@@ -160,7 +194,11 @@ namespace Supervertaler.Trados.VoiceControl
                 using (var ms = new MemoryStream())
                 {
                     var ser = new DataContractJsonSerializer(typeof(VoiceCommandFile));
-                    ser.WriteObject(ms, new VoiceCommandFile { Commands = commands });
+                    ser.WriteObject(ms, new VoiceCommandFile
+                    {
+                        Commands = commands,
+                        DefaultsVersion = CurrentDefaultsVersion
+                    });
                     File.WriteAllBytes(CommandsFilePath, ms.ToArray());
                 }
             }
