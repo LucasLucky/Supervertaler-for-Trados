@@ -7,6 +7,12 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.125 / 19.20.125] – 2026-07-26
+
+### Fixed (TermLens · adding terms via the dialog and merge-as-synonym is now instant)
+
+- **The add-term dialog (Ctrl+Alt+T) and the "add as synonym?" prompt no longer trigger a full reload on save.** Both paths used to re-read the settings, reload the entire termbase database, re-read every attached MultiTerm termbase and rebuild the display after each save – which made them feel noticeably slower than the Alt+↑/Alt+↓ quick-adds. They now update the in-memory index incrementally, the same way the quick-adds always have, so saving a term or merging a synonym is effectively instant. A newly added source synonym also becomes a live match immediately (previously it wouldn't match until the next full reload). The full reload still runs where it is genuinely needed – editing an existing entry and "Add & Edit".
+
 ## [18.20.124 / 19.20.124] – 2026-07-26
 
 ### Added (TermLens · term capitalisation now follows the segment)
