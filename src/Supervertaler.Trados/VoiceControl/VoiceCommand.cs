@@ -109,6 +109,13 @@ namespace Supervertaler.Trados.VoiceControl
                 new VoiceCommand { Phrase = "translate", Aliases = new List<string> { "translate segment" }, ActionType = "keystroke", Action = "alt+t", Description = "AI-translate the active segment", Category = "translation" },
                 new VoiceCommand { Phrase = "concordance", Aliases = new List<string> { "search memory" }, ActionType = "keystroke", Action = "f3", Description = "Concordance search on the selection", Category = "lookup" },
 
+                // Editor font size. Studio's "Adapt font sizes" increase/decrease
+                // actions ship with NO default shortcut – bind Ctrl+Alt+PgUp /
+                // Ctrl+Alt+PgDn to them once in File > Options > Keyboard
+                // Shortcuts and these commands work out of the box.
+                new VoiceCommand { Phrase = "zoom in", Aliases = new List<string> { "bigger font" }, ActionType = "keystroke", Action = "ctrl+alt+pgup", Description = "Increase editor font size (bind Ctrl+Alt+PgUp to Studio's ‘Increase font size’ once)", Category = "view" },
+                new VoiceCommand { Phrase = "zoom out", Aliases = new List<string> { "smaller font" }, ActionType = "keystroke", Action = "ctrl+alt+pgdn", Description = "Decrease editor font size (bind Ctrl+Alt+PgDn to Studio's ‘Decrease font size’ once)", Category = "view" },
+
                 // Control
                 new VoiceCommand { Phrase = "escape", Aliases = new List<string> { "close window" }, ActionType = "keystroke", Action = "escape", Description = "Close the focused popup/dialog (term popup, TermPicker…)", Category = "control" },
                 new VoiceCommand { Phrase = "stop listening", Aliases = new List<string> { "voice off" }, ActionType = "internal", Action = "stop_listening", Description = "Turn voice commands off", Category = "control" },

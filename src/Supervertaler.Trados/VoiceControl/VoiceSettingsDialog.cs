@@ -22,6 +22,7 @@ namespace Supervertaler.Trados.VoiceControl
         public VoiceSettingsDialog()
         {
             Text = "Voice commands — advanced";
+            Icon = IconHelper.AppIcon;
             StartPosition = FormStartPosition.CenterScreen;
             Size = new Size(UiScale.Pixels(760), UiScale.Pixels(520));
             MinimizeBox = false;
