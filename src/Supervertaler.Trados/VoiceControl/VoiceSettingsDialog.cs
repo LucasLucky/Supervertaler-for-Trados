@@ -21,11 +21,18 @@ namespace Supervertaler.Trados.VoiceControl
 
         public VoiceSettingsDialog()
         {
-            Text = "Voice commands — advanced";
+            Text = "Voice commands – advanced";
             Icon = IconHelper.AppIcon;
             StartPosition = FormStartPosition.CenterScreen;
             Size = new Size(UiScale.Pixels(760), UiScale.Pixels(520));
             MinimizeBox = false;
+            MaximizeBox = false;
+            HelpButton = true;
+            HelpButtonClicked += (s, e) =>
+            {
+                ((System.ComponentModel.CancelEventArgs)e).Cancel = true;
+                HelpSystem.OpenHelp(HelpSystem.Topics.VoiceCommands);
+            };
 
             _commands = VoiceCommandSet.Load();
 
@@ -53,7 +60,7 @@ namespace Supervertaler.Trados.VoiceControl
                 AutoSize = false,
                 Height = UiScale.Pixels(58),
                 Padding = new Padding(UiScale.Pixels(8), UiScale.Pixels(6), UiScale.Pixels(8), 0),
-                Text = "Keystroke actions send a chord to Studio (e.g. \"ctrl+enter\", \"alt+up\", \"f3\") — any Studio or " +
+                Text = "Keystroke actions send a chord to Studio (e.g. \"ctrl+enter\", \"alt+up\", \"f3\") – any Studio or " +
                        "Supervertaler shortcut works. Internal actions call the plugin directly: insert_term_1…insert_term_9, " +
                        "term_picker, termlens_popup, navigate_next, navigate_previous, stop_listening. " +
                        "The recogniser only listens for the phrases below, so keep them short and distinct."
@@ -91,6 +98,16 @@ namespace Supervertaler.Trados.VoiceControl
             CancelButton = btnCancel;
 
             FillGrid();
+        }
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == Keys.F1)
+            {
+                HelpSystem.OpenHelp(HelpSystem.Topics.VoiceCommands);
+                return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
         }
 
         private void FillGrid()

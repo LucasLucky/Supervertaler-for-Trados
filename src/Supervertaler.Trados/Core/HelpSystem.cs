@@ -71,6 +71,7 @@ namespace Supervertaler.Trados.Core
 
             public const string SuperSearch         = "trados/supersearch/";
             public const string QuickLauncher       = "trados/quicklauncher/";
+            public const string VoiceCommands       = "trados/voice-commands/";
 
             public const string BatchOperations     = "trados/batch-operations/";
             public const string BatchTranslate      = "trados/batch-translate/";

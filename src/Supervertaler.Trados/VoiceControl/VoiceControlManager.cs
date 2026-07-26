@@ -88,7 +88,7 @@ namespace Supervertaler.Trados.VoiceControl
                             Stop();
                             MessageBox.Show(
                                 "Voice commands could not start:\n\n" + ex.Message,
-                                "Supervertaler — Voice commands",
+                                "Supervertaler – Voice commands",
                                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         }));
                     }
