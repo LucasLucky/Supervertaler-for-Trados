@@ -7,6 +7,13 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.128 / 19.20.128] – 2026-07-26
+
+### Changed (Voice commands · polish) — [#48](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/48)
+
+- The Advanced voice-commands dialog now carries the Supervertaler icon instead of the generic form icon.
+- **New default commands "zoom in" / "zoom out"** (aliases "bigger font" / "smaller font") mapped to Ctrl+Alt+PgUp / Ctrl+Alt+PgDn. Trados Studio's *Adapt font sizes* actions ship with no default shortcut, so bind those two chords once in **File > Options > Keyboard Shortcuts → Increase/Decrease font size** and the voice commands control the editor font size hands-free.
+
 ## [18.20.127 / 19.20.127] – 2026-07-26
 
 ### Changed (Voice commands · integrated indicator + more default commands) — [#48](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/48)
