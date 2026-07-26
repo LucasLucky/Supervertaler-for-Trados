@@ -7,6 +7,14 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.126 / 19.20.126] – 2026-07-26
+
+### Added (Voice commands · hands-free Studio control) — [#48](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/48)
+
+- **One-button voice commands.** Press **Ctrl+Alt+V** (or use the editor right-click menu) and control Studio hands-free with a ready-made command set – no configuration needed: "confirm", "next/previous segment", "copy source", "clear target", "term one" … "term nine" (inserts the numbered TermLens match, with capitalisation adaptation), "term picker", "term popup", "add term", "translate", "concordance" and "stop listening". A small status strip shows the listening state and each command as it is heard, with stop and Advanced buttons.
+- **Offline and private.** Recognition runs locally via the Vosk engine in grammar mode – it listens *only* for the command phrases, which makes commands fast and reliable, and no audio ever leaves your machine. The first activation downloads the engine and a small English model (~50 MB, one-time, with progress shown); the plugin package itself stays the same size. Commands only execute while Trados Studio is the foreground window, so speech in other apps can't trigger anything.
+- **Advanced dialog** (the gear on the status strip) for those who want to go deeper: edit phrases and aliases, enable/disable commands, and map new spoken phrases to any Studio keyboard shortcut or plugin action. The command file is compatible with Supervertaler Workbench's voice-command JSON, so command sets can be exchanged between the two products. Designed to pair with dictation tools (e.g. Wispr Flow) – they dictate, Supervertaler handles the hands-free commands.
+
 ## [18.20.125 / 19.20.125] – 2026-07-26
 
 ### Fixed (TermLens · adding terms via the dialog and merge-as-synonym is now instant)
