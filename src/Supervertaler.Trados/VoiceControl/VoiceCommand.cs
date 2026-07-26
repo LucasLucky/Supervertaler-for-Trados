@@ -89,7 +89,8 @@ namespace Supervertaler.Trados.VoiceControl
                 new VoiceCommand { Phrase = "term nine",  ActionType = "internal", Action = "insert_term_9", Description = "Insert TermLens match 9", Category = "termlens" },
                 new VoiceCommand { Phrase = "term picker", Aliases = new List<string> { "pick term" }, ActionType = "internal", Action = "term_picker", Description = "Open the TermPicker dialog", Category = "termlens" },
                 new VoiceCommand { Phrase = "term popup", Aliases = new List<string> { "show terms" }, ActionType = "internal", Action = "termlens_popup", Description = "Open the floating TermLens popup", Category = "termlens" },
-                new VoiceCommand { Phrase = "add term", Aliases = new List<string> { "new term" }, ActionType = "keystroke", Action = "alt+up", Description = "Quick-add selection to the project termbase", Category = "termlens" },
+                new VoiceCommand { Phrase = "add term", Aliases = new List<string> { "new term" }, ActionType = "keystroke", Action = "alt+down", Description = "Quick-add selection to the write termbases (Alt+Down)", Category = "termlens" },
+                new VoiceCommand { Phrase = "add project term", Aliases = new List<string> { "project term" }, ActionType = "keystroke", Action = "alt+up", Description = "Quick-add selection to the project termbase (Alt+Up)", Category = "termlens" },
 
                 // AI / search
                 new VoiceCommand { Phrase = "translate", Aliases = new List<string> { "translate segment" }, ActionType = "keystroke", Action = "alt+t", Description = "AI-translate the active segment", Category = "translation" },
