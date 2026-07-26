@@ -7,6 +7,13 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.130 / 19.20.130] – 2026-07-26
+
+### Fixed (Voice commands · two field-testing bugs) — [#48](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/48)
+
+- **Saying "zoom in"/"zoom out" no longer opens the TermLens popup as a side effect.** Voice keystroke commands with a Ctrl modifier synthesise a Ctrl press/release pair; when Studio consumed the key in the middle (a bound accelerator), the pair looked exactly like a Ctrl-tap – the popup gesture. The Ctrl-tap detector now ignores taps that coincide with a synthetic voice keystroke. Physical Ctrl-taps are unaffected.
+- **The 🎤 mic button in the TermLens header now responds to the first click** when the panel was inactive (the Studio 2026 first-click-eaten quirk – same fix the other header buttons already had).
+
 ## [18.20.129 / 19.20.129] – 2026-07-26
 
 ### Fixed (Voice commands · new defaults now reach customised command sets) — [#48](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/48)
