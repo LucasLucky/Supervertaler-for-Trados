@@ -7,6 +7,16 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.133 / 19.20.133] – 2026-07-26
+
+### Added (MCP Server · filter segments by TM match rate) — [#44](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/44)
+
+- **`get_segments` can now filter by TM match percentage** – requested by a user after a real 10K-segment job. Pass `matchMin`/`matchMax` (0–100): *"list the fuzzy matches between 75% and 94%"* or *"which segments have no match at all?"* (`matchMax=0`) now just work. Every returned segment also carries its `match` percentage and `origin` type (TM, MT, auto-propagated…). Tool definitions are served live from the plugin, so the new filter appears in Claude for Desktop automatically – no extension update needed.
+
+### Fixed (Voice commands)
+
+- Alias lists in Voice command settings now accept semicolons as well as commas as separators – `a;b` used to be silently stored as one unmatchable phrase.
+
 ## [18.20.132 / 19.20.132] – 2026-07-26
 
 ### Changed (Voice commands · naming) — [#48](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/48)
