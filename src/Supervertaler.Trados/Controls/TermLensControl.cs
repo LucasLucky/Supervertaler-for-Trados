@@ -276,6 +276,9 @@ namespace Supervertaler.Trados.Controls
             _btnVoice.FlatAppearance.BorderSize = 0;
             _btnVoice.FlatAppearance.MouseOverBackColor = Color.FromArgb(220, 220, 220);
             _btnVoice.Click += (s, e) => VoiceControl.VoiceControlManager.Instance.Toggle();
+            // Studio 2026 eats the first click on inactive dock panes – same
+            // fix as the other header buttons (see Core/ClickThrough).
+            Core.ClickThrough.Attach(_btnVoice, () => VoiceControl.VoiceControlManager.Instance.Toggle());
             var voiceMenu = new ContextMenuStrip();
             var advancedItem = new ToolStripMenuItem("Voice commands: Advanced…");
             advancedItem.Click += (s, e) => VoiceControl.VoiceControlManager.Instance.ShowAdvancedDialog();

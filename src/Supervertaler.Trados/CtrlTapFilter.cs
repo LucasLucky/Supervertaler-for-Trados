@@ -86,7 +86,17 @@ namespace Supervertaler.Trados
                     _ctrlDown = false;
                     double held = (DateTime.UtcNow - _ctrlDownTime).TotalMilliseconds;
 
-                    if (!_otherKeyPressed && held <= _maxHoldMs)
+                    // Voice keystroke commands synthesise Ctrl-modified chords
+                    // via SendKeys ("zoom in" → Ctrl+Alt+PgUp). When Studio's
+                    // accelerator handling consumes the middle key before this
+                    // filter sees it, the synthetic Ctrl down/up pair looks
+                    // exactly like a user tap and would pop the TermLens popup.
+                    // Ignore taps within a short window of a synthetic send.
+                    bool syntheticWindow =
+                        (DateTime.UtcNow - VoiceControl.VoiceCommandExecutor.LastSyntheticKeystrokeUtc)
+                            .TotalMilliseconds < 750;
+
+                    if (!_otherKeyPressed && held <= _maxHoldMs && !syntheticWindow)
                     {
                         // Pure Ctrl tap detected – fire callback
                         _onCtrlTap();

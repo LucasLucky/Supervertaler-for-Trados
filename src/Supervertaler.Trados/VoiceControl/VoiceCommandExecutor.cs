@@ -26,6 +26,15 @@ namespace Supervertaler.Trados.VoiceControl
         [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
+        /// <summary>
+        /// UTC time of the last synthetic keystroke this executor sent.
+        /// CtrlTapFilter consults this to ignore the Ctrl press/release pairs
+        /// that SendKeys synthesises for Ctrl-modified chords ("zoom in" →
+        /// Ctrl+Alt+PgUp) – without it, the tap detector sees a phantom
+        /// Ctrl tap and pops the TermLens popup after every such command.
+        /// </summary>
+        internal static DateTime LastSyntheticKeystrokeUtc { get; private set; } = DateTime.MinValue;
+
         private readonly Dictionary<string, VoiceCommand> _byPhrase =
             new Dictionary<string, VoiceCommand>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, Action> _internalHandlers =
@@ -101,7 +110,15 @@ namespace Supervertaler.Trados.VoiceControl
                 else if (string.Equals(cmd.ActionType, "keystroke", StringComparison.OrdinalIgnoreCase))
                 {
                     var keys = ChordToSendKeys(cmd.Action);
-                    if (keys != null) SendKeys.SendWait(keys);
+                    if (keys != null)
+                    {
+                        // Bracket the send so CtrlTapFilter can ignore the
+                        // synthetic Ctrl press/release pair (message delivery
+                        // can trail SendWait, hence the trailing stamp too).
+                        LastSyntheticKeystrokeUtc = DateTime.UtcNow;
+                        SendKeys.SendWait(keys);
+                        LastSyntheticKeystrokeUtc = DateTime.UtcNow;
+                    }
                 }
                 CommandExecuted?.Invoke(cmd.Phrase, cmd.Description);
             }
