@@ -167,16 +167,21 @@ namespace Supervertaler.Trados.Controls
                 if (hasExpansion)
                     indexDisplay += " \u25B8"; // small right triangle ▸
 
+                // Adapt casing to the first segment occurrence so the picker
+                // shows and inserts the same text as the TermLens chips
+                var adaptedTarget = TermCaseAdapter.Adapt(match.MatchedSourceText,
+                    match.SourceText, match.PrimaryEntry.TargetTerm ?? "");
+
                 var item = new ListViewItem(indexDisplay);
                 item.SubItems.Add(match.SourceText);
-                item.SubItems.Add(match.PrimaryEntry.TargetTerm ?? "");
+                item.SubItems.Add(adaptedTarget);
                 item.SubItems.Add(match.PrimaryEntry.TermbaseName ?? "");
 
                 item.Tag = new RowTag
                 {
                     IsSubItem = false,
                     ParentIndex = match.Index,
-                    TargetTerm = match.PrimaryEntry.TargetTerm
+                    TargetTerm = adaptedTarget
                 };
 
                 // Color: non-translatable = yellow, project = pink, rest = blue
@@ -222,17 +227,19 @@ namespace Supervertaler.Trados.Controls
             for (int t = 1; t < allTargets.Count; t++)
             {
                 var option = allTargets[t];
+                var adaptedOption = TermCaseAdapter.Adapt(match.MatchedSourceText,
+                    match.SourceText, option.TargetTerm);
 
                 var subItem = new ListViewItem(""); // empty # column
                 subItem.SubItems.Add("    \u2514 " + match.SourceText); // indented with └
-                subItem.SubItems.Add(option.TargetTerm);
+                subItem.SubItems.Add(adaptedOption);
                 subItem.SubItems.Add(option.TermbaseName ?? "");
 
                 subItem.Tag = new RowTag
                 {
                     IsSubItem = true,
                     ParentIndex = match.Index,
-                    TargetTerm = option.TargetTerm
+                    TargetTerm = adaptedOption
                 };
 
                 subItem.BackColor = SubItemBg;

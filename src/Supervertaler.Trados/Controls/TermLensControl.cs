@@ -606,6 +606,7 @@ namespace Supervertaler.Trados.Controls
                         {
                             Index = results.Count + 1, // renumber sequentially
                             SourceText = block.PrimaryEntry.SourceTerm,
+                            MatchedSourceText = block.SourceText,
                             PrimaryEntry = block.PrimaryEntry,
                             AllEntries = new List<TermEntry>(block.Entries),
                             IsProjectTermbase = block.IsProjectTermbase

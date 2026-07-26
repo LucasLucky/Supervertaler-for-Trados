@@ -165,6 +165,14 @@ namespace Supervertaler.Trados.Models
         public List<TermEntry> AllEntries { get; set; } = new List<TermEntry>();
 
         /// <summary>
+        /// The first occurrence of the term exactly as it appears in the
+        /// segment (duplicate occurrences are merged in the picker, so the
+        /// first one wins). Used by TermCaseAdapter so the picker displays
+        /// and inserts the segment's casing rather than the stored casing.
+        /// </summary>
+        public string MatchedSourceText { get; set; }
+
+        /// <summary>
         /// True if the user marked this term's termbase as a project termbase.
         /// Used for pink/blue coloring in TermPicker.
         /// </summary>
