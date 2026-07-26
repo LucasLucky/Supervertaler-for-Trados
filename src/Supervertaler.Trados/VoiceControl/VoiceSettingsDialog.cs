@@ -139,7 +139,9 @@ namespace Supervertaler.Trados.VoiceControl
                 {
                     Enabled = row.Cells["colEnabled"].Value is bool b && b,
                     Phrase = phrase,
-                    Aliases = aliasesRaw.Split(',')
+                    // Split on semicolons too – a user typing "a;b" would
+                    // otherwise silently get one unmatchable alias phrase.
+                    Aliases = aliasesRaw.Split(',', ';')
                         .Select(a => a.Trim()).Where(a => a.Length > 0).ToList(),
                     ActionType = (row.Cells["colType"].Value ?? "keystroke").ToString(),
                     Action = (row.Cells["colAction"].Value ?? "").ToString().Trim(),
