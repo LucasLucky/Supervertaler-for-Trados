@@ -7,6 +7,12 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.131 / 19.20.131] – 2026-07-26
+
+### Changed (Voice commands · contextual help) — [#48](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/48)
+
+- The Advanced voice-commands dialog now has a **?** help button in the title bar (and **F1**) opening the [Voice Commands help page](https://docs.supervertaler.com/trados/voice-commands/), and its title uses an en dash like the rest of the UI.
+
 ## [18.20.130 / 19.20.130] – 2026-07-26
 
 ### Fixed (Voice commands · two field-testing bugs) — [#48](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/48)
