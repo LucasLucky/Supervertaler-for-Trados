@@ -103,7 +103,7 @@ namespace Supervertaler.Trados.VoiceControl
                 Margin = new Padding(0, UiScale.Pixels(2), UiScale.Pixels(8), 0)
             };
 
-            var gear = MakeButton("⚙", "Advanced voice settings");
+            var gear = MakeButton("⚙", "Voice command settings");
             gear.Click += (s, e) => AdvancedRequested?.Invoke(this, EventArgs.Empty);
 
             var stop = MakeButton("✕", "Stop voice commands");

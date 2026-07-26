@@ -280,7 +280,7 @@ namespace Supervertaler.Trados.Controls
             // fix as the other header buttons (see Core/ClickThrough).
             Core.ClickThrough.Attach(_btnVoice, () => VoiceControl.VoiceControlManager.Instance.Toggle());
             var voiceMenu = new ContextMenuStrip();
-            var advancedItem = new ToolStripMenuItem("Voice commands: Advanced…");
+            var advancedItem = new ToolStripMenuItem("Voice command settings…");
             advancedItem.Click += (s, e) => VoiceControl.VoiceControlManager.Instance.ShowAdvancedDialog();
             voiceMenu.Items.Add(advancedItem);
             _btnVoice.ContextMenuStrip = voiceMenu;
@@ -290,7 +290,7 @@ namespace Supervertaler.Trados.Controls
                 "Click to start/stop hands-free voice commands:\n" +
                 "“confirm”, “next segment”, “term one”…“term nine”,\n" +
                 "“add term”, “translate” and more.\n" +
-                "Right-click for the Advanced command editor.");
+                "Right-click for voice command settings.");
             _headerPanel.Controls.Add(_btnVoice);
 
             // Main flow panel for term blocks

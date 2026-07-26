@@ -8,8 +8,8 @@ using Supervertaler.Trados.Core;
 namespace Supervertaler.Trados.VoiceControl
 {
     /// <summary>
-    /// The "Advanced…" dialog – deliberately the ONLY place where the voice
-    /// system shows its depth. A grid of commands (enable/disable, edit
+    /// The "Voice command settings" dialog – deliberately the ONLY place
+    /// where the voice system shows its depth. A grid of commands (enable/disable, edit
     /// phrases and aliases, change actions, add your own), plus restore-
     /// defaults. Command files are JSON-compatible with Supervertaler
     /// Workbench's voice_commands.json.
@@ -21,7 +21,7 @@ namespace Supervertaler.Trados.VoiceControl
 
         public VoiceSettingsDialog()
         {
-            Text = "Voice commands – advanced";
+            Text = "Voice command settings";
             Icon = IconHelper.AppIcon;
             StartPosition = FormStartPosition.CenterScreen;
             Size = new Size(UiScale.Pixels(760), UiScale.Pixels(520));
