@@ -7,6 +7,12 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.129 / 19.20.129] – 2026-07-26
+
+### Fixed (Voice commands · new defaults now reach customised command sets) — [#48](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/48)
+
+- **Saving custom voice commands no longer hides default commands added in later updates.** A `voice_commands.json` saved in the Advanced dialog used to replace the built-in list entirely, so newly shipped defaults (e.g. "zoom in"/"zoom out") never appeared for anyone with a customised set – and *Restore defaults* was the only remedy, at the cost of your customisations. Saved command sets now carry a generation marker: on load, only the **new** default commands are appended, and your existing rows, custom phrases/aliases and deletions of old defaults stay exactly as you left them. To hide a default command you don't want, untick it rather than delete it.
+
 ## [18.20.128 / 19.20.128] – 2026-07-26
 
 ### Changed (Voice commands · polish) — [#48](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/48)
