@@ -299,6 +299,7 @@ namespace Supervertaler.Trados
 
             // Apply shortcut style to badge rendering
             TermBlock.UseRepeatedDigitBadges = _settings.TermShortcutStyle == "repeated";
+            TermCaseAdapter.Enabled = _settings.AdaptTermCasing;
 
             // Display the current segment immediately (even without a termbase, show all words)
             UpdateFromActiveSegment();
@@ -1121,6 +1122,7 @@ namespace Supervertaler.Trados
 
                         // Apply shortcut style change
                         TermBlock.UseRepeatedDigitBadges = _settings.TermShortcutStyle == "repeated";
+                        TermCaseAdapter.Enabled = _settings.AdaptTermCasing;
 
                         // Refresh prompt library (user may have added/edited/deleted prompts)
                         _promptLibrary.Refresh();
@@ -1984,6 +1986,7 @@ namespace Supervertaler.Trados
             UiScale.UserFactor = instance._settings.UiScaleFactor;
             _control.Value.SetFontSize(instance._settings.PanelFontSize);
             TermBlock.UseRepeatedDigitBadges = instance._settings.TermShortcutStyle == "repeated";
+            TermCaseAdapter.Enabled = instance._settings.AdaptTermCasing;
 
             // Re-apply per-project overlay so reload doesn't clobber project-specific values
             if (!string.IsNullOrEmpty(instance._currentProjectPath))
@@ -2668,14 +2671,14 @@ namespace Supervertaler.Trados
         {
             if (_activeDocument == null) return;
 
-            var (entry, matchedViaAbbreviation) = _control.Value.GetTermByIndex(oneBasedIndex);
+            var (entry, matchedViaAbbreviation, matchedSourceText) = _control.Value.GetTermByIndex(oneBasedIndex);
             if (entry == null) return;
 
             try
             {
                 var textToInsert = matchedViaAbbreviation && !string.IsNullOrEmpty(entry.PrimaryTargetAbbreviation)
                     ? entry.PrimaryTargetAbbreviation
-                    : entry.TargetTerm;
+                    : TermCaseAdapter.Adapt(matchedSourceText, entry.SourceTerm, entry.TargetTerm);
                 _activeDocument.Selection.Target.Replace(textToInsert, "TermLens");
             }
             catch (Exception)

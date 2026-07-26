@@ -142,6 +142,14 @@ namespace Supervertaler.Trados.Controls
         public int ShortcutIndex => _shortcutIndex;
 
         /// <summary>
+        /// The matched source text exactly as it appears in the segment
+        /// (e.g. "more preferably" when the termbase stores "More preferably").
+        /// Used by TermCaseAdapter so display and insertion follow the
+        /// segment's casing rather than the stored casing.
+        /// </summary>
+        public string SourceText => _sourceText;
+
+        /// <summary>
         /// True if the primary entry was matched via its SourceAbbreviation.
         /// When true, the chip shows TargetAbbreviation and Alt+digit inserts
         /// TargetAbbreviation instead of TargetTerm.
@@ -201,7 +209,8 @@ namespace Supervertaler.Trados.Controls
                 if (PrimaryEntry == null) return "";
                 if (IsAbbreviationMatch && !string.IsNullOrEmpty(PrimaryEntry.PrimaryTargetAbbreviation))
                     return PrimaryEntry.PrimaryTargetAbbreviation;
-                return PrimaryEntry.TargetTerm ?? "";
+                return TermCaseAdapter.Adapt(_sourceText, PrimaryEntry.SourceTerm,
+                    PrimaryEntry.TargetTerm ?? "");
             }
         }
 
@@ -633,7 +642,7 @@ namespace Supervertaler.Trados.Controls
             {
                 var textToInsert = IsAbbreviationMatch && !string.IsNullOrEmpty(PrimaryEntry.PrimaryTargetAbbreviation)
                     ? PrimaryEntry.PrimaryTargetAbbreviation
-                    : PrimaryEntry.TargetTerm;
+                    : TermCaseAdapter.Adapt(_sourceText, PrimaryEntry.SourceTerm, PrimaryEntry.TargetTerm);
                 TermInsertRequested?.Invoke(this, new TermInsertEventArgs
                 {
                     TargetTerm = textToInsert,

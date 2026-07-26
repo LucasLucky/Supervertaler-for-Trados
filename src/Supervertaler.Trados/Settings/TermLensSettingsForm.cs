@@ -55,6 +55,7 @@ namespace Supervertaler.Trados.Settings
         private Button _btnOpenTermbase;
         private CheckBox _chkAutoLoad;
         private CheckBox _chkCaseSensitive;
+        private CheckBox _chkAdaptCasing;
         private CheckBox _chkUsageStats;
         private CheckBox _chkSuperSearchInTab;
         private CheckBox _chkDiagnosticLogging;
@@ -766,6 +767,9 @@ namespace Supervertaler.Trados.Settings
             _chkCaseSensitive = CheckG("Enable case-sensitive matching globally");
             SpanG(bottomGrid, ref br, _chkCaseSensitive);
 
+            _chkAdaptCasing = CheckG("Adapt term capitalisation to the segment");
+            SpanG(bottomGrid, ref br, _chkAdaptCasing);
+
             Label UnitLabel(string t) => new Label
             {
                 Text = t,
@@ -844,6 +848,12 @@ namespace Supervertaler.Trados.Settings
             tips.SetToolTip(_chkCaseSensitive,
                 "When checked, terms only match if the case matches exactly.\n" +
                 "Individual termbases can override this using the Case column above.");
+            tips.SetToolTip(_chkAdaptCasing,
+                "Display and insert target terms with the capitalisation of the source\n" +
+                "occurrence in the segment, not the capitalisation stored in the termbase.\n" +
+                "A term stored as “More preferably” shows as “more preferably” when the\n" +
+                "segment has it lower-case mid-sentence, and vice versa at sentence start.\n" +
+                "Acronyms and mixed-case terms (MRI, pH) are never changed.");
             tips.SetToolTip(_cboSuffixTolerant,
                 "For Korean / Japanese, grammatical particles attach to nouns with no space.\n" +
                 "When active, a term still matches when the segment word has a trailing particle\n" +
@@ -1267,6 +1277,7 @@ namespace Supervertaler.Trados.Settings
             _txtTermbasePath.Text = _settings.TermbasePath ?? "";
             _chkAutoLoad.Checked = _settings.AutoLoadOnStartup;
             _chkCaseSensitive.Checked = _settings.CaseSensitiveMatching;
+            _chkAdaptCasing.Checked = _settings.AdaptTermCasing;
             _chkUsageStats.Checked = _settings.UsageStatisticsEnabled;
             _chkSuperSearchInTab.Checked = _settings.SuperSearchInAssistantTab;
             _chkDiagnosticLogging.Checked = _settings.DiagnosticLogging;
@@ -1866,6 +1877,7 @@ namespace Supervertaler.Trados.Settings
             _settings.TermbasePath = _txtTermbasePath.Text.Trim();
             _settings.AutoLoadOnStartup = _chkAutoLoad.Checked;
             _settings.CaseSensitiveMatching = _chkCaseSensitive.Checked;
+            _settings.AdaptTermCasing = _chkAdaptCasing.Checked;
             _settings.UsageStatisticsEnabled = _chkUsageStats.Checked;
             _settings.SuperSearchInAssistantTab = _chkSuperSearchInTab.Checked;
             bool diagWasOff = !Core.DiagnosticLog.Enabled;

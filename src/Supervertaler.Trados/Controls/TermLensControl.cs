@@ -554,17 +554,18 @@ namespace Supervertaler.Trados.Controls
         /// <summary>
         /// Returns the TermEntry and abbreviation-match flag for the given 1-based shortcut index.
         /// When matchedViaAbbreviation is true, the caller should insert TargetAbbreviation
-        /// instead of TargetTerm.
+        /// instead of TargetTerm. matchedSourceText is the occurrence exactly as it
+        /// appears in the segment, for TermCaseAdapter.
         /// </summary>
-        public (TermEntry entry, bool matchedViaAbbreviation) GetTermByIndex(int oneBasedIndex)
+        public (TermEntry entry, bool matchedViaAbbreviation, string matchedSourceText) GetTermByIndex(int oneBasedIndex)
         {
             foreach (Control ctrl in _flowPanel.Controls)
             {
                 var block = ctrl as TermBlock;
                 if (block != null && (block.ShortcutIndex + 1) == oneBasedIndex)
-                    return (block.PrimaryEntry, block.IsAbbreviationMatch);
+                    return (block.PrimaryEntry, block.IsAbbreviationMatch, block.SourceText);
             }
-            return (null, false);
+            return (null, false, null);
         }
 
         /// <summary>

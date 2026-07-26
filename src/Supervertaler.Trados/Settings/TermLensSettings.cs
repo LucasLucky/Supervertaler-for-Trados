@@ -198,6 +198,30 @@ namespace Supervertaler.Trados.Settings
         [DataMember(Name = "caseSensitiveMatching")]
         public bool CaseSensitiveMatching { get; set; } = false;
 
+        /// <summary>
+        /// Backing field for <see cref="AdaptTermCasing"/>. Nullable because
+        /// DataContractJsonSerializer skips field initialisers: a settings file
+        /// from before this feature has no key, deserializes as null, and the
+        /// property getter turns that into the default (true). A plain bool
+        /// would silently come back false for every existing user.
+        /// </summary>
+        [DataMember(Name = "adaptTermCasing")]
+        private bool? _adaptTermCasing = true;
+
+        /// <summary>
+        /// Adapt the capitalisation of displayed/inserted target terms to the
+        /// source occurrence in the segment: a term stored as "More preferably"
+        /// shows and inserts as "more preferably" when the segment contains it
+        /// lower-case mid-sentence, and vice versa for sentence-initial
+        /// occurrences. Conservative rules in TermCaseAdapter (acronyms and
+        /// mixed-case targets are never touched). Default: true.
+        /// </summary>
+        public bool AdaptTermCasing
+        {
+            get => _adaptTermCasing ?? true;
+            set => _adaptTermCasing = value;
+        }
+
         // ─── Agglutinative / no-space language matching ──────────────
         /// <summary>
         /// Suffix-tolerant term matching for languages where grammatical
