@@ -90,6 +90,23 @@ namespace Supervertaler.Trados.Controls
         public List<SynonymEntry> TargetSynonymsList => _targetSyns;
 
         /// <summary>
+        /// In add mode: the freshly inserted term as a project-direction
+        /// TermEntry (mirroring what TermbaseReader.LoadAllTerms would produce
+        /// for the new row), so the caller can refresh TermLens incrementally
+        /// via NotifyTermInserted instead of a full database reload. Null in
+        /// edit mode or when nothing was saved.
+        /// </summary>
+        public TermEntry SavedEntry { get; private set; }
+
+        /// <summary>
+        /// Add mode only: true when the project direction is inverted relative
+        /// to the termbase (the ctor pre-swapped the seed text, so the left
+        /// column holds termbase-source text). Used to swap SavedEntry back
+        /// into project direction.
+        /// </summary>
+        private bool _addModeInverted;
+
+        /// <summary>
         /// Edit mode – opens an existing term with its synonyms.
         /// </summary>
         /// <remarks>
@@ -136,8 +153,9 @@ namespace Supervertaler.Trados.Controls
             _termbase = termbase;
             _termId = -1;
             _isInverted = false;
+            _addModeInverted = IsProjectDirectionInverted(termbase, projectSourceLang);
 
-            if (IsProjectDirectionInverted(termbase, projectSourceLang))
+            if (_addModeInverted)
             {
                 var tmp = sourceTerm;
                 sourceTerm = targetTerm;
@@ -1194,6 +1212,58 @@ namespace Supervertaler.Trados.Controls
 
                     // Save synonyms for the newly created term
                     SaveAllSynonyms(newId);
+
+                    // Build the project-direction entry for the caller's
+                    // incremental index update (mirrors LoadAllTerms: swapped
+                    // into project direction, forbidden synonyms excluded).
+                    // source/target/abbreviations are in termbase direction here;
+                    // _sourceSyns is the left column (termbase source).
+                    var pSource = source; var pTarget = target;
+                    var pSrcAbbr = SourceAbbreviation; var pTgtAbbr = TargetAbbreviation;
+                    var pSrcSyns = _sourceSyns; var pTgtSyns = _targetSyns;
+                    if (_addModeInverted)
+                    {
+                        var ts = pSource; pSource = pTarget; pTarget = ts;
+                        var ta = pSrcAbbr; pSrcAbbr = pTgtAbbr; pTgtAbbr = ta;
+                        var tl = pSrcSyns; pSrcSyns = pTgtSyns; pTgtSyns = tl;
+                    }
+
+                    var sourceSynonyms = new List<SynonymEntry>();
+                    foreach (var syn in pSrcSyns)
+                        if (!syn.Forbidden && !string.IsNullOrWhiteSpace(syn.Text))
+                            sourceSynonyms.Add(new SynonymEntry { Text = syn.Text, Language = "source" });
+
+                    var targetSynonyms = new List<string>();
+                    foreach (var syn in pTgtSyns)
+                        if (!syn.Forbidden && !string.IsNullOrWhiteSpace(syn.Text))
+                            targetSynonyms.Add(syn.Text);
+
+                    SavedEntry = new TermEntry
+                    {
+                        Id = newId,
+                        SourceTerm = pSource,
+                        TargetTerm = pTarget,
+                        SourceLang = _addModeInverted ? _termbase.TargetLang : _termbase.SourceLang,
+                        TargetLang = _addModeInverted ? _termbase.SourceLang : _termbase.TargetLang,
+                        TermbaseId = _termbase.Id,
+                        TermbaseName = _termbase.Name,
+                        IsProjectTermbase = _termbase.IsProjectTermbase,
+                        Ranking = _termbase.Ranking,
+                        Definition = Definition,
+                        Domain = Domain,
+                        Notes = Notes,
+                        Url = Url,
+                        Client = Client,
+                        Project = Project,
+                        Forbidden = IsForbidden,
+                        CaseSensitive = false,
+                        IsNonTranslatable = IsNonTranslatable,
+                        SourceAbbreviation = pSrcAbbr,
+                        TargetAbbreviation = pTgtAbbr,
+                        SourceSynonyms = sourceSynonyms.Count > 0 ? sourceSynonyms : null,
+                        TargetSynonyms = targetSynonyms
+                    };
+
                     DialogResult = DialogResult.OK;
                     Close();
                     return;

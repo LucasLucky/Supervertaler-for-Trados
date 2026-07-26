@@ -189,7 +189,115 @@ namespace Supervertaler.Trados.Core
                     abbrStrippedList.Add(entry);
                 }
             }
+
+            // Index source synonyms as additional lookup keys, mirroring
+            // TermbaseReader.LoadAllTerms(). Without this, a term added
+            // incrementally (quick-add / add dialog) with source synonyms
+            // wouldn't match those synonyms until the next full reload.
+            if (entry.SourceSynonyms != null)
+            {
+                foreach (var syn in entry.SourceSynonyms)
+                {
+                    if (syn == null || string.IsNullOrWhiteSpace(syn.Text)) continue;
+
+                    var synKey = NormalizeScriptChars(syn.Text.Trim().ToLowerInvariant());
+                    if (string.IsNullOrEmpty(synKey) || synKey == key) continue;
+
+                    if (!_termIndex.TryGetValue(synKey, out var synList))
+                    {
+                        synList = new List<TermEntry>();
+                        _termIndex[synKey] = synList;
+                    }
+                    synList.Add(entry);
+
+                    var synStripped = synKey.TrimEnd('.', '!', '?', ',', ';', ':');
+                    if (synStripped != synKey && synStripped.Length > 0)
+                    {
+                        if (!_termIndex.TryGetValue(synStripped, out var synStrippedList))
+                        {
+                            synStrippedList = new List<TermEntry>();
+                            _termIndex[synStripped] = synStrippedList;
+                        }
+                        synStrippedList.Add(entry);
+                    }
+                }
+            }
             _multiWordTermsCache = null;
+        }
+
+        /// <summary>
+        /// Incrementally records a synonym added to an existing indexed entry
+        /// (the merge-as-synonym flow), avoiding a full database reload. The
+        /// index shares one TermEntry object across all its keys, so mutating
+        /// the found entry updates every list it appears in. A project-source
+        /// synonym additionally becomes a new lookup key for the entry,
+        /// mirroring the source-synonym indexing in TermbaseReader.LoadAllTerms.
+        /// Returns false when the term is not in the index – the caller should
+        /// fall back to a full reload.
+        /// </summary>
+        public bool AddSynonymToEntry(long termId, string text, bool isSourceSynonym)
+        {
+            if (_termIndex == null || string.IsNullOrWhiteSpace(text))
+                return false;
+
+            TermEntry entry = null;
+            foreach (var list in _termIndex.Values)
+            {
+                foreach (var e in list)
+                {
+                    if (e.Id == termId && !e.IsMultiTerm) { entry = e; break; }
+                }
+                if (entry != null) break;
+            }
+            if (entry == null) return false;
+
+            text = text.Trim();
+
+            if (isSourceSynonym)
+            {
+                if (entry.SourceSynonyms == null)
+                    entry.SourceSynonyms = new List<SynonymEntry>();
+                foreach (var s in entry.SourceSynonyms)
+                    if (string.Equals(s.Text?.Trim(), text, StringComparison.OrdinalIgnoreCase))
+                        return true; // already present
+                entry.SourceSynonyms.Add(new SynonymEntry { Text = text, Language = "source" });
+
+                // New lookup key(s) for the synonym, pointing at the same entry
+                var key = NormalizeScriptChars(entry.SourceTerm.Trim().ToLowerInvariant());
+                var synKey = NormalizeScriptChars(text.ToLowerInvariant());
+                if (!string.IsNullOrEmpty(synKey) && synKey != key)
+                {
+                    if (!_termIndex.TryGetValue(synKey, out var synList))
+                    {
+                        synList = new List<TermEntry>();
+                        _termIndex[synKey] = synList;
+                    }
+                    if (!synList.Contains(entry)) synList.Add(entry);
+
+                    var synStripped = synKey.TrimEnd('.', '!', '?', ',', ';', ':');
+                    if (synStripped != synKey && synStripped.Length > 0)
+                    {
+                        if (!_termIndex.TryGetValue(synStripped, out var strippedList))
+                        {
+                            strippedList = new List<TermEntry>();
+                            _termIndex[synStripped] = strippedList;
+                        }
+                        if (!strippedList.Contains(entry)) strippedList.Add(entry);
+                    }
+                    _multiWordTermsCache = null;
+                }
+            }
+            else
+            {
+                if (entry.TargetSynonyms == null)
+                    entry.TargetSynonyms = new List<string>();
+                foreach (var s in entry.TargetSynonyms)
+                    if (string.Equals(s?.Trim(), text, StringComparison.OrdinalIgnoreCase))
+                        return true; // already present
+                entry.TargetSynonyms.Add(text);
+            }
+
+            return true;
         }
 
         /// <summary>

@@ -2416,6 +2416,29 @@ namespace Supervertaler.Trados
         }
 
         /// <summary>
+        /// Called after the merge-as-synonym flow adds a synonym to an existing
+        /// entry. Incrementally updates the in-memory index and refreshes the
+        /// segment display; falls back to the full reload only when the entry
+        /// is not in the index (e.g. its termbase is disabled).
+        /// </summary>
+        public static void NotifyTermSynonymAdded(long termId, string text, bool isSourceSynonym)
+        {
+            var instance = _currentInstance;
+            if (instance == null) return;
+
+            if (!_control.Value.AddSynonymToIndex(termId, text, isSourceSynonym))
+            {
+                NotifyTermAdded();
+                return;
+            }
+
+            instance.UpdateFromActiveSegment();
+
+            // Own-write snapshot refresh (see NotifyTermInserted).
+            try { instance.RefreshTermbaseDbSnapshot(); } catch { }
+        }
+
+        /// <summary>
         /// Called after a term is deleted. Removes it from the in-memory index
         /// and refreshes the segment display, without reloading the database.
         /// </summary>

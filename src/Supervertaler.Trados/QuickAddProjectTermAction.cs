@@ -218,10 +218,18 @@ namespace Supervertaler.Trados
                                         TermbaseReader.AddSynonym(
                                             settings.TermbasePath, match.TermId,
                                             termSourceCol, "source");
-                                }
 
-                                // Full reload to pick up synonym changes
-                                TermLensEditorViewPart.NotifyTermAdded();
+                                    // Incremental index update – no full DB reload.
+                                    // In project direction: a stored "target"-column
+                                    // synonym on an inverted termbase is a project-
+                                    // SOURCE synonym, and vice versa.
+                                    bool isProjectSourceSyn =
+                                        (match.MatchType == "target") != match.TermbaseInverted;
+                                    TermLensEditorViewPart.NotifyTermSynonymAdded(
+                                        match.TermId,
+                                        isProjectSourceSyn ? sourceText : targetText,
+                                        isProjectSourceSyn);
+                                }
 
                                 // "Add & Edit" – open the term entry editor
                                 if (mergeResult == DialogResult.Retry)

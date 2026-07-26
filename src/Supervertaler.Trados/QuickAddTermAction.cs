@@ -218,6 +218,17 @@ namespace Supervertaler.Trados
                                         TermbaseReader.AddSynonym(
                                             settings.TermbasePath, match.TermId,
                                             termSourceCol, "source");
+
+                                    // Incremental index update – no full DB reload.
+                                    // In project direction: a stored "target"-column
+                                    // synonym on an inverted termbase is a project-
+                                    // SOURCE synonym, and vice versa.
+                                    bool isProjectSourceSyn =
+                                        (match.MatchType == "target") != match.TermbaseInverted;
+                                    TermLensEditorViewPart.NotifyTermSynonymAdded(
+                                        match.TermId,
+                                        isProjectSourceSyn ? sourceText : targetText,
+                                        isProjectSourceSyn);
                                 }
 
                                 // Insert normally into termbases that had no match
@@ -228,14 +239,40 @@ namespace Supervertaler.Trados
 
                                 if (unmatchedTbs.Count > 0)
                                 {
-                                    TermbaseReader.InsertTermBatch(
+                                    var mergeBatchResults = TermbaseReader.InsertTermBatch(
                                         settings.TermbasePath, sourceText, targetText,
                                         "", unmatchedTbs,
                                         projectSourceLang: projSrcLang);
-                                }
 
-                                // Full reload to pick up synonym changes
-                                TermLensEditorViewPart.NotifyTermAdded();
+                                    // Incremental index update for the fresh inserts,
+                                    // mirroring the normal (non-merge) insert path.
+                                    var mergeInserted = new List<Models.TermEntry>();
+                                    foreach (var (termbaseId, newId) in mergeBatchResults)
+                                    {
+                                        var tb = unmatchedTbs.Find(t => t.Id == termbaseId);
+                                        if (tb == null) continue;
+                                        mergeInserted.Add(new Models.TermEntry
+                                        {
+                                            Id = newId,
+                                            SourceTerm = indexSourceText,
+                                            TargetTerm = indexTargetText,
+                                            SourceLang = tb.SourceLang,
+                                            TargetLang = tb.TargetLang,
+                                            TermbaseId = tb.Id,
+                                            TermbaseName = tb.Name,
+                                            IsProjectTermbase = tb.IsProjectTermbase,
+                                            Ranking = tb.Ranking,
+                                            Definition = "",
+                                            Domain = "",
+                                            Notes = "",
+                                            Forbidden = false,
+                                            CaseSensitive = false,
+                                            TargetSynonyms = new List<string>()
+                                        });
+                                    }
+                                    if (mergeInserted.Count > 0)
+                                        TermLensEditorViewPart.NotifyTermInserted(mergeInserted);
+                                }
 
                                 // "Add & Edit" – open the term entry editor on the first matched entry
                                 if (mergeResult == DialogResult.Retry)

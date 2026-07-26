@@ -160,7 +160,17 @@ namespace Supervertaler.Trados
                     sourceText.Trim(), targetText.Trim(), settings.TermbasePath, primaryTb, projectSourceLang))
                 {
                     if (dlg.ShowDialog() == DialogResult.OK)
-                        TermLensEditorViewPart.NotifyTermAdded();
+                    {
+                        // Incremental index update when the dialog hands back the
+                        // saved entry – avoids the multi-second full reload
+                        // (settings + entire DB + MultiTerm re-read) that made
+                        // Ctrl+Alt+T feel much slower than the Alt+Up quick-add.
+                        if (dlg.SavedEntry != null)
+                            TermLensEditorViewPart.NotifyTermInserted(
+                                new List<Models.TermEntry> { dlg.SavedEntry });
+                        else
+                            TermLensEditorViewPart.NotifyTermAdded();
+                    }
                 }
             }
             catch (Exception ex)

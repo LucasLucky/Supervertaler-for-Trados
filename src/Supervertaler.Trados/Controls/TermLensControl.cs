@@ -349,6 +349,16 @@ namespace Supervertaler.Trados.Controls
         }
 
         /// <summary>
+        /// Incrementally records a synonym added to an existing indexed entry.
+        /// Returns false when the entry is not in the index (caller should
+        /// fall back to a full reload).
+        /// </summary>
+        public bool AddSynonymToIndex(long termId, string text, bool isSourceSynonym)
+        {
+            return _matcher.AddSynonymToEntry(termId, text, isSourceSynonym);
+        }
+
+        /// <summary>
         /// Removes a term from the in-memory index by its ID.
         /// Call this after DeleteTerm() for an incremental update.
         /// </summary>
