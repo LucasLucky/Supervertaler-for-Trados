@@ -425,7 +425,7 @@
     },
     {
       "name": "get_segments",
-      "description": "List segments of the document open in the Trados editor. Returns segment id, source text, target text, confirmation status (e.g. Unspecified/Draft/Translated), locked flag, and 'number' – the segment number the user sees in Studio's grid. ALWAYS cite that number (plus the file name in merged documents, where numbers restart per file) when referring to segments in conversation – never invent numbers. Inline formatting appears as tags like <t1>…</t1> or <b>…</b> – preserve them in any translation you propose. Use the filters to fetch only what you need instead of the whole document. Results are paged via limit/offset; the response says whether it was truncated. To read a SPECIFIC segment the user mentions by number, pass fromNumber=toNumber=<that number> (with 'file' in merged documents - numbers restart per file); never guess a segment's position by paging.",
+      "description": "List segments of the document open in the Trados editor. Returns segment id, source text, target text, confirmation status (e.g. Unspecified/Draft/Translated), locked flag, and 'number' – the segment number the user sees in Studio's grid. ALWAYS cite that number (plus the file name in merged documents, where numbers restart per file) when referring to segments in conversation – never invent numbers. Inline formatting appears as tags like <t1>…</t1> or <b>…</b> – preserve them in any translation you propose. Use the filters to fetch only what you need instead of the whole document. Results are paged via limit/offset; the response says whether it was truncated. To read a SPECIFIC segment the user mentions by number, pass fromNumber=toNumber=<that number> (with 'file' in merged documents - numbers restart per file); never guess a segment's position by paging. Each segment also reports its TM 'match' percentage (e.g. 100 = exact/CM, 85 = fuzzy; absent when the segment has no TM/MT origin) and 'origin' (tm, mt, interactive, auto-propagated, source). Filter on it with matchMin/matchMax - e.g. matchMin=75, matchMax=94 for fuzzy matches to review, or matchMax=0 for segments with no match at all.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -466,6 +466,14 @@
           },
           "toNumber": {
             "description": "Last grid segment number to include (inclusive). Omit for 'from fromNumber to the end'.",
+            "type": "integer"
+          },
+          "matchMin": {
+            "description": "Only segments whose TM match percentage is >= this value (0-100). Segments without a TM/MT origin count as 0. Omit for no lower bound.",
+            "type": "integer"
+          },
+          "matchMax": {
+            "description": "Only segments whose TM match percentage is <= this value (0-100). Segments without a TM/MT origin count as 0. Omit for no upper bound.",
             "type": "integer"
           }
         }

@@ -1281,6 +1281,8 @@ namespace Supervertaler.Trados
                     string source, target, status, id;
                     string segFileName = null;
                     bool isLocked;
+                    int? matchPercent = null;
+                    string originType = null;
                     try
                     {
                         status = (pair.Properties?.ConfirmationLevel
@@ -1288,6 +1290,21 @@ namespace Supervertaler.Trados
                         if (!string.IsNullOrEmpty(query.Status)
                             && !status.Equals(query.Status, StringComparison.OrdinalIgnoreCase))
                             continue;
+
+                        // TM match-rate filter (issue #44 field feedback: "find
+                        // segments with a certain match rate, not just a status").
+                        // Segments without a TM/MT origin count as 0%, so
+                        // matchMax=0 finds the no-match segments.
+                        var origin = pair.Properties?.TranslationOrigin;
+                        if (origin != null)
+                        {
+                            originType = string.IsNullOrEmpty(origin.OriginType) ? null : origin.OriginType;
+                            if (originType != null && originType != "not-translated")
+                                matchPercent = origin.MatchPercent;
+                        }
+                        int effectivePercent = matchPercent ?? 0;
+                        if (query.MatchMin >= 0 && effectivePercent < query.MatchMin) continue;
+                        if (query.MatchMax >= 0 && effectivePercent > query.MatchMax) continue;
 
                         var sourceSer = SegmentTagHandler.Serialize(pair.Source);
                         source = Core.Export.BilingualTagNamer.ApplySemanticNames(
@@ -1368,7 +1385,9 @@ namespace Supervertaler.Trados
                         Status = status,
                         IsLocked = isLocked,
                         FileName = string.IsNullOrEmpty(segFileName) ? null : segFileName,
-                        Number = segNumber
+                        Number = segNumber,
+                        Match = matchPercent,
+                        Origin = originType
                     });
                 }
 

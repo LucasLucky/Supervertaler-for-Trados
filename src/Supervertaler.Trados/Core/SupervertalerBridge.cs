@@ -345,6 +345,11 @@ namespace Supervertaler.Trados.Core
         /// file in merged documents, so combine with File to disambiguate.</summary>
         public int FromNumber;
         public int ToNumber;
+        /// <summary>TM match-percentage range (inclusive; -1 = unset). Segments
+        /// without a TM/MT origin count as 0, so MatchMax=0 finds no-match
+        /// segments and MatchMin=75/MatchMax=94 finds fuzzies to review.</summary>
+        public int MatchMin = -1;
+        public int MatchMax = -1;
     }
 
     [DataContract]
@@ -360,6 +365,12 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "fileName", Order = 5, EmitDefaultValue = false)] public string FileName { get; set; }
         /// <summary>The segment number shown in Studio's grid – restarts per file in merged documents.</summary>
         [DataMember(Name = "number", Order = 6, EmitDefaultValue = false)] public string Number { get; set; }
+        /// <summary>TM match percentage from the segment's translation origin
+        /// (100 = exact/CM, 85 = fuzzy…). Null when the segment has no
+        /// TM/MT origin (e.g. typed from scratch or still untranslated).</summary>
+        [DataMember(Name = "match", Order = 7, EmitDefaultValue = false)] public int? Match { get; set; }
+        /// <summary>Translation origin type: tm, mt, interactive, auto-propagated, source…</summary>
+        [DataMember(Name = "origin", Order = 8, EmitDefaultValue = false)] public string Origin { get; set; }
     }
 
     [DataContract]
@@ -1555,7 +1566,7 @@ namespace Supervertaler.Trados.Core
                 Contains = qs["contains"],
                 File = qs["file"]
             };
-            int limit, offset, fromNum, toNum;
+            int limit, offset, fromNum, toNum, matchMin, matchMax;
             if (int.TryParse(qs["limit"], out limit) && limit > 0)
                 query.Limit = Math.Min(limit, 2000);
             if (int.TryParse(qs["offset"], out offset) && offset > 0)
@@ -1564,6 +1575,10 @@ namespace Supervertaler.Trados.Core
                 query.FromNumber = fromNum;
             if (int.TryParse(qs["toNumber"], out toNum) && toNum > 0)
                 query.ToNumber = toNum;
+            if (int.TryParse(qs["matchMin"], out matchMin) && matchMin >= 0)
+                query.MatchMin = Math.Min(matchMin, 100);
+            if (int.TryParse(qs["matchMax"], out matchMax) && matchMax >= 0)
+                query.MatchMax = Math.Min(matchMax, 100);
 
             BridgeSegmentsResponse response;
             try
