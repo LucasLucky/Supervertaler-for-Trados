@@ -42,6 +42,14 @@ namespace Supervertaler.Trados
             // diagnostic logging is switched off. A silent, no-dialog crash with an
             // empty log is otherwise impossible to diagnose.
             InstallCrashHandlers();
+
+            // Capture the UI thread and a handle-backed marshalling target while
+            // we are demonstrably ON that thread. Bridge (MCP) requests arrive on
+            // HttpListener threads and must marshal Studio API calls here; they
+            // cannot rely on a panel's Control.InvokeRequired, which lies
+            // (returns false) until that panel's handle exists. See Core/UiThread.
+            Core.UiThread.Install();
+
             try
             {
                 Core.DiagnosticLog.WriteAlways("Startup",

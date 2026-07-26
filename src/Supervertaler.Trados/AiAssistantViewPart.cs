@@ -990,9 +990,13 @@ namespace Supervertaler.Trados
 
             if (ctrl.InvokeRequired)
             {
-                return (BridgeContextSnapshot)ctrl.Invoke(
-                    new Func<BridgeContextSnapshot>(BuildBridgeContextSnapshot));
+                return (BridgeContextSnapshot)ctrl.Invoke(new Func<BridgeContextSnapshot>(() => BuildBridgeContextSnapshot()));
             }
+            // The panel may have no handle yet (never opened this session), in
+            // which case InvokeRequired lies – marshal via the UI thread we
+            // captured at startup instead. See Core/UiThread.
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BuildBridgeContextSnapshot());
 
             var snapshot = new BridgeContextSnapshot { Available = false };
             if (_activeDocument == null) return snapshot;
@@ -1115,9 +1119,13 @@ namespace Supervertaler.Trados
 
             if (ctrl.InvokeRequired)
             {
-                return (string)ctrl.Invoke(
-                    new Func<string, string>(BridgeInsertTranslation), text);
+                return (string)ctrl.Invoke(new Func<string>(() => BridgeInsertTranslation(text)));
             }
+            // The panel may have no handle yet (never opened this session), in
+            // which case InvokeRequired lies – marshal via the UI thread we
+            // captured at startup instead. See Core/UiThread.
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BridgeInsertTranslation(text));
 
             if (_activeDocument == null) return "no active document";
             if (string.IsNullOrEmpty(text)) return "empty text";
@@ -1146,9 +1154,13 @@ namespace Supervertaler.Trados
 
             if (ctrl.InvokeRequired)
             {
-                return (BridgeProjectSnapshot)ctrl.Invoke(
-                    new Func<BridgeProjectSnapshot>(BuildBridgeProjectSnapshot));
+                return (BridgeProjectSnapshot)ctrl.Invoke(new Func<BridgeProjectSnapshot>(() => BuildBridgeProjectSnapshot()));
             }
+            // The panel may have no handle yet (never opened this session), in
+            // which case InvokeRequired lies – marshal via the UI thread we
+            // captured at startup instead. See Core/UiThread.
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BuildBridgeProjectSnapshot());
 
             var snapshot = new BridgeProjectSnapshot { Available = false };
             if (_activeDocument == null)
@@ -1223,9 +1235,13 @@ namespace Supervertaler.Trados
 
             if (ctrl.InvokeRequired)
             {
-                return (BridgeSegmentsResponse)ctrl.Invoke(
-                    new Func<BridgeSegmentsQuery, BridgeSegmentsResponse>(BuildBridgeSegments), query);
+                return (BridgeSegmentsResponse)ctrl.Invoke(new Func<BridgeSegmentsResponse>(() => BuildBridgeSegments(query)));
             }
+            // The panel may have no handle yet (never opened this session), in
+            // which case InvokeRequired lies – marshal via the UI thread we
+            // captured at startup instead. See Core/UiThread.
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BuildBridgeSegments(query));
 
             var response = new BridgeSegmentsResponse
             {
@@ -1430,9 +1446,13 @@ namespace Supervertaler.Trados
 
             if (ctrl.InvokeRequired)
             {
-                return (BridgeUpdateSegmentsResponse)ctrl.Invoke(
-                    new Func<BridgeUpdateSegmentsRequest, BridgeUpdateSegmentsResponse>(BridgeUpdateSegments), req);
+                return (BridgeUpdateSegmentsResponse)ctrl.Invoke(new Func<BridgeUpdateSegmentsResponse>(() => BridgeUpdateSegments(req)));
             }
+            // The panel may have no handle yet (never opened this session), in
+            // which case InvokeRequired lies – marshal via the UI thread we
+            // captured at startup instead. See Core/UiThread.
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BridgeUpdateSegments(req));
 
             if (_activeDocument == null)
                 return new BridgeUpdateSegmentsResponse { Ok = false, Error = "no document is open in the Trados editor" };
@@ -1644,6 +1664,9 @@ namespace Supervertaler.Trados
             if (ctrl.InvokeRequired)
                 return (List<BridgeRawSegment>)ctrl.Invoke(
                     new Func<List<BridgeRawSegment>>(BridgeCollectRawSegments));
+            // Panel handle may not exist yet – see Core/UiThread.
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BridgeCollectRawSegments());
 
             if (_activeDocument == null) return null;
 
@@ -1791,8 +1814,8 @@ namespace Supervertaler.Trados
                         try
                         {
                             var ctrl = _control?.Value;
-                            projSrcLang = ctrl != null && !ctrl.IsDisposed && ctrl.InvokeRequired
-                                ? (string)ctrl.Invoke(new Func<string>(GetDocumentSourceLanguage))
+                            projSrcLang = ctrl != null && !ctrl.IsDisposed && (ctrl.InvokeRequired || (UiThread.InvokeRequired && UiThread.IsAvailable))
+                                ? UiThread.Invoke(() => GetDocumentSourceLanguage())
                                 : GetDocumentSourceLanguage();
                         }
                         catch { }
@@ -1949,7 +1972,7 @@ namespace Supervertaler.Trados
             try
             {
                 var ctrl = _control?.Value;
-                if (ctrl != null && !ctrl.IsDisposed && ctrl.InvokeRequired)
+                if (ctrl != null && !ctrl.IsDisposed && (ctrl.InvokeRequired || (UiThread.InvokeRequired && UiThread.IsAvailable)))
                     activeFilePath = (string)ctrl.Invoke(new Func<string>(
                         () => { try { return _activeDocument?.ActiveFile?.LocalFilePath; } catch { return null; } }));
                 else
@@ -2084,7 +2107,7 @@ namespace Supervertaler.Trados
             var ctrl = _control?.Value;
             try
             {
-                if (ctrl != null && !ctrl.IsDisposed && ctrl.InvokeRequired)
+                if (ctrl != null && !ctrl.IsDisposed && (ctrl.InvokeRequired || (UiThread.InvokeRequired && UiThread.IsAvailable)))
                     activeFilePath = (string)ctrl.Invoke(new Func<string>(
                         () => { try { return _activeDocument?.ActiveFile?.LocalFilePath; } catch { return null; } }));
                 else
@@ -2172,9 +2195,13 @@ namespace Supervertaler.Trados
 
             if (ctrl.InvokeRequired)
             {
-                return (BridgeFilesResponse)ctrl.Invoke(
-                    new Func<BridgeFilesResponse>(BuildBridgeFiles));
+                return (BridgeFilesResponse)ctrl.Invoke(new Func<BridgeFilesResponse>(() => BuildBridgeFiles()));
             }
+            // The panel may have no handle yet (never opened this session), in
+            // which case InvokeRequired lies – marshal via the UI thread we
+            // captured at startup instead. See Core/UiThread.
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BuildBridgeFiles());
 
             var response = new BridgeFilesResponse { Available = false, Files = new List<BridgeFileInfo>() };
             if (_activeDocument == null)
@@ -2249,9 +2276,13 @@ namespace Supervertaler.Trados
 
             if (ctrl.InvokeRequired)
             {
-                return (BridgeInconsistenciesResponse)ctrl.Invoke(
-                    new Func<int, BridgeInconsistenciesResponse>(BuildBridgeInconsistencies), limit);
+                return (BridgeInconsistenciesResponse)ctrl.Invoke(new Func<BridgeInconsistenciesResponse>(() => BuildBridgeInconsistencies(limit)));
             }
+            // The panel may have no handle yet (never opened this session), in
+            // which case InvokeRequired lies – marshal via the UI thread we
+            // captured at startup instead. See Core/UiThread.
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BuildBridgeInconsistencies(limit));
 
             var response = new BridgeInconsistenciesResponse
             {
@@ -2397,9 +2428,13 @@ namespace Supervertaler.Trados
 
             if (ctrl.InvokeRequired)
             {
-                return (BridgeAddTermResponse)ctrl.Invoke(
-                    new Func<BridgeAddTermRequest, BridgeAddTermResponse>(BridgeAddTerm), req);
+                return (BridgeAddTermResponse)ctrl.Invoke(new Func<BridgeAddTermResponse>(() => BridgeAddTerm(req)));
             }
+            // The panel may have no handle yet (never opened this session), in
+            // which case InvokeRequired lies – marshal via the UI thread we
+            // captured at startup instead. See Core/UiThread.
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BridgeAddTerm(req));
 
             try
             {
@@ -2507,7 +2542,12 @@ namespace Supervertaler.Trados
             if (ctrl == null || ctrl.IsDisposed)
                 return new BridgeResultResponse { Ok = false, Error = "ai assistant disposed" };
             if (ctrl.InvokeRequired)
-                return (BridgeResultResponse)ctrl.Invoke(new Func<BridgeResultResponse>(BridgeSaveDocument));
+                return (BridgeResultResponse)ctrl.Invoke(new Func<BridgeResultResponse>(() => BridgeSaveDocument()));
+            // The panel may have no handle yet (never opened this session), in
+            // which case InvokeRequired lies – marshal via the UI thread we
+            // captured at startup instead. See Core/UiThread.
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BridgeSaveDocument());
 
             if (_activeDocument == null)
                 return new BridgeResultResponse { Ok = false, Error = "no document is open in the Trados editor" };
@@ -2546,8 +2586,12 @@ namespace Supervertaler.Trados
             if (ctrl == null || ctrl.IsDisposed)
                 return new BridgeEditTermResponse { Ok = false, Error = "ai assistant disposed" };
             if (ctrl.InvokeRequired)
-                return (BridgeEditTermResponse)ctrl.Invoke(
-                    new Func<BridgeEditTermRequest, bool, BridgeEditTermResponse>(BridgeEditTerm), req, delete);
+                return (BridgeEditTermResponse)ctrl.Invoke(new Func<BridgeEditTermResponse>(() => BridgeEditTerm(req, delete)));
+            // The panel may have no handle yet (never opened this session), in
+            // which case InvokeRequired lies – marshal via the UI thread we
+            // captured at startup instead. See Core/UiThread.
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BridgeEditTerm(req, delete));
 
             try
             {
@@ -2784,8 +2828,12 @@ namespace Supervertaler.Trados
             if (ctrl == null || ctrl.IsDisposed)
                 return new BridgeResultResponse { Ok = false, Error = "ai assistant disposed" };
             if (ctrl.InvokeRequired)
-                return (BridgeResultResponse)ctrl.Invoke(
-                    new Func<BridgeGoToRequest, BridgeResultResponse>(BridgeGoToSegment), req);
+                return (BridgeResultResponse)ctrl.Invoke(new Func<BridgeResultResponse>(() => BridgeGoToSegment(req)));
+            // The panel may have no handle yet (never opened this session), in
+            // which case InvokeRequired lies – marshal via the UI thread we
+            // captured at startup instead. See Core/UiThread.
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BridgeGoToSegment(req));
 
             if (_activeDocument == null)
                 return new BridgeResultResponse { Ok = false, Error = "no document is open in the Trados editor" };
@@ -2825,8 +2873,12 @@ namespace Supervertaler.Trados
             if (ctrl == null || ctrl.IsDisposed)
                 return new BridgeCommentsResponse { Ok = false, Error = "ai assistant disposed" };
             if (ctrl.InvokeRequired)
-                return (BridgeCommentsResponse)ctrl.Invoke(
-                    new Func<string, BridgeCommentsResponse>(BridgeGetComments), id);
+                return (BridgeCommentsResponse)ctrl.Invoke(new Func<BridgeCommentsResponse>(() => BridgeGetComments(id)));
+            // The panel may have no handle yet (never opened this session), in
+            // which case InvokeRequired lies – marshal via the UI thread we
+            // captured at startup instead. See Core/UiThread.
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BridgeGetComments(id));
 
             if (_activeDocument == null)
                 return new BridgeCommentsResponse { Ok = false, Error = "no document is open in the Trados editor" };
@@ -2910,8 +2962,12 @@ namespace Supervertaler.Trados
             if (ctrl == null || ctrl.IsDisposed)
                 return new BridgeResultResponse { Ok = false, Error = "ai assistant disposed" };
             if (ctrl.InvokeRequired)
-                return (BridgeResultResponse)ctrl.Invoke(
-                    new Func<BridgeAddCommentRequest, BridgeResultResponse>(BridgeAddComment), req);
+                return (BridgeResultResponse)ctrl.Invoke(new Func<BridgeResultResponse>(() => BridgeAddComment(req)));
+            // The panel may have no handle yet (never opened this session), in
+            // which case InvokeRequired lies – marshal via the UI thread we
+            // captured at startup instead. See Core/UiThread.
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BridgeAddComment(req));
 
             if (_activeDocument == null)
                 return new BridgeResultResponse { Ok = false, Error = "no document is open in the Trados editor" };
@@ -2959,8 +3015,12 @@ namespace Supervertaler.Trados
             if (ctrl == null || ctrl.IsDisposed)
                 return new BridgeResultResponse { Ok = false, Error = "ai assistant disposed" };
             if (ctrl.InvokeRequired)
-                return (BridgeResultResponse)ctrl.Invoke(
-                    new Func<BridgeUpdateCommentRequest, BridgeResultResponse>(BridgeUpdateComment), req);
+                return (BridgeResultResponse)ctrl.Invoke(new Func<BridgeResultResponse>(() => BridgeUpdateComment(req)));
+            // The panel may have no handle yet (never opened this session), in
+            // which case InvokeRequired lies – marshal via the UI thread we
+            // captured at startup instead. See Core/UiThread.
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BridgeUpdateComment(req));
 
             if (_activeDocument == null)
                 return new BridgeResultResponse { Ok = false, Error = "no document is open in the Trados editor" };
@@ -3084,7 +3144,7 @@ namespace Supervertaler.Trados
             };
             try
             {
-                if (ctrl != null && !ctrl.IsDisposed && ctrl.InvokeRequired) ctrl.Invoke(grab);
+                if (ctrl != null && !ctrl.IsDisposed && (ctrl.InvokeRequired || (UiThread.InvokeRequired && UiThread.IsAvailable))) UiThread.Invoke(grab);
                 else grab();
             }
             catch (Exception ex) { grabError = ex.Message; }
@@ -3304,8 +3364,12 @@ namespace Supervertaler.Trados
             if (ctrl == null || ctrl.IsDisposed)
                 return new BridgeFindReplaceResponse { Ok = false, Error = "ai assistant disposed" };
             if (ctrl.InvokeRequired)
-                return (BridgeFindReplaceResponse)ctrl.Invoke(
-                    new Func<BridgeFindReplaceRequest, BridgeFindReplaceResponse>(BridgeFindReplace), req);
+                return (BridgeFindReplaceResponse)ctrl.Invoke(new Func<BridgeFindReplaceResponse>(() => BridgeFindReplace(req)));
+            // The panel may have no handle yet (never opened this session), in
+            // which case InvokeRequired lies – marshal via the UI thread we
+            // captured at startup instead. See Core/UiThread.
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BridgeFindReplace(req));
 
             if (_activeDocument == null)
                 return new BridgeFindReplaceResponse { Ok = false, Error = "no document is open in the Trados editor" };
@@ -3557,7 +3621,7 @@ namespace Supervertaler.Trados
             };
             try
             {
-                if (ctrl != null && !ctrl.IsDisposed && ctrl.InvokeRequired) ctrl.Invoke(grab);
+                if (ctrl != null && !ctrl.IsDisposed && (ctrl.InvokeRequired || (UiThread.InvokeRequired && UiThread.IsAvailable))) UiThread.Invoke(grab);
                 else grab();
             }
             catch (Exception ex) { grabError = ex.Message; }
@@ -4018,8 +4082,12 @@ namespace Supervertaler.Trados
             if (ctrl == null || ctrl.IsDisposed)
                 return new BridgePromptContextResponse { Ok = false, Error = "ai assistant disposed" };
             if (ctrl.InvokeRequired)
-                return (BridgePromptContextResponse)ctrl.Invoke(
-                    new Func<int, BridgePromptContextResponse>(BuildPromptContext), maxSegmentsOverride);
+                return (BridgePromptContextResponse)ctrl.Invoke(new Func<BridgePromptContextResponse>(() => BuildPromptContext(maxSegmentsOverride)));
+            // The panel may have no handle yet (never opened this session), in
+            // which case InvokeRequired lies – marshal via the UI thread we
+            // captured at startup instead. See Core/UiThread.
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BuildPromptContext(maxSegmentsOverride));
 
             if (_activeDocument == null)
                 return new BridgePromptContextResponse { Ok = false, Error = "no document is open in the Trados editor" };
