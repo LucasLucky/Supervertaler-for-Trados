@@ -6,22 +6,66 @@ using Supervertaler.Trados.Core;
 namespace Supervertaler.Trados.VoiceControl
 {
     /// <summary>
-    /// Tiny always-on-top status strip shown while voice commands are active –
-    /// the "simple face" of the feature. Shows the listening state and the
-    /// last executed command, plus a stop button and a gear that opens the
-    /// Advanced dialog. Positioned bottom-right of the primary screen; not
-    /// activated on show, so it never steals focus from the editor.
+    /// Tiny always-on-top status strip – the FALLBACK voice indicator, shown
+    /// only when the TermLens panel isn't open to host the integrated header
+    /// 🎤 (see VoiceControlManager). Shows the listening state and the last
+    /// executed command, plus a stop button and a gear that opens the
+    /// Advanced dialog. Draggable (grab anywhere on the strip); the position
+    /// is remembered across sessions. Defaults to bottom-right of the primary
+    /// screen; never activated on show, so it can't steal editor focus.
     /// </summary>
     internal sealed class VoiceStatusWindow : Form
     {
         private readonly Label _dot;
         private readonly Label _text;
         private readonly Timer _flashTimer;
+        private bool _userPositioned;
 
         public event EventHandler StopRequested;
         public event EventHandler AdvancedRequested;
 
         protected override bool ShowWithoutActivation => true;
+
+        // Drag-to-move: report the whole client area as the caption so the
+        // user can grab the strip anywhere (buttons still receive clicks –
+        // they're child controls and hit-test first).
+        private const int WM_NCHITTEST = 0x84;
+        private const int HTCLIENT = 1;
+        private const int HTCAPTION = 2;
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg == WM_NCHITTEST && m.Result == (IntPtr)HTCLIENT)
+                m.Result = (IntPtr)HTCAPTION;
+        }
+
+        private bool _programmaticMove;
+
+        protected override void OnMove(EventArgs e)
+        {
+            base.OnMove(e);
+            // Only a drag by the user counts – programmatic auto-placement
+            // (and moves before Show) must not flip the flag.
+            if (!_programmaticMove && Visible)
+                _userPositioned = true;
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            // Persist a user-chosen position for the next session
+            try
+            {
+                if (_userPositioned)
+                {
+                    var settings = Settings.TermLensSettings.Load();
+                    settings.VoiceStripLeft = Location.X;
+                    settings.VoiceStripTop = Location.Y;
+                    settings.Save();
+                }
+            }
+            catch { }
+            base.OnFormClosing(e);
+        }
 
         public VoiceStatusWindow()
         {
@@ -81,7 +125,7 @@ namespace Supervertaler.Trados.VoiceControl
                 SetStatus("Listening…", listening: true);
             };
 
-            Load += (s, e) => PositionBottomRight();
+            Load += (s, e) => PositionInitial();
         }
 
         private Button MakeButton(string glyph, string tip)
@@ -102,10 +146,45 @@ namespace Supervertaler.Trados.VoiceControl
             return b;
         }
 
+        /// <summary>
+        /// First placement: the remembered position when the user dragged the
+        /// strip in an earlier session (and it's still on a screen), else
+        /// bottom-right of the primary screen.
+        /// </summary>
+        private void PositionInitial()
+        {
+            try
+            {
+                var settings = Settings.TermLensSettings.Load();
+                if (settings.VoiceStripLeft != 0 || settings.VoiceStripTop != 0)
+                {
+                    var saved = new Point(settings.VoiceStripLeft, settings.VoiceStripTop);
+                    foreach (var screen in Screen.AllScreens)
+                    {
+                        if (screen.WorkingArea.Contains(saved))
+                        {
+                            _programmaticMove = true;
+                            try { Location = saved; }
+                            finally { _programmaticMove = false; }
+                            _userPositioned = true; // restored user choice
+                            return;
+                        }
+                    }
+                }
+            }
+            catch { }
+            PositionBottomRight();
+        }
+
         private void PositionBottomRight()
         {
             var wa = Screen.PrimaryScreen.WorkingArea;
-            Location = new Point(wa.Right - Width - UiScale.Pixels(24), wa.Bottom - Height - UiScale.Pixels(24));
+            _programmaticMove = true;
+            try
+            {
+                Location = new Point(wa.Right - Width - UiScale.Pixels(24), wa.Bottom - Height - UiScale.Pixels(24));
+            }
+            finally { _programmaticMove = false; }
         }
 
         /// <summary>Thread-safe status update.</summary>
@@ -114,7 +193,7 @@ namespace Supervertaler.Trados.VoiceControl
             if (InvokeRequired) { BeginInvoke((Action)(() => SetStatus(text, listening))); return; }
             _text.Text = text;
             _dot.ForeColor = listening ? Color.FromArgb(120, 200, 120) : Color.FromArgb(230, 170, 60);
-            PositionBottomRight();
+            if (!_userPositioned) PositionBottomRight();
         }
 
         /// <summary>Shows "heard" feedback briefly, then reverts to Listening.</summary>
@@ -123,7 +202,7 @@ namespace Supervertaler.Trados.VoiceControl
             if (InvokeRequired) { BeginInvoke((Action)(() => FlashCommand(phrase))); return; }
             _text.Text = "“" + phrase + "”";
             _dot.ForeColor = Color.FromArgb(110, 168, 254);
-            PositionBottomRight();
+            if (!_userPositioned) PositionBottomRight();
             _flashTimer.Stop();
             _flashTimer.Start();
         }

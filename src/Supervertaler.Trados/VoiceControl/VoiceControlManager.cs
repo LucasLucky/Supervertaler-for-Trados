@@ -2,16 +2,21 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Windows.Forms;
+using Supervertaler.Trados.Controls;
 
 namespace Supervertaler.Trados.VoiceControl
 {
     /// <summary>
-    /// The glue: owns the engine, executor, command set and status window,
-    /// and exposes the single Toggle() the ribbon action calls. First
+    /// The glue: owns the engine, executor, command set and status display,
+    /// and exposes the single Toggle() the action/header button call. First
     /// activation downloads the voice runtime (libvosk + small English
-    /// model) with progress in the status strip; every later activation is
-    /// instant. All recognition callbacks are marshalled to the UI thread
-    /// via the status window.
+    /// model) with progress shown; every later activation is instant.
+    ///
+    /// Status display strategy: when the TermLens panel exists, its header
+    /// 🎤 button IS the indicator (integrated, covers nothing – heard
+    /// commands flash in the panel's status label). The floating strip is
+    /// only a fallback for sessions where TermLens isn't open, and is
+    /// draggable with its position remembered.
     /// </summary>
     internal sealed class VoiceControlManager
     {
@@ -20,7 +25,8 @@ namespace Supervertaler.Trados.VoiceControl
             _instance ?? (_instance = new VoiceControlManager());
 
         private IVoiceEngine _engine;
-        private VoiceStatusWindow _statusWindow;
+        private VoiceStatusWindow _statusWindow;   // fallback display only
+        private TermLensControl _hostControl;      // preferred display + marshal target
         private VoiceCommandExecutor _executor;
         private List<VoiceCommand> _commands;
         private volatile bool _running;
@@ -43,20 +49,26 @@ namespace Supervertaler.Trados.VoiceControl
             _commands = VoiceCommandSet.Load();
             _executor = new VoiceCommandExecutor();
             _executor.LoadCommands(_commands);
-            _executor.CommandExecuted += (phrase, desc) => _statusWindow?.FlashCommand(phrase);
+            _executor.CommandExecuted += (phrase, desc) => FlashCommand(phrase);
 
-            _statusWindow = new VoiceStatusWindow();
-            _statusWindow.StopRequested += (s, e) => Stop();
-            _statusWindow.AdvancedRequested += (s, e) => ShowAdvancedDialog();
-            _statusWindow.Show();
-            _statusWindow.SetStatus(VoiceRuntimeInstaller.IsInstalled ? "Starting…" : "Setting up (one-time)…", listening: false);
+            // Preferred: the TermLens header hosts the indicator. Fallback:
+            // the floating strip (draggable, position remembered).
+            _hostControl = TermLensEditorViewPart.TryGetVoiceHost();
+            if (_hostControl == null)
+            {
+                _statusWindow = new VoiceStatusWindow();
+                _statusWindow.StopRequested += (s, e) => Stop();
+                _statusWindow.AdvancedRequested += (s, e) => ShowAdvancedDialog();
+                _statusWindow.Show();
+            }
+            SetStatus(VoiceRuntimeInstaller.IsInstalled ? "Starting…" : "Setting up (one-time)…", state: 1);
 
             // Runtime install + model load are seconds-slow – background thread.
             var worker = new Thread(() =>
             {
                 try
                 {
-                    VoiceRuntimeInstaller.EnsureInstalled(msg => _statusWindow?.SetStatus(msg, listening: false));
+                    VoiceRuntimeInstaller.EnsureInstalled(msg => SetStatus(msg, state: 1));
 
                     var engine = new VoskVoiceEngine();
                     engine.Recognized += OnRecognized;
@@ -64,14 +76,14 @@ namespace Supervertaler.Trados.VoiceControl
                     _engine = engine;
 
                     _running = true;
-                    _statusWindow?.SetStatus("Listening…", listening: true);
+                    SetStatus("Listening…", state: 2);
                 }
                 catch (Exception ex)
                 {
-                    var window = _statusWindow;
-                    if (window != null && !window.IsDisposed)
+                    var marshal = MarshalControl();
+                    if (marshal != null && !marshal.IsDisposed)
                     {
-                        window.BeginInvoke((Action)(() =>
+                        marshal.BeginInvoke((Action)(() =>
                         {
                             Stop();
                             MessageBox.Show(
@@ -96,6 +108,11 @@ namespace Supervertaler.Trados.VoiceControl
             try { _engine?.Dispose(); } catch { }
             _engine = null;
 
+            var host = _hostControl;
+            _hostControl = null;
+            if (host != null && !host.IsDisposed)
+                host.SetVoiceState(0);
+
             var window = _statusWindow;
             _statusWindow = null;
             if (window != null && !window.IsDisposed)
@@ -105,16 +122,51 @@ namespace Supervertaler.Trados.VoiceControl
             }
         }
 
+        private Control MarshalControl()
+        {
+            var host = _hostControl;
+            if (host != null && !host.IsDisposed) return host;
+            var window = _statusWindow;
+            if (window != null && !window.IsDisposed) return window;
+            return null;
+        }
+
+        private void SetStatus(string text, int state)
+        {
+            var host = _hostControl;
+            if (host != null && !host.IsDisposed)
+            {
+                host.SetVoiceState(state, text);
+                return;
+            }
+            var window = _statusWindow;
+            if (window != null && !window.IsDisposed)
+                window.SetStatus(text, listening: state == 2);
+        }
+
+        private void FlashCommand(string phrase)
+        {
+            var host = _hostControl;
+            if (host != null && !host.IsDisposed)
+            {
+                host.FlashVoiceCommand(phrase);
+                return;
+            }
+            var window = _statusWindow;
+            if (window != null && !window.IsDisposed)
+                window.FlashCommand(phrase);
+        }
+
         private void OnRecognized(string text)
         {
             // Engine thread → UI thread
-            var window = _statusWindow;
-            if (window == null || window.IsDisposed) return;
+            var marshal = MarshalControl();
+            if (marshal == null) return;
             try
             {
-                window.BeginInvoke((Action)(() => _executor?.Execute(text)));
+                marshal.BeginInvoke((Action)(() => _executor?.Execute(text)));
             }
-            catch { /* window torn down mid-recognition */ }
+            catch { /* host torn down mid-recognition */ }
         }
 
         /// <summary>Reloads commands (after the Advanced dialog saves) into the live engine.</summary>
@@ -125,7 +177,8 @@ namespace Supervertaler.Trados.VoiceControl
             _engine?.UpdateGrammar(VoiceCommandSet.GrammarPhrases(_commands));
         }
 
-        private void ShowAdvancedDialog()
+        /// <summary>Opens the Advanced command editor (gear / header right-click).</summary>
+        public void ShowAdvancedDialog()
         {
             using (var dlg = new VoiceSettingsDialog())
             {

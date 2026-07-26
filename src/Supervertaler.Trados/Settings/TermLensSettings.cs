@@ -222,6 +222,18 @@ namespace Supervertaler.Trados.Settings
             set => _adaptTermCasing = value;
         }
 
+        // ─── Voice commands ──────────────────────────────────────────
+        /// <summary>
+        /// Remembered position of the floating voice status strip (the
+        /// fallback shown when the TermLens panel isn't open to host the
+        /// indicator). 0/0 = never moved → auto bottom-right placement.
+        /// </summary>
+        [DataMember(Name = "voiceStripLeft")]
+        public int VoiceStripLeft { get; set; }
+
+        [DataMember(Name = "voiceStripTop")]
+        public int VoiceStripTop { get; set; }
+
         // ─── Agglutinative / no-space language matching ──────────────
         /// <summary>
         /// Suffix-tolerant term matching for languages where grammatical

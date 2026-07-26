@@ -74,6 +74,8 @@ namespace Supervertaler.Trados.VoiceControl
                 new VoiceCommand { Phrase = "confirm", Aliases = new List<string> { "confirm segment" }, ActionType = "keystroke", Action = "ctrl+enter", Description = "Confirm segment and move to next unconfirmed", Category = "editing" },
                 new VoiceCommand { Phrase = "next segment", Aliases = new List<string> { "go down" }, ActionType = "internal", Action = "navigate_next", Description = "Move to the next segment (without confirming)", Category = "navigation" },
                 new VoiceCommand { Phrase = "previous segment", Aliases = new List<string> { "go up" }, ActionType = "internal", Action = "navigate_previous", Description = "Move to the previous segment", Category = "navigation" },
+                new VoiceCommand { Phrase = "go to the top", Aliases = new List<string> { "go to top" }, ActionType = "keystroke", Action = "ctrl+home", Description = "Jump to the first segment (Ctrl+Home)", Category = "navigation" },
+                new VoiceCommand { Phrase = "go to the bottom", Aliases = new List<string> { "go to bottom" }, ActionType = "keystroke", Action = "ctrl+end", Description = "Jump to the last segment (Ctrl+End)", Category = "navigation" },
                 new VoiceCommand { Phrase = "copy source", Aliases = new List<string> { "copy from source" }, ActionType = "keystroke", Action = "ctrl+insert", Description = "Copy source to target", Category = "editing" },
                 new VoiceCommand { Phrase = "clear target", Aliases = new List<string>(), ActionType = "keystroke", Action = "alt+delete", Description = "Clear the target segment", Category = "editing" },
 
@@ -87,6 +89,17 @@ namespace Supervertaler.Trados.VoiceControl
                 new VoiceCommand { Phrase = "term seven", ActionType = "internal", Action = "insert_term_7", Description = "Insert TermLens match 7", Category = "termlens" },
                 new VoiceCommand { Phrase = "term eight", ActionType = "internal", Action = "insert_term_8", Description = "Insert TermLens match 8", Category = "termlens" },
                 new VoiceCommand { Phrase = "term nine",  ActionType = "internal", Action = "insert_term_9", Description = "Insert TermLens match 9", Category = "termlens" },
+                // Translation Results – Studio applies match N with Ctrl+N
+                new VoiceCommand { Phrase = "match one",   ActionType = "keystroke", Action = "ctrl+1", Description = "Apply translation result 1", Category = "matches" },
+                new VoiceCommand { Phrase = "match two",   ActionType = "keystroke", Action = "ctrl+2", Description = "Apply translation result 2", Category = "matches" },
+                new VoiceCommand { Phrase = "match three", ActionType = "keystroke", Action = "ctrl+3", Description = "Apply translation result 3", Category = "matches" },
+                new VoiceCommand { Phrase = "match four",  ActionType = "keystroke", Action = "ctrl+4", Description = "Apply translation result 4", Category = "matches" },
+                new VoiceCommand { Phrase = "match five",  ActionType = "keystroke", Action = "ctrl+5", Description = "Apply translation result 5", Category = "matches" },
+                new VoiceCommand { Phrase = "match six",   ActionType = "keystroke", Action = "ctrl+6", Description = "Apply translation result 6", Category = "matches" },
+                new VoiceCommand { Phrase = "match seven", ActionType = "keystroke", Action = "ctrl+7", Description = "Apply translation result 7", Category = "matches" },
+                new VoiceCommand { Phrase = "match eight", ActionType = "keystroke", Action = "ctrl+8", Description = "Apply translation result 8", Category = "matches" },
+                new VoiceCommand { Phrase = "match nine",  ActionType = "keystroke", Action = "ctrl+9", Description = "Apply translation result 9", Category = "matches" },
+
                 new VoiceCommand { Phrase = "term picker", Aliases = new List<string> { "pick term" }, ActionType = "internal", Action = "term_picker", Description = "Open the TermPicker dialog", Category = "termlens" },
                 new VoiceCommand { Phrase = "term popup", Aliases = new List<string> { "show terms" }, ActionType = "internal", Action = "termlens_popup", Description = "Open the floating TermLens popup", Category = "termlens" },
                 new VoiceCommand { Phrase = "add term", Aliases = new List<string> { "new term" }, ActionType = "keystroke", Action = "alt+down", Description = "Quick-add selection to the write termbases (Alt+Down)", Category = "termlens" },
@@ -97,6 +110,7 @@ namespace Supervertaler.Trados.VoiceControl
                 new VoiceCommand { Phrase = "concordance", Aliases = new List<string> { "search memory" }, ActionType = "keystroke", Action = "f3", Description = "Concordance search on the selection", Category = "lookup" },
 
                 // Control
+                new VoiceCommand { Phrase = "escape", Aliases = new List<string> { "close window" }, ActionType = "keystroke", Action = "escape", Description = "Close the focused popup/dialog (term popup, TermPicker…)", Category = "control" },
                 new VoiceCommand { Phrase = "stop listening", Aliases = new List<string> { "voice off" }, ActionType = "internal", Action = "stop_listening", Description = "Turn voice commands off", Category = "control" },
             };
         }

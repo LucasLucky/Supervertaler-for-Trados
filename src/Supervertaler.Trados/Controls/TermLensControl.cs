@@ -21,6 +21,9 @@ namespace Supervertaler.Trados.Controls
         private readonly Panel _headerPanel;
         private readonly Label _headerLabel;
         private Button _btnRefresh; // v4.19.113 – ↻ in header, fires RefreshRequested
+        private Button _btnVoice;   // 🎤 in header – integrated voice-command indicator/toggle
+        private System.Windows.Forms.Timer _voiceFlashTimer;
+        private string _statusBeforeVoiceFlash;
 
         private TermMatcher _matcher;
         private TermbaseReader _reader;
@@ -248,6 +251,45 @@ namespace Supervertaler.Trados.Controls
                 "active document changes.");
             _headerPanel.Controls.Add(_btnRefresh);
 
+            // ─── Voice commands button ───────────────────────────────
+            // Always-visible mic in the header – the integrated home of the
+            // voice-command state (the floating strip is only a fallback for
+            // users without the TermLens panel open). Grey = off (click to
+            // start), orange = starting/downloading, green = listening
+            // (click to stop). Right-click opens the Advanced dialog.
+            // Heard commands flash briefly in _statusLabel.
+            _btnVoice = new Button
+            {
+                Text = "🎤", // 🎤
+                Font = new Font("Segoe UI Emoji", UiScale.FontSize(9f)),
+                FlatStyle = FlatStyle.Flat,
+                ForeColor = Color.FromArgb(160, 160, 160),
+                BackColor = Color.Transparent,
+                Cursor = Cursors.Hand,
+                Dock = DockStyle.Right,
+                Size = new Size(UiScale.Pixels(24), UiScale.Pixels(24)),
+                TabStop = false,
+                Padding = Padding.Empty,
+                Margin = Padding.Empty,
+                UseCompatibleTextRendering = true
+            };
+            _btnVoice.FlatAppearance.BorderSize = 0;
+            _btnVoice.FlatAppearance.MouseOverBackColor = Color.FromArgb(220, 220, 220);
+            _btnVoice.Click += (s, e) => VoiceControl.VoiceControlManager.Instance.Toggle();
+            var voiceMenu = new ContextMenuStrip();
+            var advancedItem = new ToolStripMenuItem("Voice commands: Advanced…");
+            advancedItem.Click += (s, e) => VoiceControl.VoiceControlManager.Instance.ShowAdvancedDialog();
+            voiceMenu.Items.Add(advancedItem);
+            _btnVoice.ContextMenuStrip = voiceMenu;
+            fontButtonTip.SetToolTip(_btnVoice,
+                "Voice commands (Ctrl+Alt+V)\n" +
+                "\n" +
+                "Click to start/stop hands-free voice commands:\n" +
+                "“confirm”, “next segment”, “term one”…“term nine”,\n" +
+                "“add term”, “translate” and more.\n" +
+                "Right-click for the Advanced command editor.");
+            _headerPanel.Controls.Add(_btnVoice);
+
             // Main flow panel for term blocks
             _flowPanel = new FlowLayoutPanel
             {
@@ -337,6 +379,62 @@ namespace Supervertaler.Trados.Controls
             {
                 _statusLabel.Text = text;
             }
+        }
+
+        // ─── Voice indicator (header 🎤) ─────────────────────────────
+
+        /// <summary>
+        /// Voice states pushed by VoiceControlManager. Thread-safe.
+        /// 0 = off (grey), 1 = starting/downloading (orange), 2 = listening (green).
+        /// </summary>
+        public void SetVoiceState(int state, string tooltipStatus = null)
+        {
+            if (_btnVoice == null) return;
+            if (_btnVoice.InvokeRequired)
+            {
+                try { _btnVoice.BeginInvoke(new Action<int, string>(SetVoiceState), state, tooltipStatus); } catch { }
+                return;
+            }
+            switch (state)
+            {
+                case 2: _btnVoice.ForeColor = Color.FromArgb(60, 160, 80); break;   // listening
+                case 1: _btnVoice.ForeColor = Color.FromArgb(220, 150, 40); break;  // starting
+                default: _btnVoice.ForeColor = Color.FromArgb(160, 160, 160); break; // off
+            }
+            // Show download/model progress while starting; otherwise leave the
+            // match-count status alone.
+            if (state == 1 && !string.IsNullOrEmpty(tooltipStatus))
+                SetStatusLabel(tooltipStatus);
+        }
+
+        /// <summary>
+        /// Flashes a heard voice command in the status label for two seconds,
+        /// then restores whatever the label showed before. Thread-safe.
+        /// </summary>
+        public void FlashVoiceCommand(string phrase)
+        {
+            if (_statusLabel == null) return;
+            if (_statusLabel.InvokeRequired)
+            {
+                try { _statusLabel.BeginInvoke(new Action<string>(FlashVoiceCommand), phrase); } catch { }
+                return;
+            }
+
+            if (_voiceFlashTimer == null)
+            {
+                _voiceFlashTimer = new System.Windows.Forms.Timer { Interval = 2000 };
+                _voiceFlashTimer.Tick += (s, e) =>
+                {
+                    _voiceFlashTimer.Stop();
+                    _statusLabel.Text = _statusBeforeVoiceFlash ?? "";
+                    _statusBeforeVoiceFlash = null;
+                };
+            }
+            if (!_voiceFlashTimer.Enabled)
+                _statusBeforeVoiceFlash = _statusLabel.Text; // don't capture a previous flash
+            _statusLabel.Text = "🎤 “" + phrase + "”";
+            _voiceFlashTimer.Stop();
+            _voiceFlashTimer.Start();
         }
 
         /// <summary>

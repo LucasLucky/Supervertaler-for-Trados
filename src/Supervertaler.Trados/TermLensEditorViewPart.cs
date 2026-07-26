@@ -2416,6 +2416,22 @@ namespace Supervertaler.Trados
         }
 
         /// <summary>
+        /// The TermLens control as a host for the voice indicator, or null when
+        /// it hasn't been created yet (VoiceControlManager then falls back to
+        /// the floating status strip).
+        /// </summary>
+        internal static Controls.TermLensControl TryGetVoiceHost()
+        {
+            try
+            {
+                if (_currentInstance == null || !_control.IsValueCreated) return null;
+                var control = _control.Value;
+                return control != null && control.IsHandleCreated && !control.IsDisposed ? control : null;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
         /// Voice-command navigation: moves the active segment forward/backward
         /// by one, without confirming. Enumerates SegmentPairs to find the
         /// active pair's neighbour (same pattern as the AI assistant's
