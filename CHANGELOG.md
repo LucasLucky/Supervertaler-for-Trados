@@ -7,6 +7,12 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.132 / 19.20.132] – 2026-07-26
+
+### Changed (Voice commands · naming) — [#48](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/48)
+
+- The command editor dialog is now called **Voice command settings** (was "Voice commands – advanced") – in its title bar, the TermLens mic right-click menu, and the tooltips.
+
 ## [18.20.131 / 19.20.131] – 2026-07-26
 
 ### Changed (Voice commands · contextual help) — [#48](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/48)
