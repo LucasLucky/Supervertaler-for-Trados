@@ -2416,6 +2416,56 @@ namespace Supervertaler.Trados
         }
 
         /// <summary>
+        /// Voice-command navigation: moves the active segment forward/backward
+        /// by one, without confirming. Enumerates SegmentPairs to find the
+        /// active pair's neighbour (same pattern as the AI assistant's
+        /// active-segment matching), then navigates via SetActiveSegmentPair.
+        /// </summary>
+        public static void VoiceNavigateSegment(bool forward)
+        {
+            var instance = _currentInstance;
+            var doc = instance?._activeDocument;
+            if (doc == null) return;
+
+            try
+            {
+                var activePair = doc.ActiveSegmentPair;
+                if (activePair == null) return;
+
+                var activeSegId = activePair.Properties.Id.Id;
+                var activePuId = doc.GetParentParagraphUnit(activePair).Properties.ParagraphUnitId.Id;
+
+                string prevPuId = null, prevSegId = null;
+                bool takeNext = false;
+                foreach (var pair in doc.SegmentPairs)
+                {
+                    var puId = doc.GetParentParagraphUnit(pair).Properties.ParagraphUnitId.Id;
+                    var segId = pair.Properties.Id.Id;
+
+                    if (takeNext)
+                    {
+                        doc.SetActiveSegmentPair(puId, segId, true);
+                        return;
+                    }
+
+                    if (puId == activePuId && segId == activeSegId)
+                    {
+                        if (forward) { takeNext = true; continue; }
+                        if (prevPuId != null)
+                            doc.SetActiveSegmentPair(prevPuId, prevSegId, true);
+                        return;
+                    }
+
+                    prevPuId = puId; prevSegId = segId;
+                }
+            }
+            catch
+            {
+                // Document may be mid-transition – navigation is best-effort
+            }
+        }
+
+        /// <summary>
         /// Called after the merge-as-synonym flow adds a synonym to an existing
         /// entry. Incrementally updates the in-memory index and refreshes the
         /// segment display; falls back to the full reload only when the entry
