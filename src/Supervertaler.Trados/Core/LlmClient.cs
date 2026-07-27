@@ -1537,9 +1537,17 @@ namespace Supervertaler.Trados.Core
             if (string.IsNullOrEmpty(model)) return false;
             var info = LlmModels.FindModel(model);
             if (info != null) return info.IsReasoningModel;
-            // Fallback heuristic for custom/unknown model IDs
+            // Fallback heuristic for custom/unknown model IDs.
+            // "gpt-5" as a substring deliberately covers the whole family –
+            // gpt-5.5, gpt-5.6-*, openai/gpt-5.x via OpenRouter, and whatever
+            // ships next. They think before answering and need the long
+            // timeout; a user hit exactly this when gpt-5.5 fell through to the
+            // 120 s default because only the o-series prefixes were matched.
+            // (The Workbench's Python client has always matched "gpt-5" this
+            // way, which is why the same bug never surfaced there.)
             var lower = model.ToLowerInvariant();
-            return lower.Contains("reasoning") || lower.StartsWith("o1") || lower.StartsWith("o3") || lower.StartsWith("o4");
+            return lower.Contains("reasoning") || lower.Contains("gpt-5")
+                || lower.StartsWith("o1") || lower.StartsWith("o3") || lower.StartsWith("o4");
         }
 
         /// <summary>

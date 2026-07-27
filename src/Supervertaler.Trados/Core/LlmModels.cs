@@ -225,7 +225,10 @@ namespace Supervertaler.Trados.Core
                 Id = "openai/gpt-5.5", DisplayName = "GPT-5.5",
                 Description = "Premium quality – OpenAI's most advanced model",
                 Provider = LlmProvider.OpenRouter,
-                SupportsTemperature = false  // routes to OpenAI GPT-5.5, which rejects custom temperature
+                SupportsTemperature = false,  // routes to OpenAI GPT-5.5, which rejects custom temperature
+                // Same reasoning family as the direct route, so it needs the same
+                // long timeout – see the gpt-5.5 entry above.
+                IsReasoningModel = true
             },
             new LlmModelInfo
             {
