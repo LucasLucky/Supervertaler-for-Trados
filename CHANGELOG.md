@@ -7,6 +7,13 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.136 / 19.20.136] – 2026-07-27
+
+### Added (TermPicker · now available as a dockable pane)
+
+- **TermPicker can now be docked like TermLens**, for anyone who prefers a flat, sortable list as their permanent terminology display rather than TermLens's in-context chips. Open it from Studio's **View** tab (it is not pinned by default, so your existing layout doesn't change when you update). The pane updates on every segment change, in step with the TermLens panel, and inserting from it behaves exactly like the popup and the chips – same capitalisation adaptation, same keyboard grammar (arrows to navigate, Right/Left to expand/collapse synonyms, a term number to jump, Enter to insert).
+- Both terminology views are now available in both placements: TermLens as a docked panel or at the cursor (tap **Ctrl**), TermPicker as a docked pane or at the cursor (**Alt+P**) – so you can choose the representation and the placement independently. **Alt+P still opens the popup** even when the pane is visible, mirroring how Ctrl-tap works alongside the docked TermLens panel.
+
 ## [18.20.135 / 19.20.135] – 2026-07-27
 
 ### Changed (TermPicker · new shortcut, synonyms shown up front)
