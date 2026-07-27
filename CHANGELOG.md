@@ -7,6 +7,15 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.137 / 19.20.137] – 2026-07-27
+
+### Changed (TermPicker pane · polish from first use)
+
+- **The pane now opens pinned**, i.e. permanently visible. Previously it arrived auto-hidden, sliding in and straight back out again, which looked like a glitch. Studio still remembers wherever you drag it afterwards.
+- **Alt+P now moves focus into the pane when it is open**, instead of covering it with the popup: from there arrows navigate, ←/→ collapse/expand synonyms, a term number jumps to it, Enter inserts. With no pane in your layout, Alt+P opens the popup exactly as before.
+- **Escape closes the TermPicker popup** (the list was swallowing the key).
+- **Pressing E on a row opens the term editor**, matching the TermLens popup's key – in both the pane and the popup. MultiTerm entries are skipped, as those termbases are read-only.
+
 ## [18.20.136 / 19.20.136] – 2026-07-27
 
 ### Added (TermPicker · now available as a dockable pane)
