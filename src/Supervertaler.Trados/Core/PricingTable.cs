@@ -86,6 +86,9 @@ namespace Supervertaler.Trados.Core
             // 3. Minimal safety net — only reached if both files fail to load.
             return new Dictionary<string, (decimal, decimal)>(StringComparer.OrdinalIgnoreCase)
             {
+                { "gpt-5.6-sol", (5.00m, 30.00m) },
+                { "gpt-5.6-terra", (2.50m, 15.00m) },
+                { "gpt-5.6-luna", (1.00m, 6.00m) },
                 { "gpt-5.5", (5.00m, 30.00m) },
                 { "gpt-5.4-mini", (0.75m, 4.50m) },
                 { "claude-fable-5", (10.00m, 50.00m) },

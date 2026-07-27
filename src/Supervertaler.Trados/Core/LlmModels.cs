@@ -54,6 +54,36 @@ namespace Supervertaler.Trados.Core
 
         public static readonly LlmModelInfo[] OpenAiModels =
         {
+            // GPT-5.6 family (released 9 July 2026): one generation, three
+            // durable capability tiers. Model IDs confirmed against the OpenAI
+            // model list in the account dashboard. 1.05M context, 128k max
+            // output. All three are reasoning models – they think before
+            // answering, so they get the long request timeout, and like GPT-5.5
+            // they only accept the default temperature.
+            new LlmModelInfo
+            {
+                Id = "gpt-5.6-sol", DisplayName = "GPT-5.6 Sol",
+                Description = "Premium quality – OpenAI's flagship, for complex translation and AutoPrompt. Same price as GPT-5.5 but supersedes it",
+                Provider = LlmProvider.OpenAi,
+                SupportsTemperature = false,
+                IsReasoningModel = true
+            },
+            new LlmModelInfo
+            {
+                Id = "gpt-5.6-terra", DisplayName = "GPT-5.6 Terra",
+                Description = "Balanced – GPT-5.5-class quality at half the price; a strong default for everyday translation work",
+                Provider = LlmProvider.OpenAi,
+                SupportsTemperature = false,
+                IsReasoningModel = true
+            },
+            new LlmModelInfo
+            {
+                Id = "gpt-5.6-luna", DisplayName = "GPT-5.6 Luna",
+                Description = "Fast and cheap – for high-volume batch work where cost matters more than the last few percent of quality",
+                Provider = LlmProvider.OpenAi,
+                SupportsTemperature = false,
+                IsReasoningModel = true
+            },
             new LlmModelInfo
             {
                 Id = "gpt-5.5", DisplayName = "GPT-5.5",

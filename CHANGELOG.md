@@ -7,6 +7,16 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.144 / 19.20.144] – 2026-07-27
+
+### Added (AI models · the GPT-5.6 family)
+
+- **GPT-5.6 Sol, Terra and Luna are now selectable** (Settings → AI Settings). OpenAI released this three-tier family on 9 July 2026, all with a ~1M-token context window:
+  - **Sol** – the flagship, for complex translation and AutoPrompt. **$5/$30 per million tokens: the same price as GPT-5.5, which it supersedes**, so there is no reason to stay on 5.5 for quality work.
+  - **Terra** – GPT-5.5-class quality at **$2.50/$15**, half the price. A strong everyday default.
+  - **Luna** – **$1/$6**, for high-volume batch work.
+- Pricing for all three is in the shared pricing list, so cost estimates and usage reports handle them out of the box. GPT-5.5 remains available and its prices stay listed, so existing projects and past usage logs still resolve.
+
 ## [18.20.143 / 19.20.143] – 2026-07-27
 
 ### Fixed (AI · the timeout fix now covers every GPT-5.x route)
