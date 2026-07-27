@@ -7,6 +7,14 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.135 / 19.20.135] – 2026-07-27
+
+### Changed (TermPicker · new shortcut, synonyms shown up front)
+
+- **TermPicker now opens with Alt+P** (was Ctrl+Shift+P). Ctrl+Shift+P is also Trados Studio's own *View Target*, so it appeared twice in Studio's keyboard-shortcut list and looked like a conflict. Alt+P is free. Note that Studio keeps your existing binding across plugin updates – if you had it on Ctrl+Shift+P, clear that and set Alt+P under **File > Options > Keyboard Shortcuts > Supervertaler for Trados**.
+- **TermPicker opens with every synonym group already expanded**, so a single Alt+P shows all alternative translations at a glance instead of hiding them behind collapsed markers. Left/Right still collapse and re-expand individual groups.
+- The **About** dialog's shortcut list now includes Alt+P (TermPicker) and Ctrl+Alt+V (voice commands), and its entry for *Translate active segment* is corrected to **Alt+T** – it still showed the old Ctrl+T, which was replaced in 20.119 because it collides with Trados's *Apply Translation Result*.
+
 ## [18.20.134 / 19.20.134] – 2026-07-26
 
 ### Fixed (MCP Server · tools failing with a UI-thread error) — [#44](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/44)
