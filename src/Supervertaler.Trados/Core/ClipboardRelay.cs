@@ -126,32 +126,43 @@ namespace Supervertaler.Trados.Core
             sb.AppendLine("---");
             sb.AppendLine();
 
-            // Instructions
-            sb.AppendLine("Review the following translated segments.");
-            sb.AppendLine("For each segment, respond in this format:");
+            // The batch below deliberately reuses the SAME format and the SAME
+            // numbering as the API path (ProofreadingPrompt.BuildBatchUserPrompt)
+            // and as # DOCUMENT CONTENT: [SEGMENT NNNN] with the document-absolute
+            // number.
+            //
+            // It previously emitted its own "Segment N:" list numbered 1..N over
+            // the FILTERED batch, plus a second, contradictory output-format
+            // block. Two bugs came out of that:
+            //   * the numbers drifted from the document-absolute ones as soon as
+            //     any segment was filtered out (a tag-only segment, say), so the
+            //     model's verdicts landed on the wrong segments – silently, since
+            //     the output still parsed;
+            //   * the system prompt above already specifies the output format
+            //     ([SEGMENT NNNN] / Issue: / Evidence: / Suggestion:), so a
+            //     second spec here just told the model something different, and
+            //     a model obeying the last thing it read dropped Evidence:.
+            // Both are gone: the numbering comes from seg.Index (which counts
+            // every document segment, filtered or not) and the format is defined
+            // exactly once, in the system prompt.
+            sb.AppendLine("Review the translated segments below.");
             sb.AppendLine();
-            sb.AppendLine("Segment N: OK");
-            sb.AppendLine("  (if the translation is correct)");
+            sb.AppendLine("Segment numbers are document-absolute and are NOT contiguous: segments with no");
+            sb.AppendLine("translatable content are omitted from this batch but still occupy their number.");
+            sb.AppendLine("Use the OUTPUT FORMAT defined above, and cite these same numbers in Evidence lines.");
             sb.AppendLine();
-            sb.AppendLine("Segment N: ISSUE");
-            sb.AppendLine("  Problem: [description of the issue]");
-            sb.AppendLine("  Suggestion: [corrected translation]");
+            sb.AppendLine("**SEGMENTS TO REVIEW (" + segments.Count + " segments):**");
             sb.AppendLine();
 
-            // Use short language labels for per-segment lines to save tokens
-            var srcLabel = LanguageUtils.GetBaseLanguageName(sourceLang);
-            var tgtLabel = LanguageUtils.GetBaseLanguageName(targetLang);
-
-            // Numbered bilingual segments with both source and target
-            for (int i = 0; i < segments.Count; i++)
+            foreach (var seg in segments)
             {
-                var seg = segments[i];
-
-                sb.Append("Segment ").Append(i + 1).AppendLine(":");
-                sb.Append(srcLabel).Append(": ").AppendLine(seg.SourceText);
-                sb.Append(tgtLabel).Append(": ").AppendLine(seg.ExistingTarget ?? "");
+                sb.Append("[SEGMENT ").Append((seg.Index + 1).ToString("D4")).AppendLine("]");
+                sb.Append("Source: ").AppendLine(seg.SourceText);
+                sb.Append("Target: ").AppendLine(seg.ExistingTarget ?? "");
                 sb.AppendLine();
             }
+
+            sb.Append("**YOUR REVIEW (one verdict per segment):**");
 
             return sb.ToString().TrimEnd();
         }
