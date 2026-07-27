@@ -7,6 +7,13 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.140 / 19.20.140] – 2026-07-27
+
+### Fixed (TermPicker)
+
+- **Escape now closes the term-details window** – in the docked pane and in the Alt+P popup alike. (Windows treats Escape as a dialog key, so it never reached the list; it is handled a level up now.) In the popup, a second Escape closes the picker itself. The details window also closes when you move to another row, so it can no longer describe the previous term.
+- **The top row no longer flashes when you press Alt+P.** The list was hiding its selection while the editor had focus and redrawing it on arrival; the selected row now stays visibly selected (grey when unfocused, blue when focused). The list is also double-buffered, so rebuilding it on each segment change doesn't flicker.
+
 ## [18.20.139 / 19.20.139] – 2026-07-27
 
 ### Fixed (TermPicker pane)
