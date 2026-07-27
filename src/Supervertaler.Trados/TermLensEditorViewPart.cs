@@ -127,7 +127,7 @@ namespace Supervertaler.Trados
             // floating TermLens popup. Faster than the picker dialog and
             // shows the segment in context, so Ctrl-tap is the preferred
             // primary trigger. The picker dialog is still reachable via
-            // Ctrl+Shift+P for users who want the list-based UI.
+            // Alt+P for users who want the list-based UI.
             if (_ctrlTapFilter == null)
             {
                 _ctrlTapFilter = new CtrlTapFilter(() => HandleTermLensPopup());

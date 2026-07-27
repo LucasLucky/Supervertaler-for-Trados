@@ -87,6 +87,14 @@ namespace Supervertaler.Trados.Controls
             _listView.Columns.Add(tgtColHeader, 210, HorizontalAlignment.Left);
             _listView.Columns.Add("Termbase", 130, HorizontalAlignment.Left);
 
+            // Open with every synonym group already expanded, so one Alt+P shows
+            // the full picture at a glance instead of hiding alternatives behind
+            // ▸ markers. PopulateMainRows honours _expandedParents, so seeding it
+            // here is all that's needed – Left/Right still collapse and re-expand.
+            foreach (var match in _matches)
+                if (match.GetAllTargets().Count > 1)
+                    _expandedParents.Add(match.Index);
+
             PopulateMainRows();
 
             // Restore persisted column widths (must happen after PopulateMainRows)

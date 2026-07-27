@@ -203,9 +203,13 @@ namespace Supervertaler.Trados.Controls
                 ("Alt+Up",        "Quick-add term to project termbase"),
                 ("Ctrl+Alt+T",    "Add term (dialog)"),
                 ("Ctrl+Alt+N",    "Quick-add non-translatable"),
-                ("Ctrl+T",        "Translate active segment"),
+                // Alt+T, not Ctrl+T: the default moved in 18/19.20.119 because
+                // Ctrl+T collides with Trados's own "Apply Translation Result".
+                ("Alt+T",         "Translate active segment"),
                 ("Ctrl+Alt+G",     "AutoTagger (place inline tags)"),
                 ("Ctrl (tap)",     "Show TermLens popup"),
+                ("Alt+P",          "Show TermPicker (list of matches)"),
+                ("Ctrl+Alt+V",     "Toggle voice commands"),
                 ("Alt+1\u20269",  "Insert term from TermLens panel"),
                 ("F1",            "Context-sensitive help"),
             };
