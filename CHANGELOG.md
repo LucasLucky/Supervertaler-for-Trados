@@ -7,6 +7,13 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.143 / 19.20.143] – 2026-07-27
+
+### Fixed (AI · the timeout fix now covers every GPT-5.x route)
+
+- **GPT-5.5 via OpenRouter** had the same problem as the direct OpenAI route and is now recognised as a reasoning model too.
+- **Any GPT-5.x model ID** – including one you type in yourself as a custom model, and the GPT-5.6 family – now gets the long timeout automatically, instead of only the older o-series being recognised.
+
 ## [18.20.142 / 19.20.142] – 2026-07-27
 
 ### Fixed (AI · AutoPrompt timed out on GPT-5.5 and other slow OpenAI models)
