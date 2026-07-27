@@ -7,6 +7,12 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.145 / 19.20.145] – 2026-07-27
+
+### Added (Supervertaler MCP Server · the AI can remove Trados comments too)
+
+- **New `delete_comment` tool** rounds out comment handling (read, add, edit – and now remove). It's addressed exactly like `update_comment`: call `get_comments`, then pass the segment id and the comment's index, or `all=true` to clear every comment on a segment. It removes the **whole** comment, version history included – Studio's per-version *Delete version* surgery stays in the editor, where it belongs. Like the other destructive tools, the AI is told to act only on your clear request or confirmation and to say which comment it removed; a comment marker left empty is unwrapped so no dangling annotation remains on the segment, and the change is part of the document's unsaved edits until you (or `save_document`) save.
+
 ## [18.20.144 / 19.20.144] – 2026-07-27
 
 ### Added (AI models · the GPT-5.6 family)
@@ -216,12 +222,6 @@
 
 - **Multi-word terms now match segments containing Unicode space variants.** InDesign/IDML-derived documents routinely carry a no-break space inside a phrase ("display panel" with U+00A0 instead of a plain space). TermLens's multi-word matching is an exact substring search, so a termbase entry stored with a normal space silently never matched such a segment – and because single words still matched, the miss looked like a termbase problem rather than a document quirk. Matching now folds all Unicode space variants (no-break, narrow no-break, en/em/thin/hair spaces, ideographic space) to a plain space on both the segment side and the termbase-index side – covering Supervertaler termbases, MultiTerm `.sdltb`, Studio 2026 `.ttb` and API-fallback termbases.
 - **Terms can no longer be *saved* with invisible characters.** Selecting text in the editor to add a term pair copied any no-break/zero-width characters straight into the termbase – producing an entry that looked identical to a clean one but could never match anything (a no-break space even stopped the entry being classified as a multi-word term at all). Every term/synonym write path – add, quick-add, batch add, edit, TSV import, non-translatables – now folds space variants to a plain space, strips zero-width characters (ZWSP, word joiner, BOM) and collapses runs of spaces before storage.
-
-## [18.20.116 / 19.20.116] – 2026-07-23
-
-### Added (Supervertaler MCP Server · the AI can remove Trados comments too)
-
-- **New `delete_comment` tool** rounds out comment handling (read, add, edit – and now remove). It's addressed exactly like `update_comment`: call `get_comments`, then pass the segment id and the comment's index, or `all=true` to clear every comment on a segment. It removes the **whole** comment, version history included – Studio's per-version *Delete version* surgery stays in the editor, where it belongs. Like the other destructive tools, the AI is told to act only on your clear request or confirmation and to say which comment it removed; a comment marker left empty is unwrapped so no dangling annotation remains on the segment, and the change is part of the document's unsaved edits until you (or `save_document`) save.
 
 ## [18.20.115 / 19.20.115] – 2026-07-23
 
