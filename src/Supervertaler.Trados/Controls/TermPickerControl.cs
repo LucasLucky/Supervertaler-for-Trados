@@ -23,7 +23,7 @@ namespace Supervertaler.Trados.Controls
     /// </summary>
     public class TermPickerControl : UserControl, IUIControl
     {
-        private readonly ListView _listView;
+        private readonly BufferedListView _listView;
         private readonly Label _hintLabel;
         private List<TermPickerMatch> _matches = new List<TermPickerMatch>();
 
@@ -58,7 +58,7 @@ namespace Supervertaler.Trados.Controls
 
         public TermPickerControl()
         {
-            _listView = new ListView
+            _listView = new BufferedListView
             {
                 Dock = DockStyle.Fill,
                 View = View.Details,
@@ -66,6 +66,11 @@ namespace Supervertaler.Trados.Controls
                 MultiSelect = false,
                 GridLines = true,
                 HeaderStyle = ColumnHeaderStyle.Nonclickable,
+                // Keep the selected row visibly selected while focus is
+                // elsewhere. With the default (true) the highlight vanishes
+                // when the editor has focus and snaps back on Alt+P, which
+                // reads as the top row flashing away and returning.
+                HideSelection = false,
                 Font = new Font("Segoe UI", 9.5f)
             };
             _listView.Columns.Add("#", 48, HorizontalAlignment.Right);
@@ -78,6 +83,9 @@ namespace Supervertaler.Trados.Controls
             _listView.Columns.Add("Termbase", 130, HorizontalAlignment.Left);
 
             _listView.DoubleClick += (s, e) => RaiseInsert();
+            // A details popup left open while the user arrows to another row
+            // would be describing the wrong term.
+            _listView.SelectedIndexChanged += (s, e) => TryHideInfoPopup();
             _listView.KeyDown += OnListViewKeyDown;
             BuildContextMenu();
 
@@ -397,6 +405,21 @@ namespace Supervertaler.Trados.Controls
         }
 
         /// <summary>
+        /// Escape is pre-processed by Windows as a dialog key, so it never
+        /// reaches the ListView's KeyDown. ProcessCmdKey runs on the focused
+        /// control before the host form sees the key, which lets the details
+        /// popup swallow the first Escape in BOTH surfaces: in the docked pane
+        /// nothing else happens, and in the Alt+P popup the window itself only
+        /// closes on the next press.
+        /// </summary>
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == Keys.Escape && TryHideInfoPopup())
+                return true;
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        /// <summary>
         /// Hides the details popup if it is showing. Returns true when it was
         /// visible, so callers can tell whether Escape has been "used up".
         /// </summary>
@@ -549,15 +572,6 @@ namespace Supervertaler.Trados.Controls
                     }
                 }
             }
-            else if (e.KeyCode == Keys.Escape)
-            {
-                // Escape dismisses the details popup first; in the modal popup
-                // a second Escape then closes the window itself.
-                if (TryHideInfoPopup())
-                {
-                    e.Handled = true; e.SuppressKeyPress = true;
-                }
-            }
             else if (e.KeyCode == Keys.I && !e.Alt && !e.Control && !e.Shift)
             {
                 e.Handled = true; e.SuppressKeyPress = true;
@@ -602,6 +616,21 @@ namespace Supervertaler.Trados.Controls
                         RaiseInsert();
                     return;
                 }
+            }
+        }
+
+        /// <summary>
+        /// ListView with double buffering switched on. The stock control paints
+        /// rows one by one, which flickers when the list is rebuilt on every
+        /// segment change and when the selection is redrawn on focus.
+        /// DoubleBuffered is protected, hence the subclass.
+        /// </summary>
+        private class BufferedListView : ListView
+        {
+            public BufferedListView()
+            {
+                DoubleBuffered = true;
+                SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
             }
         }
 
