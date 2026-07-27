@@ -529,6 +529,15 @@ namespace Supervertaler.Trados.Core
             var url = $"{baseUrl}/chat/completions";
             var tokens = maxTokens ?? _maxTokens;
             var timeoutMs = _isReasoningModel ? 600_000 : _defaultTimeoutMs;
+            // A big output request takes a long time whatever the model, so scale
+            // for it the same way the Claude path already does. A flat 120 s is
+            // what broke AutoPrompt: it asks for ~32k output tokens, and a slow
+            // premium model (GPT-5.5) could not finish inside it, so it failed
+            // with "The request timed out." at exactly 120.0 s while fast models
+            // fitted comfortably. Scaling on the REQUEST rather than on a
+            // per-model flag keeps this working for models released after this
+            // build, whose metadata we cannot know in advance.
+            if (tokens > 8192) timeoutMs = Math.Max(timeoutMs, 600_000);
 
             // OpenRouter passes cache_control through to Anthropic models when it's
             // expressed via the OpenAI-compatible content-array form. For OpenAI and
@@ -799,6 +808,15 @@ namespace Supervertaler.Trados.Core
             var url = $"{baseUrl}/chat/completions";
             var tokens = maxTokens ?? _maxTokens;
             var timeoutMs = _isReasoningModel ? 600_000 : _defaultTimeoutMs;
+            // A big output request takes a long time whatever the model, so scale
+            // for it the same way the Claude path already does. A flat 120 s is
+            // what broke AutoPrompt: it asks for ~32k output tokens, and a slow
+            // premium model (GPT-5.5) could not finish inside it, so it failed
+            // with "The request timed out." at exactly 120.0 s while fast models
+            // fitted comfortably. Scaling on the REQUEST rather than on a
+            // per-model flag keeps this working for models released after this
+            // build, whose metadata we cannot know in advance.
+            if (tokens > 8192) timeoutMs = Math.Max(timeoutMs, 600_000);
 
             var sb = new StringBuilder();
             sb.Append("{\"model\":").Append(JsonString(_model));
@@ -1828,6 +1846,15 @@ namespace Supervertaler.Trados.Core
             var url = $"{baseUrl}/chat/completions";
             var tokens = maxTokens ?? _maxTokens;
             var timeoutMs = _isReasoningModel ? 600_000 : _defaultTimeoutMs;
+            // A big output request takes a long time whatever the model, so scale
+            // for it the same way the Claude path already does. A flat 120 s is
+            // what broke AutoPrompt: it asks for ~32k output tokens, and a slow
+            // premium model (GPT-5.5) could not finish inside it, so it failed
+            // with "The request timed out." at exactly 120.0 s while fast models
+            // fitted comfortably. Scaling on the REQUEST rather than on a
+            // per-model flag keeps this working for models released after this
+            // build, whose metadata we cannot know in advance.
+            if (tokens > 8192) timeoutMs = Math.Max(timeoutMs, 600_000);
             const int maxToolRounds = 5;
 
             // Build mutable conversation

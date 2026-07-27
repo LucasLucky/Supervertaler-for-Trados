@@ -845,8 +845,23 @@ namespace Supervertaler.Trados
                                 $"The request timed out.\n\n" +
                                 $"Model: {capturedModel}\n" +
                                 $"Prompt size: ~{tokensEst:N0} tokens ({promptCharCount:N0} chars)\n" +
-                                $"Max output tokens: {capturedMaxTokens}" +
+                                $"Max output tokens: {capturedMaxTokens}\n\n" +
+                                $"If the model is slow or reasoning-heavy, try a faster one " +
+                                $"(e.g. GPT-5.4 Mini or Claude Sonnet 5), or send less context." +
                                 detail);
+
+                            // Always log it: an AI failure that leaves nothing in the
+                            // diagnostic log is undiagnosable from a bug report. A user
+                            // hit exactly this – a 120 s AutoPrompt timeout whose 14 MB
+                            // log contained not one line about the request.
+                            try
+                            {
+                                Core.DiagnosticLog.WriteAlways("AI",
+                                    $"request TIMED OUT: model={capturedModel} " +
+                                    $"promptChars={promptCharCount} promptTokensEst={tokensEst} " +
+                                    $"maxOutputTokens={capturedMaxTokens}");
+                            }
+                            catch { }
                         }
                     });
                 }

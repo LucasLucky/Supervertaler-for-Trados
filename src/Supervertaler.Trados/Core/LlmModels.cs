@@ -59,7 +59,12 @@ namespace Supervertaler.Trados.Core
                 Id = "gpt-5.5", DisplayName = "GPT-5.5",
                 Description = "Premium quality – OpenAI's most advanced model, ideal for AutoPrompt and complex translation tasks",
                 Provider = LlmProvider.OpenAi,
-                SupportsTemperature = false  // GPT-5.5 only accepts the default temperature
+                SupportsTemperature = false,  // GPT-5.5 only accepts the default temperature
+                // Refusing a custom temperature is the signature of the reasoning
+                // family, and the model thinks before it answers: it needs the long
+                // timeout, not the 120 s default. A user reported AutoPrompt timing
+                // out on this model at exactly 120.0 s.
+                IsReasoningModel = true
             },
             new LlmModelInfo
             {
