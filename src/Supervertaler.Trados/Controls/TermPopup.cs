@@ -35,6 +35,7 @@ namespace Supervertaler.Trados.Controls
         private readonly Timer _closeTimer;
         private bool _mouseInPopup;
         private Control _ownerChip;
+        private Rectangle _ownerAnchor;
 
         // Resize state
         private bool _isResizing;
@@ -205,13 +206,26 @@ namespace Supervertaler.Trados.Controls
         /// </summary>
         public void ShowBelow(Control chip, List<PopupLine> lines)
         {
-            if (chip == _ownerChip && Visible)
+            ShowBelow(chip, Rectangle.Empty, lines);
+        }
+
+        /// <summary>
+        /// Shows the metadata popup anchored below <paramref name="anchorScreenRect"/>
+        /// (in screen coordinates) instead of below the owner control itself.
+        /// Used by the TermPicker surfaces, where the "chip" is a ListView row
+        /// rather than a control: they pass the row's screen rectangle.
+        /// Pass Rectangle.Empty to anchor to the whole owner control (chip mode).
+        /// </summary>
+        public void ShowBelow(Control chip, Rectangle anchorScreenRect, List<PopupLine> lines)
+        {
+            if (chip == _ownerChip && Visible && anchorScreenRect == _ownerAnchor)
             {
                 CancelClose();
-                return; // already showing for this chip
+                return; // already showing for this chip/row
             }
 
             _ownerChip = chip;
+            _ownerAnchor = anchorScreenRect;
             _closeTimer.Stop();
             _mouseInPopup = false;
 
@@ -313,15 +327,23 @@ namespace Supervertaler.Trados.Controls
 
             Size = new Size(popupWidth, totalHeight);
 
-            // Position below the chip
-            var screenPos = chip.PointToScreen(new Point(0, chip.Height + 2));
+            // Position below the anchor: either an explicit screen rect (a
+            // TermPicker list row) or the owner control itself (a TermLens chip).
+            bool useRect = anchorScreenRect != Rectangle.Empty;
+            var anchorTopLeft = useRect
+                ? anchorScreenRect.Location
+                : chip.PointToScreen(Point.Empty);
+            int anchorHeight = useRect ? anchorScreenRect.Height : chip.Height;
+            var screenPos = new Point(anchorTopLeft.X, anchorTopLeft.Y + anchorHeight + 2);
 
             // Ensure popup stays on screen
             var screen = Screen.FromControl(chip).WorkingArea;
             if (screenPos.X + popupWidth > screen.Right)
                 screenPos.X = screen.Right - popupWidth;
+            if (screenPos.X < screen.Left)
+                screenPos.X = screen.Left;
             if (screenPos.Y + totalHeight > screen.Bottom)
-                screenPos.Y = chip.PointToScreen(Point.Empty).Y - totalHeight - 2;
+                screenPos.Y = anchorTopLeft.Y - totalHeight - 2;
 
             Location = screenPos;
             ResumeLayout(true);

@@ -80,7 +80,7 @@ namespace Supervertaler.Trados.Controls
             {
                 Dock = DockStyle.Bottom,
                 Height = 20,
-                Text = "Enter inserts • ←/→ collapse/expand synonyms • E edits",
+                Text = "Enter inserts • ←/→ synonyms • I info • E edit",
                 ForeColor = Color.FromArgb(120, 120, 120),
                 Font = new Font("Segoe UI", 8.5f),
                 TextAlign = ContentAlignment.MiddleLeft,
@@ -142,6 +142,10 @@ namespace Supervertaler.Trados.Controls
                 if (!string.IsNullOrEmpty(src)) _listView.Columns[1].Text = src;
                 if (!string.IsNullOrEmpty(tgt)) _listView.Columns[2].Text = tgt;
             }
+
+            // A metadata popup left over from the previous segment would be
+            // describing a row that no longer exists.
+            try { TermPopup.GetInstance().HidePopup(); } catch { }
 
             _listView.BeginUpdate();
             try
@@ -287,6 +291,44 @@ namespace Supervertaler.Trados.Controls
         }
 
         /// <summary>
+        /// Toggles the metadata popup for the selected row – the same popup and
+        /// the same content as hovering a TermLens chip or pressing 'i' in the
+        /// TermLens popup. Anchored to the row's screen rectangle, since a list
+        /// row isn't a control.
+        /// </summary>
+        public void ToggleInfoForSelected()
+        {
+            var popup = TermPopup.GetInstance();
+            if (popup.Visible)
+            {
+                popup.HidePopup();
+                return;
+            }
+
+            if (_listView.SelectedItems.Count == 0) return;
+            var row = _listView.SelectedItems[0];
+            var tag = row.Tag as RowTag;
+            var match = tag?.Match;
+            if (match?.PrimaryEntry == null) return;
+
+            var entries = match.AllEntries ?? new List<TermEntry> { match.PrimaryEntry };
+            var lines = TermBlock.BuildMetadataLines(
+                entries,
+                null,                                  // abbreviation matching is a chip concern
+                match.PrimaryEntry.Forbidden,
+                match.PrimaryEntry.IsMultiTerm,
+                match.PrimaryEntry.IsNonTranslatable);
+
+            // Anchor below the row itself
+            var rowRect = row.Bounds;
+            var screenTopLeft = _listView.PointToScreen(new Point(rowRect.Left, rowRect.Top));
+            var anchor = new Rectangle(screenTopLeft, new Size(rowRect.Width, rowRect.Height));
+
+            try { popup.ShowBelow(_listView, anchor, lines); }
+            catch { /* popup is a nicety – never break the list */ }
+        }
+
+        /// <summary>
         /// Opens the term editor for the selected row, matching the TermLens
         /// popup's 'e' key. MultiTerm entries are read-only, so they are
         /// skipped. Hosts that are modal (the Alt+P popup) close themselves
@@ -384,6 +426,11 @@ namespace Supervertaler.Trados.Controls
                         }
                     }
                 }
+            }
+            else if (e.KeyCode == Keys.I && !e.Alt && !e.Control && !e.Shift)
+            {
+                e.Handled = true; e.SuppressKeyPress = true;
+                ToggleInfoForSelected();
             }
             else if (e.KeyCode == Keys.E && !e.Alt && !e.Control && !e.Shift)
             {

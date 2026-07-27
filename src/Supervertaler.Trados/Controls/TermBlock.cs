@@ -556,6 +556,25 @@ namespace Supervertaler.Trados.Controls
         /// </summary>
         internal List<PopupLine> BuildMetadataLines()
         {
+            return BuildMetadataLines(_entries, _abbreviationMatchIds,
+                _isForbidden, _isMultiTerm, _isNonTranslatable);
+        }
+
+        /// <summary>
+        /// Same content, built from raw entries rather than from a chip – so the
+        /// TermPicker surfaces (a ListView row has no chip control) show exactly
+        /// the same metadata as a TermLens chip. One implementation, two callers.
+        /// </summary>
+        internal static List<PopupLine> BuildMetadataLines(
+            IList<TermEntry> entries, HashSet<long> abbreviationMatchIds,
+            bool isForbidden, bool isMultiTerm, bool isNonTranslatable)
+        {
+            var _entries = entries ?? new List<TermEntry>();
+            var _abbreviationMatchIds = abbreviationMatchIds ?? new HashSet<long>();
+            var _isForbidden = isForbidden;
+            var _isMultiTerm = isMultiTerm;
+            var _isNonTranslatable = isNonTranslatable;
+
             var lines = new List<PopupLine>();
             if (_isForbidden)
                 lines.Add(new PopupLine("\ud83d\udeab Forbidden \u2014 do not use", PopupLineType.Tag));

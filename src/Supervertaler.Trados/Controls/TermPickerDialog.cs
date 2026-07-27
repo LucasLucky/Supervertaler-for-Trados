@@ -80,7 +80,7 @@ namespace Supervertaler.Trados.Controls
 
             var hintLabel = new Label
             {
-                Text = "Enter inserts • ←/→ collapse/expand synonyms • E edits • Esc closes",
+                Text = "Enter inserts • ←/→ synonyms • I info • E edit • Esc closes",
                 Dock = DockStyle.Left,
                 AutoSize = true,
                 ForeColor = Color.FromArgb(120, 120, 120),
