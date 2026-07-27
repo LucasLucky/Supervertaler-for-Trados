@@ -7,6 +7,14 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.142 / 19.20.142] – 2026-07-27
+
+### Fixed (AI · AutoPrompt timed out on GPT-5.5 and other slow OpenAI models)
+
+- **AutoPrompt failed with "The request timed out." on GPT-5.5** (reported by a user; GPT-5.4 Mini worked fine on the same job). AutoPrompt asks the model for a large amount of output, and the OpenAI request paths allowed a flat two minutes for it regardless of how much was requested – where the Claude paths have always allowed ten minutes for large generations. All OpenAI paths now scale the same way, based on the size of the request rather than on a list of known-slow models, so this keeps working for models released after this build.
+- **GPT-5.5 is now recognised as a reasoning model**, so every request to it gets the longer timeout, not just large ones.
+- **AI request timeouts are now recorded in the diagnostic log**, and the error message suggests trying a faster model or sending less context. Previously a timeout left no trace in the log at all, which made it impossible to diagnose from a bug report.
+
 ## [18.20.141 / 19.20.141] – 2026-07-27
 
 ### Fixed (Batch Operations · Proofread prompt put verdicts on the wrong segments) — [#50](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/50)
