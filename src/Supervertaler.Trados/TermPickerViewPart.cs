@@ -59,6 +59,7 @@ namespace Supervertaler.Trados
         {
             _instance = this;
             EnsureControl();
+            EnsureTermLensLoaded();
             // Populate immediately: the pane is usually shown while a document
             // is already open, so waiting for the next segment change would
             // leave it blank and looking broken.
@@ -83,6 +84,26 @@ namespace Supervertaler.Trados
                 _control.ApplyColumnWidths(settings.TermPickerPaneColumnWidths);
             }
             catch { /* widths are cosmetic */ }
+        }
+
+        /// <summary>
+        /// Forces the TermLens ViewPart to initialise. Trados only runs a
+        /// ViewPart's Initialize() when its pane is first SHOWN, so a user who
+        /// keeps TermPicker visible while TermLens is collapsed to a tab had a
+        /// TermLens that was never tracking the document - and this pane, which
+        /// sources its matches from it, stayed empty until they clicked the
+        /// TermLens tab. GetController returns an uninitialised controller;
+        /// EnsureInitialized is idempotent (the same trick AppInitializer uses
+        /// to start the bridge without the Assistant pane being opened).
+        /// </summary>
+        private static void EnsureTermLensLoaded()
+        {
+            try
+            {
+                var vp = SdlTradosStudio.Application.GetController<TermLensEditorViewPart>();
+                vp?.EnsureInitialized();
+            }
+            catch { /* the pane still fills on the next segment change */ }
         }
 
         /// <summary>

@@ -80,7 +80,7 @@ namespace Supervertaler.Trados.Controls
 
             var hintLabel = new Label
             {
-                Text = "Enter inserts • ←/→ synonyms • I info • E edit • Esc closes",
+                Text = "Enter inserts • ←/→ synonyms • I info (●) • E edit • Esc closes",
                 Dock = DockStyle.Left,
                 AutoSize = true,
                 ForeColor = Color.FromArgb(120, 120, 120),
@@ -155,6 +155,9 @@ namespace Supervertaler.Trados.Controls
             // form's CancelButton mechanism gets a look-in, so handle it here.
             if (keyData == Keys.Escape)
             {
+                // First Escape dismisses the details popup if it is showing;
+                // only the next one closes this window.
+                if (TermPickerControl.TryHideInfoPopup()) return true;
                 DialogResult = DialogResult.Cancel;
                 Close();
                 return true;

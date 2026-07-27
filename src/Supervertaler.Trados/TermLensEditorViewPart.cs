@@ -118,8 +118,27 @@ namespace Supervertaler.Trados
             return _mainPanel.Value;
         }
 
+        private bool _initialized;
+
+        /// <summary>
+        /// Runs Initialize() if Trados hasn't already (it only does so when the
+        /// pane is first SHOWN). Lets the TermPicker pane guarantee that
+        /// TermLens is tracking the document even when its own pane has never
+        /// been opened – otherwise the picker sits empty until the user clicks
+        /// the TermLens tab. Idempotent: the guard also protects against Trados
+        /// calling Initialize() afterwards, which would otherwise double-wire
+        /// every event subscription.
+        /// </summary>
+        public void EnsureInitialized()
+        {
+            if (!_initialized) Initialize();
+        }
+
         protected override void Initialize()
         {
+            if (_initialized) return;
+            _initialized = true;
+
             _currentInstance = this;
             _uiThreadId = System.Threading.Thread.CurrentThread.ManagedThreadId;
 
@@ -1868,6 +1887,29 @@ namespace Supervertaler.Trados
                     }
                 }
             });
+        }
+
+        /// <summary>
+        /// Deletes a term through the same path (and confirmation) as the
+        /// TermLens chip's right-click menu. Used by the TermPicker surfaces,
+        /// which have no chip to raise the event from.
+        /// </summary>
+        public static void HandleDeleteTerm(TermEntry entry)
+        {
+            var instance = _currentInstance;
+            if (instance == null || entry == null) return;
+            instance.OnTermDeleteRequested(null, new TermEditEventArgs { Entry = entry });
+        }
+
+        /// <summary>
+        /// Toggles a term's non-translatable flag through the same path as the
+        /// TermLens chip's right-click menu. Used by the TermPicker surfaces.
+        /// </summary>
+        public static void HandleToggleNonTranslatable(TermEntry entry)
+        {
+            var instance = _currentInstance;
+            if (instance == null || entry == null) return;
+            instance.OnTermNonTranslatableToggled(null, new TermEditEventArgs { Entry = entry });
         }
 
         private void OnTermDeleteRequested(object sender, TermEditEventArgs e)

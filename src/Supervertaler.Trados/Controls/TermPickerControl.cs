@@ -69,18 +69,23 @@ namespace Supervertaler.Trados.Controls
                 Font = new Font("Segoe UI", 9.5f)
             };
             _listView.Columns.Add("#", 48, HorizontalAlignment.Right);
+            // Metadata indicator: the amber dot marks rows that have something
+            // for 'I' to show, mirroring the dot on TermLens chips. Without it
+            // there is no way to tell whether pressing I will do anything.
+            _listView.Columns.Add("", 22, HorizontalAlignment.Center);
             _listView.Columns.Add("Source", 160, HorizontalAlignment.Left);
             _listView.Columns.Add("Target", 210, HorizontalAlignment.Left);
             _listView.Columns.Add("Termbase", 130, HorizontalAlignment.Left);
 
             _listView.DoubleClick += (s, e) => RaiseInsert();
             _listView.KeyDown += OnListViewKeyDown;
+            BuildContextMenu();
 
             _hintLabel = new Label
             {
                 Dock = DockStyle.Bottom,
                 Height = 20,
-                Text = "Enter inserts • ←/→ synonyms • I info • E edit",
+                Text = "Enter inserts • ←/→ synonyms • I info (●) • E edit • right-click for more",
                 ForeColor = Color.FromArgb(120, 120, 120),
                 Font = new Font("Segoe UI", 8.5f),
                 TextAlign = ContentAlignment.MiddleLeft,
@@ -89,6 +94,80 @@ namespace Supervertaler.Trados.Controls
 
             Controls.Add(_listView);
             Controls.Add(_hintLabel);
+        }
+
+        /// <summary>
+        /// Right-click menu matching the TermLens chips: edit, toggle
+        /// non-translatable, delete. Built once; the items enable/disable
+        /// themselves for the row under the cursor (MultiTerm entries are
+        /// read-only, so they get nothing but a disabled menu).
+        /// </summary>
+        private void BuildContextMenu()
+        {
+            var menu = new ContextMenuStrip();
+            var editItem = new ToolStripMenuItem("Edit Term…");
+            var ntItem = new ToolStripMenuItem("Mark as Non-Translatable");
+            var deleteItem = new ToolStripMenuItem("Delete Term");
+
+            editItem.Click += (s, e) => EditSelected();
+            ntItem.Click += (s, e) => ToggleNonTranslatableSelected();
+            deleteItem.Click += (s, e) => DeleteSelected();
+
+            menu.Items.Add(editItem);
+            menu.Items.Add(ntItem);
+            menu.Items.Add(deleteItem);
+
+            menu.Opening += (s, e) =>
+            {
+                var entry = SelectedEntry;
+                bool editable = entry != null && !entry.IsMultiTerm;
+                editItem.Enabled = ntItem.Enabled = deleteItem.Enabled = editable;
+                ntItem.Text = entry != null && entry.IsNonTranslatable
+                    ? "Mark as Translatable"
+                    : "Mark as Non-Translatable";
+            };
+
+            // Right-clicking a row should select it first, so the menu always
+            // acts on what the user actually pointed at.
+            _listView.MouseDown += (s, e) =>
+            {
+                if (e.Button != MouseButtons.Right) return;
+                var hit = _listView.HitTest(e.Location);
+                if (hit.Item != null)
+                {
+                    hit.Item.Selected = true;
+                    hit.Item.Focused = true;
+                }
+            };
+
+            _listView.ContextMenuStrip = menu;
+        }
+
+        /// <summary>The TermEntry behind the selected row, or null.</summary>
+        private TermEntry SelectedEntry
+        {
+            get
+            {
+                if (_listView.SelectedItems.Count == 0) return null;
+                var tag = _listView.SelectedItems[0].Tag as RowTag;
+                return tag?.Match?.PrimaryEntry;
+            }
+        }
+
+        /// <summary>Toggles the non-translatable flag on the selected term.</summary>
+        public void ToggleNonTranslatableSelected()
+        {
+            var entry = SelectedEntry;
+            if (entry == null || entry.IsMultiTerm) return;
+            TermLensEditorViewPart.HandleToggleNonTranslatable(entry);
+        }
+
+        /// <summary>Deletes the selected term (with the usual confirmation).</summary>
+        public void DeleteSelected()
+        {
+            var entry = SelectedEntry;
+            if (entry == null || entry.IsMultiTerm) return;
+            TermLensEditorViewPart.HandleDeleteTerm(entry);
         }
 
         /// <summary>Hides the hint strip (the dialog shows its own with buttons).</summary>
@@ -139,8 +218,8 @@ namespace Supervertaler.Trados.Controls
             {
                 var src = _matches[0].PrimaryEntry.SourceLang;
                 var tgt = _matches[0].PrimaryEntry.TargetLang;
-                if (!string.IsNullOrEmpty(src)) _listView.Columns[1].Text = src;
-                if (!string.IsNullOrEmpty(tgt)) _listView.Columns[2].Text = tgt;
+                if (!string.IsNullOrEmpty(src)) _listView.Columns[2].Text = src;
+                if (!string.IsNullOrEmpty(tgt)) _listView.Columns[3].Text = tgt;
             }
 
             // A metadata popup left over from the previous segment would be
@@ -179,6 +258,9 @@ namespace Supervertaler.Trados.Controls
                     match.SourceText, match.PrimaryEntry.TargetTerm ?? "");
 
                 var item = new ListViewItem(indexDisplay);
+                item.UseItemStyleForSubItems = false;   // lets the dot be amber
+                var metaCell = item.SubItems.Add(HasMetadata(match) ? "●" : "");
+                metaCell.ForeColor = Color.FromArgb(230, 160, 40);
                 item.SubItems.Add(match.SourceText);
                 item.SubItems.Add(adaptedTarget);
                 item.SubItems.Add(match.PrimaryEntry.TermbaseName ?? "");
@@ -227,6 +309,7 @@ namespace Supervertaler.Trados.Controls
                     match.SourceText, option.TargetTerm);
 
                 var subItem = new ListViewItem("");
+                subItem.SubItems.Add("");                    // indicator column
                 subItem.SubItems.Add("    └ " + match.SourceText);
                 subItem.SubItems.Add(adaptedOption);
                 subItem.SubItems.Add(option.TermbaseName ?? "");
@@ -265,6 +348,29 @@ namespace Supervertaler.Trados.Controls
             }
         }
 
+        /// <summary>
+        /// True when any entry behind this row has something for 'I' to show -
+        /// a definition, domain, notes or URL. Synonyms deliberately don't
+        /// count: they are already visible as sub-rows.
+        /// </summary>
+        private static bool HasMetadata(TermPickerMatch match)
+        {
+            var entries = match?.AllEntries;
+            if ((entries == null || entries.Count == 0) && match?.PrimaryEntry != null)
+                entries = new List<TermEntry> { match.PrimaryEntry };
+            if (entries == null) return false;
+
+            foreach (var entry in entries)
+            {
+                if (entry == null) continue;
+                if (!string.IsNullOrWhiteSpace(entry.Definition)) return true;
+                if (!string.IsNullOrWhiteSpace(entry.Domain)) return true;
+                if (!string.IsNullOrWhiteSpace(entry.Notes)) return true;
+                if (!string.IsNullOrWhiteSpace(entry.Url)) return true;
+            }
+            return false;
+        }
+
         private TermPickerMatch FindMatch(int index)
         {
             foreach (var m in _matches)
@@ -288,6 +394,22 @@ namespace Supervertaler.Trados.Controls
                 _expandedParents.Add(parentIndex);
                 AddSubItems(match);
             }
+        }
+
+        /// <summary>
+        /// Hides the details popup if it is showing. Returns true when it was
+        /// visible, so callers can tell whether Escape has been "used up".
+        /// </summary>
+        public static bool TryHideInfoPopup()
+        {
+            try
+            {
+                var popup = TermPopup.GetInstance();
+                if (!popup.Visible) return false;
+                popup.HidePopup();
+                return true;
+            }
+            catch { return false; }
         }
 
         /// <summary>
@@ -425,6 +547,15 @@ namespace Supervertaler.Trados.Controls
                             }
                         }
                     }
+                }
+            }
+            else if (e.KeyCode == Keys.Escape)
+            {
+                // Escape dismisses the details popup first; in the modal popup
+                // a second Escape then closes the window itself.
+                if (TryHideInfoPopup())
+                {
+                    e.Handled = true; e.SuppressKeyPress = true;
                 }
             }
             else if (e.KeyCode == Keys.I && !e.Alt && !e.Control && !e.Shift)
