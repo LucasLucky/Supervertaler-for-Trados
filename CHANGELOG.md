@@ -7,6 +7,12 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.138 / 19.20.138] – 2026-07-27
+
+### Added (TermPicker · press I for term details)
+
+- **Pressing `I` on a row in TermPicker shows the term's metadata** – the same popup, with the same content, as hovering a TermLens chip: forbidden / MultiTerm / non-translatable tags, and for every entry its synonyms, definition, domain, notes and URL. Press `I` again to dismiss it. Works in both the Alt+P popup and the dockable pane, and matches the `I` key that the TermLens popup has always had. TermPicker's keyboard set is now: arrows to navigate, ←/→ to collapse/expand synonyms, a term number to jump, **I** for details, **E** to edit, Enter to insert (and Esc to close the popup).
+
 ## [18.20.137 / 19.20.137] – 2026-07-27
 
 ### Changed (TermPicker pane · polish from first use)
