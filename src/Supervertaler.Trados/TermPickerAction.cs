@@ -19,8 +19,8 @@ namespace Supervertaler.Trados
     /// No context menu entry – keyboard-only.
     /// </summary>
     [Action("TermLens_TermPicker", typeof(EditorController),
-        Name = "TermLens: Pick term to insert",
-        Description = "Open a dialog to browse and insert matched terms")]
+        Name = "TermLens: Show TermPicker popup",
+        Description = "Show all matched terms for this segment as a list, with synonyms expanded; Enter inserts")]
     [Shortcut(Keys.Alt | Keys.P)]
     public class TermPickerAction : AbstractAction
     {
