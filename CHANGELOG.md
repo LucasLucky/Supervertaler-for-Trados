@@ -7,6 +7,13 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.141 / 19.20.141] – 2026-07-27
+
+### Fixed (Batch Operations · Proofread prompt put verdicts on the wrong segments) — [#50](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/50)
+
+- **The clipboard Proofread prompt numbered its review list from 1 instead of using the real segment numbers**, so as soon as any segment was skipped – a tag-only segment, for instance – every number after it was wrong, and the AI's verdicts were reported against the wrong segments. Nothing looked amiss: the output was well-formed and only a manual comparison revealed the drift. Found on a real 949-segment job where three tag-only segments pushed 826 of 946 verdicts three segments out of place. The batch now uses the same `[SEGMENT NNNN]` document numbers as the document-context block (and as the API path, which was never affected), and states that the numbers are deliberately non-contiguous.
+- **The prompt also specified its output format twice, in two different ways** (`[SEGMENT 0002] ISSUE` with `Issue:`/`Evidence:`/`Suggestion:` versus `Segment 2: ISSUE` with `Problem:`/`Suggestion:`). A model following the second one dropped the evidence citations the first one asks for. The format is now defined once.
+
 ## [18.20.140 / 19.20.140] – 2026-07-27
 
 ### Fixed (TermPicker)
