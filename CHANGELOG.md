@@ -7,6 +7,15 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.139 / 19.20.139] – 2026-07-27
+
+### Fixed (TermPicker pane)
+
+- **The pane no longer starts empty.** If you kept TermPicker visible with the TermLens panel collapsed to a tab, the pane stayed blank until you clicked that tab: Studio only starts a panel when it is first shown, so TermLens wasn't yet following the document that the picker takes its matches from. The pane now starts TermLens itself, so it is populated the moment you open it.
+- **You can now see which terms have details.** Rows whose term carries a definition, domain, notes or a URL are marked with an amber dot – the same signal the TermLens chips give – so it's clear when pressing `I` will show you something.
+- **Escape closes the details popup** (previously it stayed on screen). In the Alt+P popup, a second Escape then closes the picker itself.
+- **The right-click menu is back**: Edit Term, Mark as Non-Translatable and Delete Term, matching the TermLens chips. It acts on the row you right-click, and is disabled for MultiTerm entries, which are read-only.
+
 ## [18.20.138 / 19.20.138] – 2026-07-27
 
 ### Added (TermPicker · press I for term details)
