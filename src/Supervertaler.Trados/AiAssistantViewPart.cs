@@ -974,6 +974,7 @@ namespace Supervertaler.Trados
                     getComments: BridgeGetComments,
                     addComment: BridgeAddComment,
                     updateComment: BridgeUpdateComment,
+                    deleteComment: BridgeDeleteComment,
                     runVerification: BridgeRunVerification,
                     findReplace: BridgeFindReplace,
                     runTask: BridgeRunTask,
@@ -3077,6 +3078,154 @@ namespace Supervertaler.Trados
             {
                 return new BridgeResultResponse { Ok = false, Error = "update comment failed: " + ex.Message };
             }
+        }
+
+        /// <summary>
+        /// Bridge delegate for POST /v1/delete-comment (MCP delete_comment).
+        /// Removes a whole comment from a segment – addressed exactly like
+        /// update_comment (segment id + the commentIndex from get_comments), or
+        /// all of them with all=true. Studio's per-comment version history goes
+        /// with the comment; version-level surgery stays in the UI. When a
+        /// comment marker is left with no comments, the marker itself is
+        /// unwrapped so no empty annotation lingers on the segment.
+        /// </summary>
+        private BridgeResultResponse BridgeDeleteComment(BridgeDeleteCommentRequest req)
+        {
+            var ctrl = _control?.Value;
+            if (ctrl == null || ctrl.IsDisposed)
+                return new BridgeResultResponse { Ok = false, Error = "ai assistant disposed" };
+            if (ctrl.InvokeRequired)
+                return (BridgeResultResponse)ctrl.Invoke(new Func<BridgeResultResponse>(() => BridgeDeleteComment(req)));
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BridgeDeleteComment(req));
+
+            if (_activeDocument == null)
+                return new BridgeResultResponse { Ok = false, Error = "no document is open in the Trados editor" };
+            if (req == null)
+                return new BridgeResultResponse { Ok = false, Error = "missing request body" };
+            if (!req.All && req.CommentIndex < 0)
+                return new BridgeResultResponse
+                {
+                    Ok = false,
+                    Error = "missing 'commentIndex' – call get_comments for the segment's comment list, " +
+                            "or pass all=true to remove every comment on the segment"
+                };
+
+            try
+            {
+                string error;
+                var pair = ResolveBridgeSegment(req.Id, null, null, out error);
+                if (pair == null)
+                    return new BridgeResultResponse { Ok = false, Error = error };
+
+                string failure = null;
+                int removed = 0;
+                _activeDocument.ProcessSegmentPair(pair, "Supervertaler MCP",
+                    (sp, cancel) =>
+                    {
+                        var comments = EnumerateSegmentComments(sp);
+                        if (!req.All && req.CommentIndex >= comments.Count)
+                        {
+                            failure = $"comment index {req.CommentIndex} out of range – this segment has " +
+                                      $"{comments.Count} comment(s); call get_comments first";
+                            return;
+                        }
+                        if (comments.Count == 0)
+                        {
+                            failure = "this segment has no comments";
+                            return;
+                        }
+
+                        // Same enumeration order as get_comments/update_comment,
+                        // so indices line up across all three tools.
+                        var target = req.All ? null : comments[req.CommentIndex];
+                        removed = RemoveCommentObjects(sp.Source, target)
+                                + RemoveCommentObjects(sp.Target, target);
+                    });
+
+                if (removed == 0)
+                    return new BridgeResultResponse { Ok = false, Error = failure ?? "comment not removed" };
+                return new BridgeResultResponse
+                {
+                    Ok = true,
+                    Note = (req.All ? $"Removed all {removed} comment(s) from the segment. "
+                                    : "Comment removed. ") +
+                           "Part of the document's unsaved changes until the user saves (save_document)."
+                };
+            }
+            catch (Exception ex)
+            {
+                return new BridgeResultResponse { Ok = false, Error = "delete comment failed: " + ex.Message };
+            }
+        }
+
+        /// <summary>
+        /// Removes <paramref name="target"/> (or every comment when it is null)
+        /// from the comment markers under <paramref name="container"/>. A marker
+        /// left with no comments is unwrapped: its children are spliced into the
+        /// parent so the text survives without a dangling annotation. Returns how
+        /// many comments were removed.
+        /// </summary>
+        private static int RemoveCommentObjects(IAbstractMarkupDataContainer container,
+            Sdl.FileTypeSupport.Framework.NativeApi.IComment target)
+        {
+            if (container == null) return 0;
+            int removed = 0;
+
+            // Snapshot first – the collection is mutated while walking it.
+            var items = new List<IAbstractMarkupData>();
+            foreach (var item in container) items.Add(item);
+
+            foreach (var item in items)
+            {
+                if (item is ICommentMarker marker)
+                {
+                    try
+                    {
+                        // ICommentProperties exposes Delete(IComment) – collect the
+                        // victims first, then delete (the collection is live).
+                        var props = marker.Comments;
+                        var doomed = new List<Sdl.FileTypeSupport.Framework.NativeApi.IComment>();
+                        for (int i = 0; i < (props?.Count ?? 0); i++)
+                        {
+                            var c = props.GetItem(i);
+                            if (c == null) continue;
+                            if (target == null || ReferenceEquals(c, target))
+                                doomed.Add(c);
+                        }
+                        foreach (var c in doomed)
+                        {
+                            props.Delete(c);
+                            removed++;
+                        }
+                    }
+                    catch { }
+
+                    // Recurse before possibly unwrapping this marker.
+                    removed += RemoveCommentObjects(marker, target);
+
+                    try
+                    {
+                        if ((marker.Comments?.Count ?? 0) == 0)
+                        {
+                            // Move the marker's children up into the parent, then drop it.
+                            var children = new List<IAbstractMarkupData>();
+                            foreach (var child in marker) children.Add(child);
+                            var index = container.IndexOf(marker);
+                            foreach (var child in children) child.RemoveFromParent();
+                            marker.RemoveFromParent();
+                            for (int i = 0; i < children.Count; i++)
+                                container.Insert(index + i, children[i]);
+                        }
+                    }
+                    catch { /* leave the (now comment-less) marker in place */ }
+                }
+                else if (item is IAbstractMarkupDataContainer nested)
+                {
+                    removed += RemoveCommentObjects(nested, target);
+                }
+            }
+            return removed;
         }
 
         /// <summary>

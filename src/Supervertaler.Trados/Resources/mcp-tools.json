@@ -767,6 +767,35 @@
       "fixedBody": {}
     },
     {
+      "name": "delete_comment",
+      "description": "Delete a Trados comment from a segment. Call get_comments first and pass the segment 'id' plus the 'commentIndex' from that list (same addressing as update_comment), or pass all=true to remove every comment on the segment. This removes the WHOLE comment including its version history - Studio's per-version 'Delete version' surgery is not exposed here, do that in the editor. DESTRUCTIVE: only call it when the user clearly asked to remove the comment (or confirmed your suggestion), and say which comment you removed. The change is part of the document's unsaved edits until save_document.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "Segment id (\"<paragraphUnitId>:<segmentId>\") from get_comments or get_segments.",
+            "type": "string"
+          },
+          "commentIndex": {
+            "description": "Index of the comment in the segment's list from get_comments (0-based). Omit when all=true.",
+            "type": "integer"
+          },
+          "all": {
+            "description": "Remove every comment on this segment instead of a single one.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "method": "POST",
+      "path": "/v1/delete-comment",
+      "paramMap": {},
+      "fixedQuery": {},
+      "fixedBody": {}
+    },
+    {
       "name": "save_document",
       "description": "Save the document currently open in the Trados editor - the same as the user pressing Ctrl+S (saves all files of a merged document). Use it (a) when the user asks to save, or (b) right before a batch task / export that reads the last-saved state, after telling the user you're saving. Do NOT save silently after every edit: AI-written translations land as Draft precisely so the user can review before anything is persisted - saving is the user's decision, you just no longer have to send them to Studio to do it.",
       "inputSchema": {

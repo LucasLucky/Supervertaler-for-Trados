@@ -596,6 +596,17 @@ namespace Supervertaler.Trados.Core
     }
 
     [DataContract]
+    public class BridgeDeleteCommentRequest
+    {
+        [DataMember(Name = "id", IsRequired = true)] public string Id { get; set; }
+        /// <summary>Comment index as returned by /v1/comments for this segment.
+        /// Omit (or -1) together with all=true to remove every comment.</summary>
+        [DataMember(Name = "commentIndex")] public int CommentIndex { get; set; } = -1;
+        /// <summary>Remove every comment on the segment instead of one.</summary>
+        [DataMember(Name = "all")] public bool All { get; set; }
+    }
+
+    [DataContract]
     public class BridgeVerifyFinding
     {
         [DataMember(Name = "file", Order = 0, EmitDefaultValue = false)] public string File { get; set; }
@@ -812,6 +823,7 @@ namespace Supervertaler.Trados.Core
         private readonly Func<string, BridgeCommentsResponse> _getComments;
         private readonly Func<BridgeAddCommentRequest, BridgeResultResponse> _addComment;
         private readonly Func<BridgeUpdateCommentRequest, BridgeResultResponse> _updateComment;
+        private readonly Func<BridgeDeleteCommentRequest, BridgeResultResponse> _deleteComment;
         private readonly Func<BridgeVerifyResponse> _runVerification;
         private readonly Func<BridgeFindReplaceRequest, BridgeFindReplaceResponse> _findReplace;
         private readonly Func<BridgeRunTaskRequest, BridgeRunTaskResponse> _runTask;
@@ -883,6 +895,7 @@ namespace Supervertaler.Trados.Core
             Func<string, BridgeCommentsResponse> getComments = null,
             Func<BridgeAddCommentRequest, BridgeResultResponse> addComment = null,
             Func<BridgeUpdateCommentRequest, BridgeResultResponse> updateComment = null,
+            Func<BridgeDeleteCommentRequest, BridgeResultResponse> deleteComment = null,
             Func<BridgeVerifyResponse> runVerification = null,
             Func<BridgeFindReplaceRequest, BridgeFindReplaceResponse> findReplace = null,
             Func<BridgeRunTaskRequest, BridgeRunTaskResponse> runTask = null,
@@ -908,6 +921,7 @@ namespace Supervertaler.Trados.Core
             _getComments = getComments;
             _addComment = addComment;
             _updateComment = updateComment;
+            _deleteComment = deleteComment;
             _runVerification = runVerification;
             _findReplace = findReplace;
             _runTask = runTask;
@@ -1221,6 +1235,12 @@ namespace Supervertaler.Trados.Core
             if (method == "POST" && path == "/v1/update-comment")
             {
                 HandleDelegatePost<BridgeUpdateCommentRequest>(context, _updateComment, "update-comment");
+                return;
+            }
+
+            if (method == "POST" && path == "/v1/delete-comment")
+            {
+                HandleDelegatePost<BridgeDeleteCommentRequest>(context, _deleteComment, "delete-comment");
                 return;
             }
 
