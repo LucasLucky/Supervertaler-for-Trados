@@ -38,6 +38,13 @@ namespace Supervertaler.Trados.Controls
         /// <summary>Raised when the user chooses a term (Enter, double-click, digit).</summary>
         public event EventHandler<TermPickerInsertEventArgs> InsertRequested;
 
+        /// <summary>
+        /// Raised when the user presses 'e' to edit the selected term. Only the
+        /// modal popup subscribes (so it can close before the editor opens); when
+        /// nobody subscribes, the control opens the editor itself.
+        /// </summary>
+        public event EventHandler<TermPickerEditEventArgs> EditRequested;
+
         /// <summary>The target text of the currently selected row, or null.</summary>
         public string SelectedTargetTerm
         {
@@ -73,7 +80,7 @@ namespace Supervertaler.Trados.Controls
             {
                 Dock = DockStyle.Bottom,
                 Height = 20,
-                Text = "Enter to insert • Right/Left expands/collapses synonyms",
+                Text = "Enter inserts • ←/→ collapse/expand synonyms • E edits",
                 ForeColor = Color.FromArgb(120, 120, 120),
                 Font = new Font("Segoe UI", 8.5f),
                 TextAlign = ContentAlignment.MiddleLeft,
@@ -175,7 +182,8 @@ namespace Supervertaler.Trados.Controls
                 {
                     IsSubItem = false,
                     ParentIndex = match.Index,
-                    TargetTerm = adaptedTarget
+                    TargetTerm = adaptedTarget,
+                    Match = match
                 };
 
                 if (match.PrimaryEntry.IsNonTranslatable) item.BackColor = NonTranslatableBg;
@@ -222,7 +230,8 @@ namespace Supervertaler.Trados.Controls
                 {
                     IsSubItem = true,
                     ParentIndex = match.Index,
-                    TargetTerm = adaptedOption
+                    TargetTerm = adaptedOption,
+                    Match = match
                 };
                 subItem.BackColor = SubItemBg;
                 subItem.ForeColor = Color.FromArgb(60, 60, 60);
@@ -275,6 +284,34 @@ namespace Supervertaler.Trados.Controls
                 _expandedParents.Add(parentIndex);
                 AddSubItems(match);
             }
+        }
+
+        /// <summary>
+        /// Opens the term editor for the selected row, matching the TermLens
+        /// popup's 'e' key. MultiTerm entries are read-only, so they are
+        /// skipped. Hosts that are modal (the Alt+P popup) close themselves
+        /// via <see cref="EditRequested"/> before the editor opens.
+        /// </summary>
+        public void EditSelected()
+        {
+            if (_listView.SelectedItems.Count == 0) return;
+            var tag = _listView.SelectedItems[0].Tag as RowTag;
+            var match = tag?.Match;
+            var entry = match?.PrimaryEntry;
+            if (entry == null || entry.IsMultiTerm) return;
+
+            var handler = EditRequested;
+            if (handler != null)
+            {
+                handler(this, new TermPickerEditEventArgs
+                {
+                    Entry = entry,
+                    AllEntries = match.AllEntries
+                });
+                return;
+            }
+
+            TermLensEditorViewPart.HandleEditCurrentTerm(entry, match.AllEntries);
         }
 
         private void RaiseInsert()
@@ -348,6 +385,11 @@ namespace Supervertaler.Trados.Controls
                     }
                 }
             }
+            else if (e.KeyCode == Keys.E && !e.Alt && !e.Control && !e.Shift)
+            {
+                e.Handled = true; e.SuppressKeyPress = true;
+                EditSelected();
+            }
             else if ((e.KeyCode >= Keys.D0 && e.KeyCode <= Keys.D9
                       || e.KeyCode >= Keys.NumPad0 && e.KeyCode <= Keys.NumPad9)
                      && !e.Alt && !e.Control)
@@ -390,11 +432,19 @@ namespace Supervertaler.Trados.Controls
             public bool IsSubItem { get; set; }
             public int ParentIndex { get; set; }
             public string TargetTerm { get; set; }
+            /// <summary>The match this row belongs to – lets 'e' open the term editor.</summary>
+            public TermPickerMatch Match { get; set; }
         }
     }
 
     public class TermPickerInsertEventArgs : EventArgs
     {
         public string TargetTerm { get; set; }
+    }
+
+    public class TermPickerEditEventArgs : EventArgs
+    {
+        public TermEntry Entry { get; set; }
+        public List<TermEntry> AllEntries { get; set; }
     }
 }

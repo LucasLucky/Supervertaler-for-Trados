@@ -25,6 +25,10 @@ namespace Supervertaler.Trados.Controls
         /// <summary>The target term the user chose, or null if cancelled.</summary>
         public string SelectedTargetTerm { get; private set; }
 
+        // Set when the user pressed 'e'; the editor is opened after this form
+        // has closed (see OnFormClosed).
+        private TermPickerEditEventArgs _pendingEdit;
+
         public TermPickerDialog(List<TermPickerMatch> matches, TermLensSettings settings = null)
         {
             Icon = IconHelper.AppIcon;
@@ -56,6 +60,14 @@ namespace Supervertaler.Trados.Controls
                 DialogResult = DialogResult.OK;
                 Close();
             };
+            // 'e' must close this modal popup BEFORE the term editor opens –
+            // otherwise the editor appears behind it and looks frozen.
+            _picker.EditRequested += (s2, e2) =>
+            {
+                _pendingEdit = e2;
+                DialogResult = DialogResult.Cancel;
+                Close();
+            };
             _picker.LoadMatches(matches);
             _picker.ApplyColumnWidths(_settings?.TermPickerColumnWidths);
 
@@ -68,7 +80,7 @@ namespace Supervertaler.Trados.Controls
 
             var hintLabel = new Label
             {
-                Text = "Enter to insert • Right/Left expands/collapses synonyms",
+                Text = "Enter inserts • ←/→ collapse/expand synonyms • E edits • Esc closes",
                 Dock = DockStyle.Left,
                 AutoSize = true,
                 ForeColor = Color.FromArgb(120, 120, 120),
@@ -128,8 +140,25 @@ namespace Supervertaler.Trados.Controls
             base.OnFormClosing(e);
         }
 
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            base.OnFormClosed(e);
+            var edit = _pendingEdit;
+            _pendingEdit = null;
+            if (edit?.Entry != null)
+                TermLensEditorViewPart.HandleEditCurrentTerm(edit.Entry, edit.AllEntries);
+        }
+
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
+            // Escape closes the popup. The ListView swallows it before the
+            // form's CancelButton mechanism gets a look-in, so handle it here.
+            if (keyData == Keys.Escape)
+            {
+                DialogResult = DialogResult.Cancel;
+                Close();
+                return true;
+            }
             if (keyData == Keys.F1)
             {
                 HelpSystem.OpenHelp(HelpSystem.Topics.TermPickerDialog);

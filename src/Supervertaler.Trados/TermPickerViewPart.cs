@@ -22,11 +22,15 @@ namespace Supervertaler.Trados
     ///   TermLens          TermLens panel     Ctrl tap
     ///   TermPicker        THIS pane          Alt+P
     ///
-    /// Alt+P deliberately still opens the popup even when this pane is visible
-    /// (mirroring TermLens, where Ctrl-tap works regardless of the docked panel).
+    /// Alt+P prefers this pane when it is visible – it moves the keyboard into
+    /// the list rather than covering it with a modal popup (see TryFocusPane).
+    /// With the pane closed, Alt+P opens the popup exactly as before.
     ///
-    /// Not pinned by default: Trados always registers the ViewPart, but nobody's
-    /// existing layout changes on update – the user opens it from the View tab.
+    /// Pinned so that opening it from the View tab gives a permanently visible
+    /// pane. Unpinned it arrives auto-hidden – it slides in and straight back
+    /// out again, which reads as a glitch. Trados remembers wherever the user
+    /// drags it afterwards (Michael's layout: Translation Results top-right,
+    /// this pane below it).
     ///
     /// Refresh is driven by TermLensEditorViewPart (which already recomputes
     /// matches on every segment change) calling <see cref="RefreshIfOpen"/>, so
@@ -39,7 +43,7 @@ namespace Supervertaler.Trados
         Description = "Matched terms for the current segment as a list",
         Icon = "TermLensIcon"
     )]
-    [ViewPartLayout(typeof(EditorController), Dock = DockType.Right, Pinned = false)]
+    [ViewPartLayout(typeof(EditorController), Dock = DockType.Right, Pinned = true)]
     public class TermPickerViewPart : AbstractViewPartController
     {
         private static TermPickerControl _control;
@@ -105,6 +109,27 @@ namespace Supervertaler.Trados
             {
                 // Document may be mid-transition – the next segment change retries
             }
+        }
+
+        /// <summary>
+        /// Focuses the docked pane if it is open and visible, returning true.
+        /// TermPickerAction calls this first: with the pane in view, Alt+P moves
+        /// the keyboard into it (arrows / Right-Left / digits / Enter / E all
+        /// work there) instead of covering it with a modal popup. When the pane
+        /// isn't in the layout, this returns false and the popup opens as before.
+        /// </summary>
+        public static bool TryFocusPane()
+        {
+            var ctrl = _control;
+            if (ctrl == null || ctrl.IsDisposed || !ctrl.IsHandleCreated || !ctrl.Visible)
+                return false;
+            try
+            {
+                _instance?.Activate();   // un-collapse / bring the pane forward
+                ctrl.FocusList();
+                return true;
+            }
+            catch { return false; }
         }
 
         /// <summary>Persists the pane's column widths (called on shutdown).</summary>

@@ -32,6 +32,11 @@ namespace Supervertaler.Trados
                 return;
             }
 
+            // With the dockable pane in the layout, Alt+P moves focus there
+            // rather than covering it with a modal popup; otherwise it opens
+            // the popup as usual.
+            if (TermPickerViewPart.TryFocusPane()) return;
+
             TermLensEditorViewPart.HandleTermPicker();
         }
     }
