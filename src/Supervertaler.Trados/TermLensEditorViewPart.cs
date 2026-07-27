@@ -1730,7 +1730,13 @@ namespace Supervertaler.Trados
                     }
                 }
 
-                SafeInvoke(() => _control.Value.UpdateSegment(sourceText));
+                SafeInvoke(() =>
+                {
+                    _control.Value.UpdateSegment(sourceText);
+                    // Keep the dockable TermPicker pane in step with the panel.
+                    // No-op unless the user has actually opened that pane.
+                    try { TermPickerViewPart.RefreshIfOpen(); } catch { }
+                });
             }
             catch (Exception)
             {
@@ -2432,6 +2438,25 @@ namespace Supervertaler.Trados
         }
 
         /// <summary>
+        /// Inserts text at the cursor in the active target segment, through the
+        /// same path as the TermLens chips (so the origin shows as "TermLens").
+        /// Used by the dockable TermPicker pane.
+        /// </summary>
+        public static void InsertTargetText(string text)
+        {
+            var instance = _currentInstance;
+            if (instance?._activeDocument == null || string.IsNullOrEmpty(text)) return;
+            try
+            {
+                instance._activeDocument.Selection.Target.Replace(text, "TermLens");
+            }
+            catch (Exception)
+            {
+                // Editor may not allow insertion at this moment
+            }
+        }
+
+        /// <summary>
         /// Voice-command navigation: moves the active segment forward/backward
         /// by one, without confirming. Enumerates SegmentPairs to find the
         /// active pair's neighbour (same pattern as the AI assistant's
@@ -2915,6 +2940,10 @@ namespace Supervertaler.Trados
         {
             // Save per-project settings before shutting down
             SaveCurrentProjectSettings();
+
+            // Persist the dockable TermPicker pane's column widths (no-op when
+            // the pane was never opened).
+            try { TermPickerViewPart.SaveState(); } catch { }
 
             if (_currentInstance == this)
                 _currentInstance = null;

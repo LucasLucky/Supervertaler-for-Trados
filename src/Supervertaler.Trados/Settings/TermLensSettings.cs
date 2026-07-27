@@ -222,6 +222,14 @@ namespace Supervertaler.Trados.Settings
             set => _adaptTermCasing = value;
         }
 
+        /// <summary>
+        /// Column widths of the dockable TermPicker pane. Kept separate from
+        /// TermPickerColumnWidths (the Alt+P popup): the pane is usually much
+        /// narrower, so sharing one set of widths would fight the user.
+        /// </summary>
+        [DataMember(Name = "termPickerPaneColumnWidths")]
+        public List<int> TermPickerPaneColumnWidths { get; set; }
+
         // ─── Voice commands ──────────────────────────────────────────
         /// <summary>
         /// Remembered position of the floating voice status strip (the
