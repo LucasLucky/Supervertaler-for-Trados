@@ -235,53 +235,84 @@ namespace Supervertaler.Trados.Core
             var sb = new StringBuilder(4096);
             sb.AppendLine("# KNOWLEDGE BASE");
             sb.AppendLine();
-            sb.AppendLine("The following context comes from your SuperMemory knowledge base.");
-            sb.AppendLine("Use this information to inform your translations and terminology choices.");
-            sb.AppendLine("Knowledge base decisions take priority over general assumptions.");
+            sb.AppendLine("The following context comes from the translator's SuperMemory knowledge base:");
+            sb.AppendLine("the reasoning behind their past decisions.");
+            sb.AppendLine();
+            sb.AppendLine("Client-specific decisions – house style, approved terms, wordings a client has");
+            sb.AppendLine("previously rejected – take priority over general convention. You cannot derive");
+            sb.AppendLine("them, and getting them wrong is a real error.");
+            sb.AppendLine();
+            sb.AppendLine("Entries marked UNVERIFIED are an earlier leaning that was recorded but never");
+            sb.AppendLine("checked. Treat them as a hint, not an instruction: where your own judgement of");
+            sb.AppendLine("correct usage disagrees with an unverified entry, follow your judgement.");
 
-            if (!string.IsNullOrWhiteSpace(ctx.ClientProfileText))
-            {
-                sb.AppendLine();
-                sb.AppendLine("## Client Profile" +
-                    (string.IsNullOrEmpty(ctx.ClientName) ? "" : ": " + ctx.ClientName));
-                sb.AppendLine();
-                sb.AppendLine(ctx.ClientProfileText.Trim());
-            }
-
-            if (!string.IsNullOrWhiteSpace(ctx.DomainArticleText))
-            {
-                sb.AppendLine();
-                sb.AppendLine("## Domain Knowledge" +
-                    (string.IsNullOrEmpty(ctx.DomainName) ? "" : ": " + ctx.DomainName));
-                sb.AppendLine();
-                sb.AppendLine(ctx.DomainArticleText.Trim());
-            }
-
-            if (!string.IsNullOrWhiteSpace(ctx.StyleGuideText))
-            {
-                sb.AppendLine();
-                sb.AppendLine("## Style Guide");
-                sb.AppendLine();
-                sb.AppendLine(ctx.StyleGuideText.Trim());
-            }
+            AppendSection(sb, "Client Profile", ctx.ClientName, ctx.ClientProfileText);
+            AppendSection(sb, "Domain Knowledge", ctx.DomainName, ctx.DomainArticleText);
+            AppendSection(sb, "Style Guide", null, ctx.StyleGuideText);
 
             if (ctx.TerminologyArticles.Count > 0)
             {
                 sb.AppendLine();
                 sb.AppendLine("## Terminology Decisions");
                 sb.AppendLine();
-                sb.AppendLine("These terms have been specifically chosen with reasoning. " +
-                    "Follow them exactly – rejected alternatives are listed so you know what to avoid.");
+                sb.AppendLine("These terms have been chosen with reasoning. Follow the verified ones " +
+                    "exactly – rejected alternatives are listed so you know what to avoid. " +
+                    "UNVERIFIED entries are unconfirmed suggestions, not rules.");
                 sb.AppendLine();
 
                 foreach (var article in ctx.TerminologyArticles)
                 {
+                    AppendUnverifiedMarker(sb, article);
                     sb.AppendLine(article.Trim());
                     sb.AppendLine();
                 }
             }
 
             return sb.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// Confidence values that mean "this has not been checked". An article
+        /// that says <c>confidence: low</c>, or flags itself as a stub, must not
+        /// outrank the model's own judgement – it is usually a Quick Add note
+        /// whose body was never completed. A MISSING confidence field is left
+        /// authoritative: most older articles predate the field, and silently
+        /// demoting all of them would gut the bank.
+        /// </summary>
+        private static bool IsUnverified(string articleText)
+        {
+            if (string.IsNullOrWhiteSpace(articleText)) return false;
+
+            var fm = ParseFrontmatter(articleText);
+            string stub;
+            if (fm.TryGetValue("stub", out stub) &&
+                stub.Trim().Equals("true", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            string confidence;
+            if (!fm.TryGetValue("confidence", out confidence)) return false;
+
+            confidence = (confidence ?? "").Trim();
+            return confidence.Equals("low", StringComparison.OrdinalIgnoreCase)
+                || confidence.Equals("draft", StringComparison.OrdinalIgnoreCase)
+                || confidence.Equals("unverified", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void AppendUnverifiedMarker(StringBuilder sb, string articleText)
+        {
+            if (IsUnverified(articleText))
+                sb.AppendLine("> UNVERIFIED – recorded but never checked. Weigh it; do not obey it.");
+        }
+
+        private static void AppendSection(StringBuilder sb, string heading, string name, string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return;
+
+            sb.AppendLine();
+            sb.AppendLine("## " + heading + (string.IsNullOrEmpty(name) ? "" : ": " + name));
+            sb.AppendLine();
+            AppendUnverifiedMarker(sb, text);
+            sb.AppendLine(text.Trim());
         }
 
         // ─── Private helpers ─────────────────────────────────────────

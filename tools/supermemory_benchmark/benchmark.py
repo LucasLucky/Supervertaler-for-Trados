@@ -157,12 +157,58 @@ def parse_frontmatter(text):
     return fm
 
 
-def load_term_pairs(bank_dir):
-    """(source, target) pairs the bank has an opinion about."""
-    pairs = []
+# Display names as Trados reports them ("Dutch (Netherlands)") mapped to the
+# base codes the bank uses ("nl-BE"). Base code only: region is kept in the
+# data but never matched on, so an nl-BE note applies to an nl-NL project.
+LANG_BASE = {
+    "dutch": "nl", "english": "en", "german": "de", "french": "fr",
+    "spanish": "es", "italian": "it", "portuguese": "pt", "polish": "pl",
+    "czech": "cs", "swedish": "sv", "danish": "da", "norwegian": "no",
+    "finnish": "fi", "chinese": "zh", "japanese": "ja", "korean": "ko",
+    "russian": "ru", "turkish": "tr", "arabic": "ar", "greek": "el",
+    "hungarian": "hu", "romanian": "ro", "bulgarian": "bg", "croatian": "hr",
+    "slovak": "sk", "slovenian": "sl", "estonian": "et", "latvian": "lv",
+    "lithuanian": "lt", "ukrainian": "uk", "hebrew": "he", "hindi": "hi",
+}
+
+
+def base_lang(value):
+    """'Dutch (Netherlands)' -> 'nl'; 'nl-BE' -> 'nl'. None if unrecognised."""
+    if not value:
+        return None
+    v = value.strip().lower()
+    head = re.split(r"[\s(]", v)[0]
+    if head in LANG_BASE:
+        return LANG_BASE[head]
+    m = re.match(r"([a-z]{2,3})(?:[-_].*)?$", head)
+    return m.group(1) if m else None
+
+
+def note_direction(fm):
+    """(source_base, target_base) for a term note, from either schema."""
+    s = base_lang(fm.get("source_lang"))
+    t = base_lang(fm.get("target_lang"))
+    if s and t:
+        return s, t
+    pair = fm.get("language_pair") or fm.get("languages") or ""
+    parts = re.split(r"->|\u2192|>", pair)
+    if len(parts) == 2:
+        return base_lang(parts[0]), base_lang(parts[1])
+    return None, None
+
+
+def load_term_pairs(bank_dir, src_base=None, tgt_base=None):
+    """(pairs, skipped) - the bank's term decisions for THIS direction.
+
+    Without the filter the bank's EN->NL notes (CAUTION -> VOORZICHTIG,
+    claim -> conclusie) get applied to an NL->EN job. That is how the first
+    run scored 0/4: almost nothing applicable, and what applied pointed the
+    wrong way.
+    """
+    pairs, skipped_dir = [], 0
     tdir = Path(bank_dir) / "02_TERMINOLOGY"
     if not tdir.is_dir():
-        return pairs
+        return pairs, 0
     for f in sorted(tdir.glob("*.md")):
         if f.name.startswith("_EXAMPLE_"):
             continue
@@ -170,13 +216,19 @@ def load_term_pairs(bank_dir):
             fm = parse_frontmatter(f.read_text(encoding="utf-8", errors="replace"))
         except Exception:
             continue
+        if src_base and tgt_base:
+            ns, nt = note_direction(fm)
+            # Keep notes that state no direction; drop ones stating the wrong one.
+            if ns and nt and not (ns == src_base and nt == tgt_base):
+                skipped_dir += 1
+                continue
         src, tgt = fm.get("term_source"), fm.get("term_target")
         # Skip context-dependent decisions ("divider (machinery) / distributor
         # (sales)") - they cannot be scored by string matching without knowing
         # which sense applies, and guessing would fabricate a result.
         if src and tgt and "/" not in tgt and "(" not in tgt:
             pairs.append((src.strip(), tgt.strip()))
-    return pairs
+    return pairs, skipped_dir
 
 
 def term_compliance(source, candidate, pairs):
@@ -306,6 +358,10 @@ def main():
     ap.add_argument("--out", default="benchmark-report", help="output basename")
     ap.add_argument("--dry-run", action="store_true", help="check wiring, make no API calls")
     ap.add_argument("--yes", action="store_true", help="proceed without the cost prompt")
+    ap.add_argument("--repeats", type=int, default=1,
+                    help="runs per arm, averaged per segment (default 1). The first "
+                         "benchmark showed the identical no-bank condition drifting "
+                         "0.02 between runs, larger than the effect. Use 3+ for a verdict.")
     ap.add_argument("--temperature", type=float, default=None,
                     help="send an explicit temperature. Omitted by default: newer models "
                          "reject the parameter. Both arms are always sampled identically.")
@@ -368,11 +424,13 @@ def main():
     bank_root = bridge_get(base, token, "/v1/supermemory-banks")
     active = next((b for b in bank_root.get("banks", []) if b.get("active")), None)
     bank_dir = Path(bank_root.get("root", "")) / (active or {}).get("name", "")
-    pairs = load_term_pairs(bank_dir)
-    print(f"Scoreable term decisions in bank: {len(pairs)}")
+    src_base, tgt_base = base_lang(src_lang), base_lang(tgt_lang)
+    pairs, skipped_dir = load_term_pairs(bank_dir, src_base, tgt_base)
+    print(f"Scoreable term decisions for {src_base}->{tgt_base}: {len(pairs)}"
+          + (f"  ({skipped_dir} skipped as wrong-direction)" if skipped_dir else ""))
 
-    est_in = (len(segments) / args.batch_size) * (len(kb or "") / 3.5 + 400) * 2
-    est_out = len(segments) * 60 * 2
+    est_in = (len(segments) / args.batch_size) * (len(kb or "") / 3.5 + 400) * 2 * args.repeats
+    est_out = len(segments) * 60 * 2 * args.repeats
     est = est_in / 1e6 * PRICE_IN + est_out / 1e6 * PRICE_OUT
     print(f"\nEstimated cost: ~${est:.2f} ({args.model}, both arms)")
 
@@ -388,20 +446,49 @@ def main():
     sys_with = build_system(src_lang, tgt_lang, kb)
     sys_without = build_system(src_lang, tgt_lang, None)
 
-    print("\nArm A: WITHOUT memory bank")
-    without, i1, o1 = translate_all(os.environ["ANTHROPIC_API_KEY"], args.model,
-                                    sys_without, segments, args.batch_size, "without", args.verbose, args.temperature)
-    print("Arm B: WITH memory bank")
-    withkb, i2, o2 = translate_all(os.environ["ANTHROPIC_API_KEY"], args.model,
-                                   sys_with, segments, args.batch_size, "with", args.verbose, args.temperature)
+    key = os.environ["ANTHROPIC_API_KEY"]
+    runs_wo, runs_kb = [], []
+    i1 = o1 = i2 = o2 = 0
+    for rep in range(args.repeats):
+        tag = f" (repeat {rep + 1}/{args.repeats})" if args.repeats > 1 else ""
+        print(f"\nArm A: WITHOUT memory bank{tag}")
+        r, a, b = translate_all(key, args.model, sys_without, segments,
+                                args.batch_size, "without", args.verbose, args.temperature)
+        runs_wo.append(r); i1 += a; o1 += b
+        print(f"Arm B: WITH memory bank{tag}")
+        r, a, b = translate_all(key, args.model, sys_with, segments,
+                                args.batch_size, "with", args.verbose, args.temperature)
+        runs_kb.append(r); i2 += a; o2 += b
+
+    # Per-repeat baseline means are a direct read of the noise floor: if these
+    # scatter as much as the with/without gap, the gap is not a result.
+    baselines = []
+    for r in runs_wo:
+        vals = [edit_rate(c, s["reference"]) for c, s in zip(r, segments) if c]
+        vals = [v for v in vals if v is not None]
+        if vals:
+            baselines.append(sum(vals) / len(vals))
+    if len(baselines) > 1:
+        print("\nNo-bank baseline per repeat: "
+              + ", ".join(f"{x:.4f}" for x in baselines)
+              + f"  (spread {max(baselines) - min(baselines):.4f})")
+
+    def mean_of(runs, idx):
+        vals = [edit_rate(run[idx], segments[idx]["reference"]) for run in runs if run[idx]]
+        vals = [v for v in vals if v is not None]
+        return (sum(vals) / len(vals)) if vals else None
+
+    without = [next((run[i] for run in runs_wo if run[i]), None) for i in range(len(segments))]
+    withkb = [next((run[i] for run in runs_kb if run[i]), None) for i in range(len(segments))]
 
     # ── score (a segment must succeed in BOTH arms to count) ─────────
     rows, deltas = [], []
     tc_with = tc_without = tc_total = 0
-    for seg, a, b in zip(segments, without, withkb):
+    for idx, (seg, a, b) in enumerate(zip(segments, without, withkb)):
         if not a or not b:
             continue
-        ra, rb = edit_rate(a, seg["reference"]), edit_rate(b, seg["reference"])
+        # Averaged across repeats, so one unlucky sample cannot decide a segment.
+        ra, rb = mean_of(runs_wo, idx), mean_of(runs_kb, idx)
         if ra is None or rb is None:
             continue
         hw, ap = term_compliance(seg["source"], b, pairs)
@@ -462,6 +549,10 @@ def main():
         f.write(f"- Model: `{args.model}`"
                 + (f", temperature {args.temperature}\n" if args.temperature is not None
                    else ", default sampling (both arms identical)\n"))
+        f.write(f"- Repeats per arm: {args.repeats}"
+                + ((" (no-bank baseline per repeat: "
+                    + ", ".join(f"{x:.4f}" for x in baselines) + ")\n")
+                   if len(baselines) > 1 else "\n"))
         f.write(f"- Segments scored: {len(rows)}"
                 + (f" ({skipped_tm} 100% TM matches excluded)\n" if skipped_tm else "\n"))
         f.write(f"- Bank: `{sm.get('bank')}`, domain `{sm.get('domain')}`, "
