@@ -38,6 +38,7 @@ import json
 import os
 import random
 import re
+import subprocess
 import sys
 import time
 import urllib.error
@@ -84,7 +85,37 @@ def discover_bridge():
     hs = json.loads(path.read_text(encoding="utf-8"))
     if not hs.get("port") or not hs.get("token"):
         sys.exit(f"Bridge handshake at {path} is malformed.")
+
+    # A handshake file outlives the Studio session that wrote it, so a stale one
+    # points at a dead port and every call fails with a bare connection-refused.
+    # BridgeClient.cs checks this; so do we, and say what to actually do about it.
+    if not pid_alive(hs.get("pid", 0)):
+        sys.exit(
+            f"Stale bridge handshake at {path}\n"
+            f"  It was written by process {hs.get('pid')} at {hs.get('startedAt')}, "
+            "which is no longer running.\n"
+            "  Trados Studio may be open, but the Supervertaler bridge only starts once the "
+            "plugin initialises.\n"
+            "  Open a project document in the EDITOR view, then run this again."
+        )
     return f"http://127.0.0.1:{hs['port']}", hs["token"]
+
+
+def pid_alive(pid):
+    if not pid or pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                                 capture_output=True, text=True, timeout=15).stdout
+            return str(pid) in out
+        except Exception:
+            return True  # can't tell - let the HTTP call be the judge
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
 
 
 def bridge_get(base, token, path, params=None):
