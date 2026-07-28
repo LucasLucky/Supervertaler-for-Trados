@@ -1582,6 +1582,27 @@ namespace Supervertaler.Trados.Core
             return lower.StartsWith("gpt-5");
         }
 
+        /// <summary>
+        /// True when the model refuses function tools combined with reasoning on
+        /// /v1/chat/completions. GPT-5.6 rejects the combination outright:
+        /// "Function tools with reasoning_effort are not supported for
+        /// gpt-5.6-sol in /v1/chat/completions. To use function tools, use
+        /// /v1/responses or set reasoning_effort to 'none'."
+        ///
+        /// We never send reasoning_effort ourselves – the API's own default for
+        /// these models triggers it – so the tool-calling path has to opt out
+        /// explicitly. ONLY that path is affected: translation, proofreading and
+        /// AutoPrompt send no tools and keep the model's full reasoning.
+        /// Substring match so OpenRouter-style ids ("openai/gpt-5.6-sol") are
+        /// covered too. GPT-5.5 and earlier accept tools with reasoning and are
+        /// deliberately left alone.
+        /// </summary>
+        private static bool RequiresReasoningEffortNoneWithTools(string model)
+        {
+            if (string.IsNullOrEmpty(model)) return false;
+            return model.ToLowerInvariant().Contains("gpt-5.6");
+        }
+
         private int GetOllamaTimeout()
         {
             if (_ollamaTimeoutMinutes > 0)
@@ -1938,6 +1959,12 @@ namespace Supervertaler.Trados.Core
 
                 // Tools
                 sb.Append(",\"tools\":").Append(toolDefinitionsJson);
+
+                // GPT-5.6 refuses tools together with reasoning on this endpoint,
+                // and applies a reasoning default of its own, so opt out here or
+                // every tool-using chat 400s. See the helper for the full story.
+                if (RequiresReasoningEffortNoneWithTools(_model))
+                    sb.Append(",\"reasoning_effort\":\"none\"");
 
                 if (UsesMaxCompletionTokens(_model))
                 {

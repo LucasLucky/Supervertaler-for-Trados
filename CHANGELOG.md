@@ -7,6 +7,12 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.146 / 19.20.146] – 2026-07-28
+
+### Fixed (AI Assistant · GPT-5.6 failed instantly in chat)
+
+- **Any GPT-5.6 model (Sol, Terra, Luna) returned an immediate error in the AI Assistant chat**: *"Function tools with reasoning_effort are not supported for gpt-5.6-sol in /v1/chat/completions"*. The chat gives the model tools so it can look things up in your project – and OpenAI does not allow that combination with reasoning on this endpoint, applying a reasoning setting of its own that the request never asked for. The chat request now opts out of reasoning explicitly, so GPT-5.6 works there again. Translation, proofreading and AutoPrompt were never affected – they send no tools and keep the model's full reasoning. GPT-5.5 and earlier are unchanged. (Reported by Sascha Franse, Elycio Tekst & Vertaling.)
+
 ## [18.20.145 / 19.20.145] – 2026-07-27
 
 ### Added (Supervertaler MCP Server · the AI can remove Trados comments too)
