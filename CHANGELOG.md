@@ -11,7 +11,8 @@
 
 ### Fixed (AI Assistant · GPT-5.6 failed instantly in chat)
 
-- **Any GPT-5.6 model (Sol, Terra, Luna) returned an immediate error in the AI Assistant chat**: *"Function tools with reasoning_effort are not supported for gpt-5.6-sol in /v1/chat/completions"*. The chat gives the model tools so it can look things up in your project – and OpenAI does not allow that combination with reasoning on this endpoint, applying a reasoning setting of its own that the request never asked for. The chat request now opts out of reasoning explicitly, so GPT-5.6 works there again. Translation, proofreading and AutoPrompt were never affected – they send no tools and keep the model's full reasoning. GPT-5.5 and earlier are unchanged. (Reported by Sascha Franse, Elycio Tekst & Vertaling.)
+- **Any GPT-5.6 model (Sol, Terra, Luna) returned an immediate error in the Supervertaler Assistant chat**: *"Function tools with reasoning_effort are not supported for gpt-5.6-sol in /v1/chat/completions"*. The chat gives the model tools so it can look things up in your project (projects, statistics, TMs, termbases) – and OpenAI does not allow that combination with reasoning on this endpoint, applying a reasoning setting of its own that the request never asked for. The chat request now opts out of reasoning explicitly, so GPT-5.6 works there again.
+- **This covered everything that runs through the Assistant chat** – your own messages, **AutoPrompt**, and QuickLauncher prompts sent to the Assistant – since they all submit through the same chat. **Batch Translate and Batch Proofread were never affected**: they send no tools, so GPT-5.6 keeps its full reasoning exactly where it matters most for translation quality. GPT-5.5 and earlier are unchanged throughout. (Reported by Sascha Franse, Elycio Tekst & Vertaling.)
 
 ## [18.20.145 / 19.20.145] – 2026-07-27
 
