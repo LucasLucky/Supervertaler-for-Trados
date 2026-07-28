@@ -4743,7 +4743,16 @@ namespace Supervertaler.Trados
                 };
             }
 
-            var budget = query != null && query.TokenBudget > 0 ? query.TokenBudget : 24000;
+            // Deliberately smaller than the 24k the in-Trados chat uses. There
+            // the block is injected into a system prompt: it happens once and
+            // is thrown away. Here it is a tool RESULT, so it lands in the
+            // client's conversation and is re-sent on every following turn –
+            // a 24k-token answer ate a large slice of the window on the first
+            // call. Callers that genuinely want the lot can pass tokenBudget.
+            const int mcpDefaultTokenBudget = 6000;
+            var budget = query != null && query.TokenBudget > 0
+                ? query.TokenBudget
+                : mcpDefaultTokenBudget;
             var domain = !string.IsNullOrWhiteSpace(query?.Domain) ? query.Domain : DetectDocumentDomain();
 
             var ctx = reader.LoadContext(

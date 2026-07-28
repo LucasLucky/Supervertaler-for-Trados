@@ -997,7 +997,7 @@
             "default": null
           },
           "tokenBudget": {
-            "description": "Optional cap on how much bank content to load (default 24000 tokens, the same budget the in-Trados chat uses).",
+            "description": "Optional cap on how much bank content to load. Defaults to 6000 tokens, which keeps the result a sensible size for a chat conversation; raise it (up to 100000) when you want the fuller picture.",
             "type": [
               "integer",
               "null"
