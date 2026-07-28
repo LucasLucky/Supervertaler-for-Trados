@@ -11,19 +11,18 @@ namespace Supervertaler.Trados.Controls
     ///   "open"  — no buttons; a large free-text box IS the answer, with a Send
     ///             button (for questions that aren't answerable Yes/No).
     ///
-    /// The question text comes from the Surveys admin dashboard, typed in by
-    /// hand for each new question, so its length can't be known or constrained
-    /// in advance – a short one-liner today, a two-sentence question next time.
-    /// Every label that carries variable-length text therefore auto-sizes to a
-    /// fixed width and reports its own measured height, and everything below it
-    /// is positioned relative to that (Bottom-chained), with the form's final
-    /// height computed from the lowest control rather than hardcoded. A label
-    /// that participates in this chain has its Font set explicitly, even where
-    /// it would otherwise just inherit the Form's – PreferredSize is measured
-    /// using whatever Font is set on the control at that moment, and these
-    /// labels are read (.Bottom / .Right) before they are ever added to the
-    /// Form, so an inherited "ambient" font would still measure against the
-    /// wrong one (Control.DefaultFont) and throw the chained layout off.
+    /// LAYOUT: the question text is typed into the Surveys admin dashboard by
+    /// hand for each new question, so its length is unknown at build time – a
+    /// one-liner today, three wrapped lines tomorrow. Two earlier attempts at
+    /// this failed: fixed Size clipped long text, and hand-computing positions
+    /// from AutoSize .Bottom values overlapped controls, because measured sizes
+    /// and hardcoded pixel offsets are scaled differently by the DPI auto-scale
+    /// pass that runs *after* the constructor.
+    ///
+    /// So there are no computed coordinates here at all. A TableLayoutPanel with
+    /// AutoSize rows stacks the controls and measures them itself, after scaling,
+    /// and the Form's AutoSize follows the panel. Nothing in this file should
+    /// ever go back to assigning Location or a literal ClientSize.
     ///
     /// Closing without answering is fine — the copy says so, and an unanswered
     /// close leaves Answer = "ignored".
@@ -42,17 +41,14 @@ namespace Supervertaler.Trados.Controls
         private readonly TextBox _txtComment;
         private readonly CheckBox _chkDontAsk;
 
-        private const int EdgeMargin = 20;
+        /// <summary>Width available to content inside the panel's padding.</summary>
         private const int ContentWidth = 430;
-        private static readonly Font BodyFont = new Font("Segoe UI", 9F);
 
         public SurveyDialog(string question, string yesLabel, string noLabel, string kind = "yesno")
         {
             bool isOpen = (kind == "open");
 
             Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
-            // Let WinForms scale by system DPI so the dialog doesn't squish at
-            // >100% Windows display scaling (same approach as UsageStatisticsDialog).
             AutoScaleMode = AutoScaleMode.Dpi;
             SuspendLayout();
 
@@ -62,10 +58,13 @@ namespace Supervertaler.Trados.Controls
             MaximizeBox = false;
             MinimizeBox = false;
             ShowInTaskbar = false;
-            Font = BodyFont;
+            Font = new Font("Segoe UI", 9F);
             KeyPreview = true;
 
-            // Esc closes as an ignore (does not count as an answer).
+            // The form sizes itself to whatever the panel ends up needing.
+            AutoSize = true;
+            AutoSizeMode = AutoSizeMode.GrowAndShrink;
+
             KeyDown += (s, e) =>
             {
                 if (e.KeyCode == Keys.Escape)
@@ -75,14 +74,24 @@ namespace Supervertaler.Trados.Controls
                 }
             };
 
+            var root = new TableLayoutPanel
+            {
+                ColumnCount = 1,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Dock = DockStyle.Fill,
+                Padding = new Padding(20, 16, 20, 16),
+                GrowStyle = TableLayoutPanelGrowStyle.AddRows
+            };
+            root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, ContentWidth));
+
             var lblIntro = new Label
             {
                 Text = "Sorry to bother you – a quick question about Supervertaler development.",
-                Font = BodyFont,
                 ForeColor = Color.FromArgb(90, 90, 90),
                 AutoSize = true,
                 MaximumSize = new Size(ContentWidth, 0),
-                Location = new Point(EdgeMargin, 16)
+                Margin = new Padding(0, 0, 0, 10)
             };
 
             var lblQuestion = new Label
@@ -92,55 +101,70 @@ namespace Supervertaler.Trados.Controls
                 ForeColor = Color.FromArgb(30, 30, 30),
                 AutoSize = true,
                 MaximumSize = new Size(ContentWidth, 0),
-                Location = new Point(EdgeMargin, lblIntro.Bottom + 10)
+                Margin = new Padding(0, 0, 0, 14)
             };
-
-            int y = lblQuestion.Bottom + 16;
 
             var lblComment = new Label
             {
                 Text = isOpen ? "Your answer:" : "Anything to add? (optional)",
-                Font = BodyFont,
                 ForeColor = Color.FromArgb(90, 90, 90),
-                AutoSize = true
+                AutoSize = true,
+                Margin = new Padding(0, 0, 0, 4)
             };
 
             _txtComment = new TextBox
             {
                 Multiline = true,
                 ScrollBars = ScrollBars.Vertical,
-                AcceptsReturn = true
+                AcceptsReturn = true,
+                Width = ContentWidth,
+                Height = isOpen ? 96 : 72,
+                Margin = new Padding(0, 0, 0, 12)
             };
 
             _chkDontAsk = new CheckBox
             {
                 Text = "Don't ask again",
-                Font = BodyFont,
                 AutoSize = true,
-                ForeColor = Color.FromArgb(90, 90, 90)
+                ForeColor = Color.FromArgb(90, 90, 90),
+                Margin = new Padding(0, 0, 12, 0),
+                Anchor = AnchorStyles.Left
             };
 
             var lblIgnore = new Label
             {
                 Text = "Feel free to just ignore this and close it.",
-                Font = BodyFont,
                 AutoSize = true,
-                ForeColor = Color.FromArgb(150, 150, 150)
+                ForeColor = Color.FromArgb(150, 150, 150),
+                Margin = new Padding(0, 3, 0, 0),
+                Anchor = AnchorStyles.Left
             };
+
+            // Bottom row: checkbox + hint side by side, in their own auto-sized
+            // flow so neither can overlap the other however long the text is.
+            var footer = new FlowLayoutPanel
+            {
+                FlowDirection = FlowDirection.LeftToRight,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                WrapContents = false,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
+            footer.Controls.Add(_chkDontAsk);
+            footer.Controls.Add(lblIgnore);
+
+            root.Controls.Add(lblIntro);
+            root.Controls.Add(lblQuestion);
 
             if (isOpen)
             {
-                // Open mode: the big text box is the answer; a Send button submits.
-                lblComment.Location = new Point(EdgeMargin, y);
-                _txtComment.Location = new Point(EdgeMargin, lblComment.Bottom + 4);
-                _txtComment.Size = new Size(ContentWidth, 96);
-
                 var btnSend = new Button
                 {
                     Text = "Send",
-                    Location = new Point(EdgeMargin, _txtComment.Bottom + 12),
                     Size = new Size(150, 32),
-                    FlatStyle = FlatStyle.System
+                    FlatStyle = FlatStyle.System,
+                    Margin = new Padding(0, 0, 0, 12)
                 };
                 btnSend.Click += (s, e) =>
                 {
@@ -149,54 +173,59 @@ namespace Supervertaler.Trados.Controls
                     DialogResult = DialogResult.OK;
                 };
 
-                _chkDontAsk.Location = new Point(EdgeMargin, btnSend.Bottom + 12);
-                lblIgnore.Location = new Point(_chkDontAsk.Right + 10, _chkDontAsk.Top + 2);
-
-                ClientSize = new Size(470, _chkDontAsk.Bottom + 20);
-                Controls.AddRange(new Control[]
-                {
-                    lblIntro, lblQuestion, lblComment, _txtComment, btnSend, _chkDontAsk, lblIgnore
-                });
+                root.Controls.Add(lblComment);
+                root.Controls.Add(_txtComment);
+                root.Controls.Add(btnSend);
             }
             else
             {
-                // Yes/No mode: buttons, then an optional comment box. 200px-wide
-                // buttons (vs. the original 150px) give a longer Yes/No label –
-                // also admin-typed, also unpredictable in length – more room
-                // before it has to wrap; if it wraps anyway, the Button control
-                // grows text onto a second line on its own rather than clipping.
+                // Yes/No labels are admin-typed too, so the buttons auto-size to
+                // their text rather than being pinned to a guessed width.
+                var buttons = new FlowLayoutPanel
+                {
+                    FlowDirection = FlowDirection.LeftToRight,
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    WrapContents = true,
+                    MaximumSize = new Size(ContentWidth, 0),
+                    Margin = new Padding(0, 0, 0, 14),
+                    Padding = new Padding(0)
+                };
+
                 var btnYes = new Button
                 {
                     Text = string.IsNullOrEmpty(yesLabel) ? "Yes" : yesLabel,
-                    Location = new Point(EdgeMargin, y),
-                    Size = new Size(200, 36),
-                    FlatStyle = FlatStyle.System
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    MinimumSize = new Size(120, 32),
+                    MaximumSize = new Size(ContentWidth, 0),
+                    FlatStyle = FlatStyle.System,
+                    Margin = new Padding(0, 0, 10, 0)
                 };
                 btnYes.Click += (s, e) => { Answer = "yes"; DialogResult = DialogResult.OK; };
 
                 var btnNo = new Button
                 {
                     Text = string.IsNullOrEmpty(noLabel) ? "No" : noLabel,
-                    Location = new Point(EdgeMargin + 210, y),
-                    Size = new Size(200, 36),
-                    FlatStyle = FlatStyle.System
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    MinimumSize = new Size(120, 32),
+                    MaximumSize = new Size(ContentWidth, 0),
+                    FlatStyle = FlatStyle.System,
+                    Margin = new Padding(0)
                 };
                 btnNo.Click += (s, e) => { Answer = "no"; DialogResult = DialogResult.OK; };
 
-                int afterButtons = Math.Max(btnYes.Bottom, btnNo.Bottom) + 16;
-                lblComment.Location = new Point(EdgeMargin, afterButtons);
-                _txtComment.Location = new Point(EdgeMargin, lblComment.Bottom + 4);
-                _txtComment.Size = new Size(ContentWidth, 72);
+                buttons.Controls.Add(btnYes);
+                buttons.Controls.Add(btnNo);
 
-                _chkDontAsk.Location = new Point(EdgeMargin, _txtComment.Bottom + 12);
-                lblIgnore.Location = new Point(_chkDontAsk.Right + 10, _chkDontAsk.Top + 2);
-
-                ClientSize = new Size(470, _chkDontAsk.Bottom + 20);
-                Controls.AddRange(new Control[]
-                {
-                    lblIntro, lblQuestion, btnYes, btnNo, lblComment, _txtComment, _chkDontAsk, lblIgnore
-                });
+                root.Controls.Add(buttons);
+                root.Controls.Add(lblComment);
+                root.Controls.Add(_txtComment);
             }
+
+            root.Controls.Add(footer);
+            Controls.Add(root);
 
             ResumeLayout(false);
             PerformLayout();
