@@ -13,17 +13,27 @@ namespace Supervertaler.Trados.Controls
     /// and closing it by any means – the link, "Got it", Esc, or the window's
     /// close button – dismisses it for good.
     ///
+    /// LAYOUT: laid out with a TableLayoutPanel and Margins, with no computed
+    /// coordinates and no literal ClientSize, for the same reason as
+    /// <see cref="SurveyDialog"/> – users have every combination of resolution,
+    /// DPI and system font size, and a layout built from hardcoded pixel
+    /// positions can only be verified on the machine it was written on. Rows
+    /// auto-size and the Form follows them, so measurement happens after the
+    /// DPI auto-scale pass rather than being frozen in beforehand. Message text
+    /// is a compile-time constant today, but sizing to it costs nothing and
+    /// means a longer notice later cannot silently clip.
+    ///
     /// Deliberately generic so future one-off announcements (e.g. a References
     /// feature launch) reuse this rather than growing a new dialog each time.
     /// </summary>
     internal sealed class AnnouncementDialog : Form
     {
+        private const int ContentWidth = 430;
+
         public AnnouncementDialog(string introText, string messageText, string linkUrl, string linkLabel,
             string closeLabel = "Got it")
         {
             Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
-            // Same DPI-scaling approach as SurveyDialog / UsageStatisticsDialog, so
-            // the dialog doesn't squish at >100% Windows display scaling.
             AutoScaleMode = AutoScaleMode.Dpi;
             SuspendLayout();
 
@@ -36,36 +46,53 @@ namespace Supervertaler.Trados.Controls
             Font = new Font("Segoe UI", 9F);
             KeyPreview = true;
 
+            AutoSize = true;
+            AutoSizeMode = AutoSizeMode.GrowAndShrink;
+
             KeyDown += (s, e) =>
             {
                 if (e.KeyCode == Keys.Escape)
                     DialogResult = DialogResult.Cancel;
             };
 
+            var root = new TableLayoutPanel
+            {
+                ColumnCount = 1,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Dock = DockStyle.Fill,
+                Padding = new Padding(20, 16, 20, 16),
+                GrowStyle = TableLayoutPanelGrowStyle.AddRows
+            };
+            root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, ContentWidth));
+
             var lblIntro = new Label
             {
                 Text = introText ?? "",
-                Location = new Point(20, 16),
-                Size = new Size(430, 20),
-                ForeColor = Color.FromArgb(90, 90, 90)
+                ForeColor = Color.FromArgb(90, 90, 90),
+                AutoSize = true,
+                MaximumSize = new Size(ContentWidth, 0),
+                Margin = new Padding(0, 0, 0, 8)
             };
 
             var lblMessage = new Label
             {
                 Text = messageText ?? "",
-                Location = new Point(20, 44),
-                Size = new Size(430, 96),
                 Font = new Font("Segoe UI", 10F),
-                ForeColor = Color.FromArgb(30, 30, 30)
+                ForeColor = Color.FromArgb(30, 30, 30),
+                AutoSize = true,
+                MaximumSize = new Size(ContentWidth, 0),
+                Margin = new Padding(0, 0, 0, 12)
             };
 
             var lnkRead = new LinkLabel
             {
                 Text = string.IsNullOrEmpty(linkLabel) ? "Read more" : linkLabel,
-                Location = new Point(20, 148),
                 AutoSize = true,
+                MaximumSize = new Size(ContentWidth, 0),
                 Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
-                LinkColor = Color.FromArgb(0, 102, 204)
+                LinkColor = Color.FromArgb(0, 102, 204),
+                Margin = new Padding(0, 0, 0, 14)
             };
             lnkRead.Click += (s, e) =>
             {
@@ -83,14 +110,20 @@ namespace Supervertaler.Trados.Controls
             var btnClose = new Button
             {
                 Text = string.IsNullOrEmpty(closeLabel) ? "Got it" : closeLabel,
-                Location = new Point(20, 184),
-                Size = new Size(150, 32),
-                FlatStyle = FlatStyle.System
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                MinimumSize = new Size(150, 32),
+                MaximumSize = new Size(ContentWidth, 0),
+                FlatStyle = FlatStyle.System,
+                Margin = new Padding(0)
             };
             btnClose.Click += (s, e) => DialogResult = DialogResult.OK;
 
-            ClientSize = new Size(470, 236);
-            Controls.AddRange(new Control[] { lblIntro, lblMessage, lnkRead, btnClose });
+            root.Controls.Add(lblIntro);
+            root.Controls.Add(lblMessage);
+            root.Controls.Add(lnkRead);
+            root.Controls.Add(btnClose);
+            Controls.Add(root);
 
             ResumeLayout(false);
             PerformLayout();
