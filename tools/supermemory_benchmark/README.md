@@ -51,7 +51,7 @@ On the first project this was run against (a Dutch→English patent application)
 - **100% TM matches are excluded by default.** Those come from the TM regardless of what the model does, and would dilute the signal. `--include-tm-matches` overrides.
 - **Short segments are skipped** (`--min-words`, default 6). Edit rate on a three-word segment is mostly noise.
 - **A segment must parse in both arms to be scored**, so a dropped line never advantages one side.
-- **Temperature 0**, so re-runs are comparable.
+- **No explicit temperature.** Newer models reject the parameter outright (`temperature is deprecated for this model`), so it is omitted unless you pass `--temperature`. Both arms are always sampled identically, which is what the comparison needs; it only means a re-run may differ slightly from the previous one.
 
 ## Caveats — read before quoting a number
 

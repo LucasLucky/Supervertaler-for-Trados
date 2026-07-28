@@ -222,14 +222,20 @@ def build_system(src_lang, tgt_lang, kb_context):
     return prompt
 
 
-def call_model(api_key, model, system, user, max_tokens=4000):
-    body = json.dumps({
+def call_model(api_key, model, system, user, max_tokens=4000, temperature=None):
+    payload = {
         "model": model,
         "max_tokens": max_tokens,
-        "temperature": 0,
         "system": system,
         "messages": [{"role": "user", "content": user}],
-    }).encode("utf-8")
+    }
+    # Newer models reject `temperature` outright ("deprecated for this model"),
+    # so it is omitted unless explicitly asked for. Both arms are sampled the
+    # same way either way, which is what the comparison needs; it only means a
+    # re-run may differ slightly from the last one.
+    if temperature is not None:
+        payload["temperature"] = temperature
+    body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(API_URL, data=body, headers={
         "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
@@ -264,13 +270,13 @@ def parse_numbered(text, expected):
     return [out.get(i) for i in range(1, expected + 1)]
 
 
-def translate_all(api_key, model, system, segments, batch_size, label, verbose):
+def translate_all(api_key, model, system, segments, batch_size, label, verbose, temperature=None):
     """Returns (list of translations aligned to segments, in_tokens, out_tokens)."""
     results, tin, tout = [], 0, 0
     for start in range(0, len(segments), batch_size):
         chunk = segments[start:start + batch_size]
         user = "\n".join(f"{i}. {s['source']}" for i, s in enumerate(chunk, 1))
-        text, i_tok, o_tok = call_model(api_key, model, system, user)
+        text, i_tok, o_tok = call_model(api_key, model, system, user, temperature=temperature)
         tin += i_tok
         tout += o_tok
         parsed = parse_numbered(text, len(chunk))
@@ -300,6 +306,9 @@ def main():
     ap.add_argument("--out", default="benchmark-report", help="output basename")
     ap.add_argument("--dry-run", action="store_true", help="check wiring, make no API calls")
     ap.add_argument("--yes", action="store_true", help="proceed without the cost prompt")
+    ap.add_argument("--temperature", type=float, default=None,
+                    help="send an explicit temperature. Omitted by default: newer models "
+                         "reject the parameter. Both arms are always sampled identically.")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -381,10 +390,10 @@ def main():
 
     print("\nArm A: WITHOUT memory bank")
     without, i1, o1 = translate_all(os.environ["ANTHROPIC_API_KEY"], args.model,
-                                    sys_without, segments, args.batch_size, "without", args.verbose)
+                                    sys_without, segments, args.batch_size, "without", args.verbose, args.temperature)
     print("Arm B: WITH memory bank")
     withkb, i2, o2 = translate_all(os.environ["ANTHROPIC_API_KEY"], args.model,
-                                   sys_with, segments, args.batch_size, "with", args.verbose)
+                                   sys_with, segments, args.batch_size, "with", args.verbose, args.temperature)
 
     # ── score (a segment must succeed in BOTH arms to count) ─────────
     rows, deltas = [], []
@@ -450,7 +459,9 @@ def main():
     best = sorted(rows, key=lambda r: -r["delta"])[:5]
     with md_path.open("w", encoding="utf-8") as f:
         f.write(f"# SuperMemory benchmark — {proj.get('name', '?')}\n\n")
-        f.write(f"- Model: `{args.model}`, temperature 0\n")
+        f.write(f"- Model: `{args.model}`"
+                + (f", temperature {args.temperature}\n" if args.temperature is not None
+                   else ", default sampling (both arms identical)\n"))
         f.write(f"- Segments scored: {len(rows)}"
                 + (f" ({skipped_tm} 100% TM matches excluded)\n" if skipped_tm else "\n"))
         f.write(f"- Bank: `{sm.get('bank')}`, domain `{sm.get('domain')}`, "
