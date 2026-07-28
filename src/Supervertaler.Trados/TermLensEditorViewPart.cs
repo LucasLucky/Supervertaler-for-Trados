@@ -3161,6 +3161,15 @@ namespace Supervertaler.Trados
                             var dontAsk = dlg.DontAskAgain;
                             bool answered = (answer == "yes" || answer == "no" || answer == "answered");
 
+                            // Re-load rather than reusing the copy taken before the
+                            // dialog opened: that copy is as stale as the user was
+                            // slow, and saving it whole would discard anything the
+                            // other startup tasks wrote meanwhile. (It did exactly
+                            // that to the announcement dialog's "already shown"
+                            // record, which reappeared on every launch as a result.)
+                            // Apply only this survey's own fields to a fresh copy.
+                            settings = TermLensSettings.Load();
+
                             // Ensure an anonymous id exists. Reuse the usage-stats
                             // UUID — it's just a random id, not tied to the stats
                             // opt-in — generating one here if the user never opted in.
@@ -3177,6 +3186,12 @@ namespace Supervertaler.Trados
                                 if (!settings.AnsweredSurveyIds.Contains(survey.SurveyId))
                                     settings.AnsweredSurveyIds.Add(survey.SurveyId);
                             }
+                            // Keep the impression count recorded before the dialog
+                            // opened, which the re-load above would otherwise drop
+                            // if another task saved in between.
+                            if (settings.SurveyShownCounts == null)
+                                settings.SurveyShownCounts = new System.Collections.Generic.Dictionary<string, int>();
+                            settings.SurveyShownCounts[key] = shown + 1;
                             settings.Save();
 
                             // Send a response when they actually answered, or when
@@ -3250,10 +3265,20 @@ namespace Supervertaler.Trados
 
                     // Record the impression before showing it: closing via Esc/X
                     // still counts, matching the "shown at most once" contract.
-                    if (settings.ShownAnnouncementIds == null)
-                        settings.ShownAnnouncementIds = new System.Collections.Generic.List<string>();
-                    settings.ShownAnnouncementIds.Add(AnnouncementId);
-                    settings.Save();
+                    //
+                    // Re-load immediately before saving rather than reusing the
+                    // copy loaded above. Several startup tasks (this, the survey,
+                    // the usage-stats opt-in) each load, mutate and save the WHOLE
+                    // settings file concurrently, so a save from a stale copy
+                    // silently discards whatever the others wrote. Keeping the
+                    // read and the write adjacent shrinks that window to almost
+                    // nothing.
+                    var toSave = TermLensSettings.Load();
+                    if (toSave.ShownAnnouncementIds == null)
+                        toSave.ShownAnnouncementIds = new System.Collections.Generic.List<string>();
+                    if (!toSave.ShownAnnouncementIds.Contains(AnnouncementId))
+                        toSave.ShownAnnouncementIds.Add(AnnouncementId);
+                    toSave.Save();
 
                     ctrl.BeginInvoke(new Action(() =>
                     {
