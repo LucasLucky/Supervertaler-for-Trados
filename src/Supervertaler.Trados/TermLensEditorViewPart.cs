@@ -203,6 +203,10 @@ namespace Supervertaler.Trados
             // active question the user hasn't answered/dismissed yet.
             ShowSurveyPrompt(ctrl);
 
+            // One-off SuperMemory-future announcement, targeted at users who
+            // currently have SuperMemory switched on.
+            ShowSuperMemoryAnnouncement(ctrl);
+
             // Load persisted settings – needed even when unlicensed so the
             // settings dialog can open and let the user enter a license key.
             _settings = TermLensSettings.Load();
@@ -3200,6 +3204,74 @@ namespace Supervertaler.Trados
                 catch
                 {
                     // Silent – the survey must never disrupt startup.
+                }
+            });
+        }
+
+        /// <summary>
+        /// One-off in-app notice pointing users who currently have SuperMemory
+        /// enabled at the SuperMemory's-future Discussions post (#245). Targeted
+        /// specifically at that population – it is the one group who actually
+        /// cares whether the feature is being reworked, and the one group least
+        /// likely to stumble on a GitHub Discussion on their own. Shown at most
+        /// once, ever, no server round-trip, no re-ask logic: closing it by any
+        /// means marks <see cref="AnnouncementId"/> as shown for good.
+        ///
+        /// Update <see cref="AnnouncementId"/>/<see cref="AnnouncementMessage"/>/
+        /// <see cref="AnnouncementUrl"/> (or copy this method) for the next
+        /// one-off notice rather than growing a general announcement system –
+        /// there is no evidence yet this needs to be more than "one static
+        /// message with a link", and building for that now would be exactly the
+        /// kind of premature generality this whole redesign is reacting against.
+        /// </summary>
+        private const string AnnouncementId = "supermemory-future-2026-07";
+        private const string AnnouncementUrl = "https://github.com/orgs/Supervertaler/discussions/245";
+
+        private void ShowSuperMemoryAnnouncement(TermLensControl ctrl)
+        {
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    var settings = TermLensSettings.Load();
+
+                    // Targeting: only translators who currently have SuperMemory
+                    // switched on. Everyone else has no reason to see this.
+                    if (settings.AiSettings?.IncludeSuperMemoryContext != true)
+                        return;
+
+                    if (settings.ShownAnnouncementIds != null &&
+                        settings.ShownAnnouncementIds.Contains(AnnouncementId))
+                        return;
+
+                    for (int i = 0; i < 30 && !ctrl.IsHandleCreated; i++)
+                        await System.Threading.Tasks.Task.Delay(500);
+                    if (!ctrl.IsHandleCreated) return;
+
+                    // Record the impression before showing it: closing via Esc/X
+                    // still counts, matching the "shown at most once" contract.
+                    if (settings.ShownAnnouncementIds == null)
+                        settings.ShownAnnouncementIds = new System.Collections.Generic.List<string>();
+                    settings.ShownAnnouncementIds.Add(AnnouncementId);
+                    settings.Save();
+
+                    ctrl.BeginInvoke(new Action(() =>
+                    {
+                        using (var dlg = new AnnouncementDialog(
+                            introText: "A quick heads-up about SuperMemory.",
+                            messageText: "I've been testing whether SuperMemory's memory banks actually " +
+                                "improve translations, and I want to share what I found – and what I'm " +
+                                "considering building instead – before I change anything.",
+                            linkUrl: AnnouncementUrl,
+                            linkLabel: "Read the full post →"))
+                        {
+                            dlg.ShowDialog();
+                        }
+                    }));
+                }
+                catch
+                {
+                    // Silent – an announcement must never disrupt startup.
                 }
             });
         }

@@ -367,6 +367,17 @@ namespace Supervertaler.Trados.Settings
         [DataMember(Name = "surveyShownCounts")]
         public Dictionary<string, int> SurveyShownCounts { get; set; } = new Dictionary<string, int>();
 
+        // ─── In-app announcements ───────────────────────────────────
+        /// <summary>
+        /// String ids of one-way announcements (<see cref="Controls.AnnouncementDialog"/>)
+        /// already shown to this user. Unlike surveys, an announcement has no
+        /// server round-trip, no re-ask logic, and is shown exactly once: the id
+        /// is recorded the moment the dialog is displayed, not on a particular
+        /// button click, so closing via Esc/X still counts as shown.
+        /// </summary>
+        [DataMember(Name = "shownAnnouncementIds")]
+        public List<string> ShownAnnouncementIds { get; set; } = new List<string>();
+
         // ─── AI settings ────────────────────────────────────────────
         /// <summary>
         /// AI provider configuration (API keys, provider selection, model selection).
@@ -492,6 +503,8 @@ namespace Supervertaler.Trados.Settings
                         s.AnsweredSurveyIds = new List<int>();
                     if (s.SurveyShownCounts == null)
                         s.SurveyShownCounts = new Dictionary<string, int>();
+                    if (s.ShownAnnouncementIds == null)
+                        s.ShownAnnouncementIds = new List<string>();
 
                     // Keep the global diagnostic-logging switch in sync with the
                     // persisted preference on every load.
