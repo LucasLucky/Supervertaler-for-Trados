@@ -700,24 +700,75 @@ namespace Supervertaler.Trados.Core
         }
 
         /// <summary>
+        /// Index of the first character of an article's prose: past a leading
+        /// ``` fence and past the YAML frontmatter block. A snippet cut from
+        /// the frontmatter shows "title:" and "type:" lines rather than the
+        /// reasoning the translator actually wrote, which is the part worth
+        /// showing. Returns 0 when there is no frontmatter to skip.
+        /// </summary>
+        private static int ProseStart(string body)
+        {
+            if (string.IsNullOrEmpty(body)) return 0;
+
+            var i = 0;
+            while (i < body.Length && char.IsWhiteSpace(body[i])) i++;
+
+            // Tolerate an article pasted inside a ```markdown fence, the same
+            // way ParseFrontmatter does.
+            if (i + 3 <= body.Length && string.CompareOrdinal(body, i, "```", 0, 3) == 0)
+            {
+                var fenceEnd = body.IndexOf('\n', i);
+                if (fenceEnd < 0) return 0;
+                i = fenceEnd + 1;
+                while (i < body.Length && char.IsWhiteSpace(body[i])) i++;
+            }
+
+            if (i + 3 > body.Length || string.CompareOrdinal(body, i, "---", 0, 3) != 0) return 0;
+
+            var pos = body.IndexOf('\n', i);
+            if (pos < 0) return 0;
+            pos++;
+
+            // Walk to the closing --- on a line of its own.
+            while (pos < body.Length)
+            {
+                var lineEnd = body.IndexOf('\n', pos);
+                var line = (lineEnd < 0 ? body.Substring(pos) : body.Substring(pos, lineEnd - pos)).Trim();
+                if (line == "---")
+                    return lineEnd < 0 ? body.Length : lineEnd + 1;
+                if (lineEnd < 0) break;
+                pos = lineEnd + 1;
+            }
+
+            return 0;
+        }
+
+        /// <summary>
         /// Single-line excerpt around the first match, so the caller can show
-        /// why an article matched without shipping the whole file.
+        /// why an article matched without shipping the whole file. Frontmatter
+        /// is skipped: matches there still count towards the score, but the
+        /// excerpt comes from the prose.
         /// </summary>
         private static string BuildSnippet(string body, string haystack, string term, int width = 240)
         {
             if (string.IsNullOrEmpty(body)) return null;
 
-            var at = string.IsNullOrEmpty(term)
-                ? 0
-                : haystack.IndexOf(term, StringComparison.Ordinal);
-            if (at < 0 || at >= body.Length) at = 0;
+            var proseStart = ProseStart(body);
+            if (proseStart >= body.Length) proseStart = 0;
 
-            var start = Math.Max(0, at - width / 2);
+            // Prefer a match in the prose; fall back to the opening of the
+            // prose when the term appears only in the frontmatter.
+            var at = -1;
+            if (!string.IsNullOrEmpty(term) && proseStart < haystack.Length)
+                at = haystack.IndexOf(term, proseStart, StringComparison.Ordinal);
+            if (at < 0 || at >= body.Length) at = proseStart;
+
+            var start = Math.Max(proseStart, at - width / 2);
             var length = Math.Min(width, body.Length - start);
             if (length <= 0) return null;
 
             var sb = new StringBuilder(length + 4);
-            if (start > 0) sb.Append("… ");
+            if (start > proseStart) sb.Append("… ");
 
             // Collapse whitespace so a multi-line Markdown excerpt still reads
             // as one line in a chat reply or an MCP tool result.

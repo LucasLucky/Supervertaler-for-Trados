@@ -560,6 +560,9 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "query", EmitDefaultValue = false)] public string Query { get; set; }
         /// <summary>Overrides the domain auto-detected from the open document.</summary>
         [DataMember(Name = "domain", EmitDefaultValue = false)] public string Domain { get; set; }
+        /// <summary>Names the client explicitly when the project name does not
+        /// give it away. Matched loosely against 01_CLIENTS article names.</summary>
+        [DataMember(Name = "client", EmitDefaultValue = false)] public string Client { get; set; }
         /// <summary>Defaults to the same 24k budget the in-Trados chat uses.</summary>
         [DataMember(Name = "tokenBudget", EmitDefaultValue = false)] public int TokenBudget { get; set; }
     }
@@ -1458,7 +1461,8 @@ namespace Supervertaler.Trados.Core
             var q = new BridgeSuperMemoryQuery
             {
                 Query = QueryUtf8(context.Request)["q"],
-                Domain = QueryUtf8(context.Request)["domain"]
+                Domain = QueryUtf8(context.Request)["domain"],
+                Client = QueryUtf8(context.Request)["client"]
             };
             int budget;
             if (int.TryParse(QueryUtf8(context.Request)["tokenBudget"], out budget) && budget > 0)

@@ -4761,6 +4761,7 @@ namespace Supervertaler.Trados
                 GetDocumentSourceLanguage(),
                 GetDocumentTargetLanguage(),
                 tokenBudget: budget,
+                manualClientProfile: ResolveClientProfileFileName(reader, query?.Client),
                 queryText: query?.Query);
 
             if (ctx == null)
@@ -4788,8 +4789,73 @@ namespace Supervertaler.Trados
                 Domain = ctx.DomainName ?? domain,
                 DetectionMethod = ctx.DetectionMethod,
                 Context = MemoryBankReader.FormatForPrompt(ctx),
-                Sources = sources
+                Sources = sources,
+                Note = BuildClientDetectionNote(reader, ctx)
             };
+        }
+
+        /// <summary>
+        /// Turns a loosely-typed client name ("GE", "ge healthcare") into the
+        /// exact 01_CLIENTS filename <see cref="MemoryBankReader.LoadContext"/>
+        /// expects. Returns null when nothing matches, which simply leaves
+        /// auto-detection to do its job.
+        /// </summary>
+        private static string ResolveClientProfileFileName(MemoryBankReader reader, string wanted)
+        {
+            if (reader == null || string.IsNullOrWhiteSpace(wanted)) return null;
+
+            var clients = reader.GetIndexSnapshot()
+                .Where(e => string.Equals(e.Folder, "01_CLIENTS", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            // Exact filename first, then the frontmatter client name, then a
+            // loose contains-match in either direction so "GE" finds
+            // "GE HealthCare.md" and "GE HealthCare" finds "GE.md".
+            var exact = clients.FirstOrDefault(e =>
+                string.Equals(Path.GetFileNameWithoutExtension(e.FileName), wanted, StringComparison.OrdinalIgnoreCase));
+            if (exact != null) return exact.FileName;
+
+            var byFrontmatter = clients.FirstOrDefault(e =>
+                string.Equals(e.GetFrontmatter("client"), wanted, StringComparison.OrdinalIgnoreCase));
+            if (byFrontmatter != null) return byFrontmatter.FileName;
+
+            var loose = clients.FirstOrDefault(e =>
+            {
+                var name = Path.GetFileNameWithoutExtension(e.FileName) ?? "";
+                return name.IndexOf(wanted, StringComparison.OrdinalIgnoreCase) >= 0
+                    || wanted.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0;
+            });
+            return loose?.FileName;
+        }
+
+        /// <summary>
+        /// Explains an unresolved client profile instead of silently omitting
+        /// it. Without this the AI receives client: null with no indication
+        /// that a whole category of knowledge was left out, and cannot know to
+        /// ask. Lists the available profiles so it can offer the user a choice.
+        /// </summary>
+        private static string BuildClientDetectionNote(MemoryBankReader reader, KbContext ctx)
+        {
+            if (ctx == null || !string.IsNullOrEmpty(ctx.ClientName)) return null;
+
+            var names = reader.GetIndexSnapshot()
+                .Where(e => string.Equals(e.Folder, "01_CLIENTS", StringComparison.OrdinalIgnoreCase))
+                .Select(e => e.GetFrontmatter("client") ?? Path.GetFileNameWithoutExtension(e.FileName))
+                .Where(n => !string.IsNullOrWhiteSpace(n) && !n.StartsWith("_"))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (names.Count == 0)
+            {
+                return "No client profile was loaded: this memory bank has no articles in 01_CLIENTS. "
+                     + "Domain, style and terminology knowledge is unaffected.";
+            }
+
+            return "No client profile was loaded, because the Trados project name does not match any "
+                 + "client in this memory bank. Domain, style and terminology knowledge is unaffected. "
+                 + "If this job is for one of these clients, call this tool again with the client argument "
+                 + "to load their profile: " + string.Join(", ", names) + ".";
         }
 
         /// <summary>

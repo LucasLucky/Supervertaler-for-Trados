@@ -996,6 +996,14 @@
             ],
             "default": null
           },
+          "client": {
+            "description": "Optional client name, e.g. 'GE HealthCare'. Use this when the response reports that no client profile was matched: the client is normally guessed from the Trados project name, which often does not contain it. Matched loosely, so a partial name works.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
           "tokenBudget": {
             "description": "Optional cap on how much bank content to load. Defaults to 6000 tokens, which keeps the result a sensible size for a chat conversation; raise it (up to 100000) when you want the fuller picture.",
             "type": [
@@ -1011,6 +1019,7 @@
       "paramMap": {
         "query": "q",
         "domain": "domain",
+        "client": "client",
         "tokenBudget": "tokenBudget"
       },
       "fixedQuery": {},
