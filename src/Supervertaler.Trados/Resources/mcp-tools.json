@@ -973,6 +973,93 @@
       "paramMap": {},
       "fixedQuery": {},
       "fixedBody": {}
+    },
+    {
+      "name": "get_supermemory_context",
+      "description": "Load the user's SuperMemory memory bank for the CURRENT project: client profile, domain knowledge, style guide and terminology articles, formatted exactly as the Supervertaler plugin injects them into its own translation prompts. This is the reasoning BEHIND the user's translation decisions (why a term was chosen, what a client insists on, what was rejected before), which a TM or termbase cannot tell you. Call it once at the start of a translation or review task, and whenever the user asks why something is translated a particular way. Returns the formatted context plus the bank-relative paths of every article used, so you can cite them.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "description": "Optional free text to bias retrieval towards, e.g. the term or segment you are asking about. Without it the bank is selected on project, domain and language pair alone.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "domain": {
+            "description": "Optional domain override, e.g. 'legal' or 'medical'. Omit to use the domain auto-detected from the open document.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "tokenBudget": {
+            "description": "Optional cap on how much bank content to load (default 24000 tokens, the same budget the in-Trados chat uses).",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "default": null
+          }
+        }
+      },
+      "method": "GET",
+      "path": "/v1/supermemory-context",
+      "paramMap": {
+        "query": "q",
+        "domain": "domain",
+        "tokenBudget": "tokenBudget"
+      },
+      "fixedQuery": {},
+      "fixedBody": {}
+    },
+    {
+      "name": "search_supermemory",
+      "description": "Free-text search across the user's active SuperMemory memory bank. Use this to answer 'what did I decide about X?' or 'have I translated this term before, and why that way?'. Where get_supermemory_context loads what is relevant to the whole project, this finds specific articles by keyword. Searches client profiles, terminology, domain notes and style guides; raw unfiled 00_INBOX material is not indexed. Returns each article's path, title, score and a snippet showing why it matched. Read a full article with the standard filesystem tools if you need more.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "description": "Words to search for, e.g. a term, a client name or a concept.",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Maximum number of articles to return (default 10, maximum 50).",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "method": "GET",
+      "path": "/v1/supermemory-search",
+      "paramMap": {
+        "query": "q",
+        "limit": "limit"
+      },
+      "fixedQuery": {},
+      "fixedBody": {}
+    },
+    {
+      "name": "list_supermemory_banks",
+      "description": "List the user's SuperMemory memory banks and show which one is currently active, with an article count for each. Useful for orientation before searching, and to tell the user which body of knowledge you are actually working from. Banks are usually split by client, domain or language pair. Switching the active bank is done by the user in the Supervertaler panel, not through this tool.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "method": "GET",
+      "path": "/v1/supermemory-banks",
+      "paramMap": {},
+      "fixedQuery": {},
+      "fixedBody": {}
     }
   ]
 }

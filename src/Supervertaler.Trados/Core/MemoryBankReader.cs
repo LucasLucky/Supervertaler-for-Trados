@@ -604,6 +604,155 @@ namespace Supervertaler.Trados.Core
 
             return fm;
         }
+
+        /// <summary>
+        /// Free-text search across the whole bank, independent of the
+        /// translation-prompt path. <see cref="LoadContext"/> answers "what is
+        /// relevant to the segment in front of me?"; this answers "where did I
+        /// write about X?", which is the question a translator actually asks
+        /// out loud. Shared by the MCP memory-bank tools and the in-plugin KB
+        /// query mode.
+        ///
+        /// Only <see cref="ContentFolders"/> are searched, because only those
+        /// are indexed – raw 00_INBOX material and 06_TEMPLATES prompt files
+        /// are deliberately out of scope.
+        /// </summary>
+        /// <param name="query">Free text, split into terms on whitespace.</param>
+        /// <param name="limit">Maximum hits to return, best first.</param>
+        public IReadOnlyList<KbSearchHit> Search(string query, int limit = 10)
+        {
+            var hits = new List<KbSearchHit>();
+            if (!VaultExists || string.IsNullOrWhiteSpace(query)) return hits;
+
+            RefreshIndex();
+            if (_index == null || _index.Count == 0) return hits;
+
+            var terms = query.ToLowerInvariant()
+                .Split(new[] { ' ', '\t', '\r', '\n', ',', ';', ':', '"', '\'', '(', ')' },
+                       StringSplitOptions.RemoveEmptyEntries)
+                .Where(t => t.Length >= 2)
+                .Distinct()
+                .ToList();
+            if (terms.Count == 0) return hits;
+
+            foreach (var entry in _index)
+            {
+                // Cached and mtime-invalidated, so repeated queries stay cheap
+                // and external Obsidian edits are still picked up.
+                var haystack = GetBodyLower(entry);
+                if (haystack.Length == 0) continue;
+
+                var title = entry.GetFrontmatter("title")
+                            ?? Path.GetFileNameWithoutExtension(entry.FileName) ?? "";
+                var titleLower = title.ToLowerInvariant();
+                var frontmatterLower = entry.Frontmatter == null
+                    ? ""
+                    : string.Join(" ", entry.Frontmatter.Values).ToLowerInvariant();
+
+                // A term in the title is a far stronger signal than one buried
+                // in the body, so weight them rather than counting flat.
+                int score = 0;
+                string firstMatch = null;
+                foreach (var term in terms)
+                {
+                    if (titleLower.IndexOf(term, StringComparison.Ordinal) >= 0) score += 10;
+                    if (frontmatterLower.IndexOf(term, StringComparison.Ordinal) >= 0) score += 5;
+
+                    var occurrences = CountOccurrences(haystack, term);
+                    if (occurrences > 0)
+                    {
+                        score += Math.Min(occurrences, 5);
+                        if (firstMatch == null) firstMatch = term;
+                    }
+                }
+
+                if (score == 0) continue;
+
+                hits.Add(new KbSearchHit
+                {
+                    RelativePath = entry.RelativePath,
+                    Folder = entry.Folder,
+                    FileName = entry.FileName,
+                    Title = title,
+                    Score = score,
+                    Snippet = BuildSnippet(ReadFullArticle(entry.FilePath), haystack, firstMatch)
+                });
+            }
+
+            return hits
+                .OrderByDescending(h => h.Score)
+                .ThenBy(h => h.RelativePath, StringComparer.OrdinalIgnoreCase)
+                .Take(limit > 0 ? limit : 10)
+                .ToList();
+        }
+
+        private static int CountOccurrences(string haystack, string needle)
+        {
+            int count = 0, i = 0;
+            while (i <= haystack.Length - needle.Length)
+            {
+                var at = haystack.IndexOf(needle, i, StringComparison.Ordinal);
+                if (at < 0) break;
+                count++;
+                i = at + needle.Length;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Single-line excerpt around the first match, so the caller can show
+        /// why an article matched without shipping the whole file.
+        /// </summary>
+        private static string BuildSnippet(string body, string haystack, string term, int width = 240)
+        {
+            if (string.IsNullOrEmpty(body)) return null;
+
+            var at = string.IsNullOrEmpty(term)
+                ? 0
+                : haystack.IndexOf(term, StringComparison.Ordinal);
+            if (at < 0 || at >= body.Length) at = 0;
+
+            var start = Math.Max(0, at - width / 2);
+            var length = Math.Min(width, body.Length - start);
+            if (length <= 0) return null;
+
+            var sb = new StringBuilder(length + 4);
+            if (start > 0) sb.Append("… ");
+
+            // Collapse whitespace so a multi-line Markdown excerpt still reads
+            // as one line in a chat reply or an MCP tool result.
+            var lastWasSpace = false;
+            foreach (var ch in body.Substring(start, length))
+            {
+                if (char.IsWhiteSpace(ch))
+                {
+                    if (!lastWasSpace) sb.Append(' ');
+                    lastWasSpace = true;
+                }
+                else
+                {
+                    sb.Append(ch);
+                    lastWasSpace = false;
+                }
+            }
+
+            if (start + length < body.Length) sb.Append(" …");
+            return sb.ToString().Trim();
+        }
+    }
+
+    /// <summary>
+    /// One search result from <see cref="MemoryBankReader.Search"/>: enough to
+    /// cite the article and show why it matched, without its full text.
+    /// </summary>
+    public class KbSearchHit
+    {
+        public string RelativePath { get; set; }
+        public string Folder { get; set; }
+        public string FileName { get; set; }
+        public string Title { get; set; }
+        public int Score { get; set; }
+        public string Snippet { get; set; }
     }
 
     /// <summary>

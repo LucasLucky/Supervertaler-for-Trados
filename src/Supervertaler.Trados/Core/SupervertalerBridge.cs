@@ -546,6 +546,88 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "note", Order = 3, EmitDefaultValue = false)] public string Note { get; set; }
     }
 
+    // ── SuperMemory (memory banks) ────────────────────────────────────
+    // The bank has always fed the plugin's own prompt building; these types
+    // carry it over the bridge as well, so an external MCP client sees the
+    // same knowledge the in-Trados chat does. See issues #51 and #22.
+
+    [DataContract]
+    public class BridgeSuperMemoryQuery
+    {
+        /// <summary>Free text to bias retrieval towards, e.g. the term being
+        /// asked about. Optional – without it the bank is loaded on project,
+        /// domain and language pair alone, exactly as a translation would.</summary>
+        [DataMember(Name = "query", EmitDefaultValue = false)] public string Query { get; set; }
+        /// <summary>Overrides the domain auto-detected from the open document.</summary>
+        [DataMember(Name = "domain", EmitDefaultValue = false)] public string Domain { get; set; }
+        /// <summary>Defaults to the same 24k budget the in-Trados chat uses.</summary>
+        [DataMember(Name = "tokenBudget", EmitDefaultValue = false)] public int TokenBudget { get; set; }
+    }
+
+    [DataContract]
+    public class BridgeSuperMemoryContextResponse
+    {
+        [DataMember(Name = "available", Order = 0)] public bool Available { get; set; }
+        [DataMember(Name = "bank", Order = 1, EmitDefaultValue = false)] public string Bank { get; set; }
+        [DataMember(Name = "client", Order = 2, EmitDefaultValue = false)] public string Client { get; set; }
+        [DataMember(Name = "domain", Order = 3, EmitDefaultValue = false)] public string Domain { get; set; }
+        /// <summary>How the client profile was resolved: "manual", "project-name" or "none".</summary>
+        [DataMember(Name = "detectionMethod", Order = 4, EmitDefaultValue = false)] public string DetectionMethod { get; set; }
+        /// <summary>The formatted knowledge-base block, identical to what gets
+        /// injected into the plugin's own system prompt.</summary>
+        [DataMember(Name = "context", Order = 5, EmitDefaultValue = false)] public string Context { get; set; }
+        /// <summary>Bank-relative paths of every article that fed the block, so
+        /// the AI can cite them and the translator can open them.</summary>
+        [DataMember(Name = "sources", Order = 6, EmitDefaultValue = false)] public List<string> Sources { get; set; }
+        [DataMember(Name = "note", Order = 7, EmitDefaultValue = false)] public string Note { get; set; }
+    }
+
+    [DataContract]
+    public class BridgeSuperMemorySearchQuery
+    {
+        [DataMember(Name = "query")] public string Query { get; set; }
+        [DataMember(Name = "limit", EmitDefaultValue = false)] public int Limit { get; set; }
+    }
+
+    [DataContract]
+    public class BridgeSuperMemorySearchHit
+    {
+        [DataMember(Name = "path", Order = 0)] public string Path { get; set; }
+        [DataMember(Name = "folder", Order = 1, EmitDefaultValue = false)] public string Folder { get; set; }
+        [DataMember(Name = "title", Order = 2, EmitDefaultValue = false)] public string Title { get; set; }
+        [DataMember(Name = "score", Order = 3)] public int Score { get; set; }
+        [DataMember(Name = "snippet", Order = 4, EmitDefaultValue = false)] public string Snippet { get; set; }
+    }
+
+    [DataContract]
+    public class BridgeSuperMemorySearchResponse
+    {
+        [DataMember(Name = "available", Order = 0)] public bool Available { get; set; }
+        [DataMember(Name = "bank", Order = 1, EmitDefaultValue = false)] public string Bank { get; set; }
+        [DataMember(Name = "hits", Order = 2, EmitDefaultValue = false)]
+        public List<BridgeSuperMemorySearchHit> Hits { get; set; }
+        [DataMember(Name = "note", Order = 3, EmitDefaultValue = false)] public string Note { get; set; }
+    }
+
+    [DataContract]
+    public class BridgeSuperMemoryBank
+    {
+        [DataMember(Name = "name", Order = 0)] public string Name { get; set; }
+        [DataMember(Name = "active", Order = 1)] public bool Active { get; set; }
+        [DataMember(Name = "articles", Order = 2)] public int Articles { get; set; }
+    }
+
+    [DataContract]
+    public class BridgeSuperMemoryBanksResponse
+    {
+        [DataMember(Name = "available", Order = 0)] public bool Available { get; set; }
+        [DataMember(Name = "root", Order = 1, EmitDefaultValue = false)] public string Root { get; set; }
+        [DataMember(Name = "activeBank", Order = 2, EmitDefaultValue = false)] public string ActiveBank { get; set; }
+        [DataMember(Name = "banks", Order = 3, EmitDefaultValue = false)]
+        public List<BridgeSuperMemoryBank> Banks { get; set; }
+        [DataMember(Name = "note", Order = 4, EmitDefaultValue = false)] public string Note { get; set; }
+    }
+
     [DataContract]
     public class BridgeGoToRequest
     {
@@ -832,6 +914,9 @@ namespace Supervertaler.Trados.Core
         private readonly Func<BridgeEditTermRequest, BridgeEditTermResponse> _updateTerm;
         private readonly Func<BridgeEditTermRequest, BridgeEditTermResponse> _deleteTerm;
         private readonly Func<BridgeResultResponse> _saveDocument;
+        private readonly Func<BridgeSuperMemoryQuery, BridgeSuperMemoryContextResponse> _getSuperMemoryContext;
+        private readonly Func<BridgeSuperMemorySearchQuery, BridgeSuperMemorySearchResponse> _searchSuperMemory;
+        private readonly Func<BridgeSuperMemoryBanksResponse> _listSuperMemoryBanks;
 
         /// <summary>Max segment updates per /v1/update-segments call – keeps a
         /// single request from freezing the editor thread for minutes on huge
@@ -903,7 +988,10 @@ namespace Supervertaler.Trados.Core
             Func<int, BridgePromptContextResponse> getPromptContext = null,
             Func<BridgeEditTermRequest, BridgeEditTermResponse> updateTerm = null,
             Func<BridgeEditTermRequest, BridgeEditTermResponse> deleteTerm = null,
-            Func<BridgeResultResponse> saveDocument = null)
+            Func<BridgeResultResponse> saveDocument = null,
+            Func<BridgeSuperMemoryQuery, BridgeSuperMemoryContextResponse> getSuperMemoryContext = null,
+            Func<BridgeSuperMemorySearchQuery, BridgeSuperMemorySearchResponse> searchSuperMemory = null,
+            Func<BridgeSuperMemoryBanksResponse> listSuperMemoryBanks = null)
         {
             _getContext = getContext ?? throw new ArgumentNullException(nameof(getContext));
             _insertText = insertText ?? throw new ArgumentNullException(nameof(insertText));
@@ -930,6 +1018,9 @@ namespace Supervertaler.Trados.Core
             _updateTerm = updateTerm;
             _deleteTerm = deleteTerm;
             _saveDocument = saveDocument;
+            _getSuperMemoryContext = getSuperMemoryContext;
+            _searchSuperMemory = searchSuperMemory;
+            _listSuperMemoryBanks = listSuperMemoryBanks;
         }
 
         public bool IsRunning => _listener != null && _listener.IsListening;
@@ -1337,7 +1428,116 @@ namespace Supervertaler.Trados.Core
                 return;
             }
 
+            if (method == "GET" && path == "/v1/supermemory-context")
+            {
+                HandleSuperMemoryContext(context);
+                return;
+            }
+            if (method == "GET" && path == "/v1/supermemory-search")
+            {
+                HandleSuperMemorySearch(context);
+                return;
+            }
+            if (method == "GET" && path == "/v1/supermemory-banks")
+            {
+                HandleSuperMemoryBanks(context);
+                return;
+            }
+
             TryWriteError(context, 404, "not found");
+        }
+
+        private void HandleSuperMemoryContext(HttpListenerContext context)
+        {
+            if (_getSuperMemoryContext == null)
+            {
+                TryWriteError(context, 501, "supermemory-context endpoint not wired");
+                return;
+            }
+
+            var q = new BridgeSuperMemoryQuery
+            {
+                Query = QueryUtf8(context.Request)["q"],
+                Domain = QueryUtf8(context.Request)["domain"]
+            };
+            int budget;
+            if (int.TryParse(QueryUtf8(context.Request)["tokenBudget"], out budget) && budget > 0)
+                q.TokenBudget = Math.Min(budget, 100000);
+
+            BridgeSuperMemoryContextResponse response;
+            try
+            {
+                response = _getSuperMemoryContext(q)
+                    ?? new BridgeSuperMemoryContextResponse { Available = false };
+            }
+            catch (Exception ex)
+            {
+                BridgeLog.Write($"[SupervertalerBridge] supermemory-context threw: {ex.Message}");
+                response = new BridgeSuperMemoryContextResponse { Available = false, Note = "error: " + ex.Message };
+            }
+
+            WriteJson(context, 200, response);
+        }
+
+        private void HandleSuperMemorySearch(HttpListenerContext context)
+        {
+            if (_searchSuperMemory == null)
+            {
+                TryWriteError(context, 501, "supermemory-search endpoint not wired");
+                return;
+            }
+
+            var query = QueryUtf8(context.Request)["q"];
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                WriteJson(context, 400, new BridgeSuperMemorySearchResponse
+                {
+                    Available = false,
+                    Note = "missing 'q'"
+                });
+                return;
+            }
+
+            var q = new BridgeSuperMemorySearchQuery { Query = query };
+            int limit;
+            if (int.TryParse(QueryUtf8(context.Request)["limit"], out limit) && limit > 0)
+                q.Limit = Math.Min(limit, 50);
+
+            BridgeSuperMemorySearchResponse response;
+            try
+            {
+                response = _searchSuperMemory(q)
+                    ?? new BridgeSuperMemorySearchResponse { Available = false };
+            }
+            catch (Exception ex)
+            {
+                BridgeLog.Write($"[SupervertalerBridge] supermemory-search threw: {ex.Message}");
+                response = new BridgeSuperMemorySearchResponse { Available = false, Note = "error: " + ex.Message };
+            }
+
+            WriteJson(context, 200, response);
+        }
+
+        private void HandleSuperMemoryBanks(HttpListenerContext context)
+        {
+            if (_listSuperMemoryBanks == null)
+            {
+                TryWriteError(context, 501, "supermemory-banks endpoint not wired");
+                return;
+            }
+
+            BridgeSuperMemoryBanksResponse response;
+            try
+            {
+                response = _listSuperMemoryBanks() ?? new BridgeSuperMemoryBanksResponse { Available = false };
+            }
+            catch (Exception ex)
+            {
+                BridgeLog.Write($"[SupervertalerBridge] supermemory-banks threw: {ex.Message}");
+                response = new BridgeSuperMemoryBanksResponse { Available = false, Note = "error: " + ex.Message };
+            }
+
+            WriteJson(context, 200, response);
         }
 
         private void HandleGetActiveContext(HttpListenerContext context)

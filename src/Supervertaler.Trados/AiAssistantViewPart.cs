@@ -982,7 +982,10 @@ namespace Supervertaler.Trados
                     getPromptContext: BuildPromptContext,
                     updateTerm: BridgeUpdateTerm,
                     deleteTerm: BridgeDeleteTerm,
-                    saveDocument: BridgeSaveDocument);
+                    saveDocument: BridgeSaveDocument,
+                    getSuperMemoryContext: BridgeGetSuperMemoryContext,
+                    searchSuperMemory: BridgeSearchSuperMemory,
+                    listSuperMemoryBanks: BridgeListSuperMemoryBanks);
                 _supervertalerBridge.Start();
             }
             catch (Exception ex)
@@ -4637,35 +4640,11 @@ namespace Supervertaler.Trados
                 if (_settings?.AiSettings?.IncludeSuperMemoryContext == false)
                     return null;
 
-                // Re-create the reader if the active bank changed (Step 5 dropdown
-                // can swap banks without a restart). First run lands here too.
-                var bankName = ActiveMemoryBankName;
-                if (_kbReader == null || !string.Equals(_kbReaderBankName, bankName, StringComparison.Ordinal))
-                {
-                    _kbReader = new MemoryBankReader(ActiveMemoryBankDir);
-                    _kbReaderBankName = bankName;
-                }
+                var reader = EnsureKbReader();
+                if (reader == null || !reader.VaultExists) return null;
 
-                if (!_kbReader.VaultExists) return null;
-
-                // Detect domain from document content
-                string domain = null;
-                try
-                {
-                    if (_activeDocument != null)
-                    {
-                        var docCtx = CollectDocumentContext();
-                        if (docCtx.Item1 != null && docCtx.Item1.Count > 0)
-                        {
-                            var analysis = DocumentAnalyzer.Analyze(docCtx.Item1);
-                            domain = analysis?.PrimaryDomain;
-                        }
-                    }
-                }
-                catch { /* domain detection is best-effort */ }
-
-                var ctx = _kbReader.LoadContext(
-                    projectName, domain, sourceLang, targetLang,
+                var ctx = reader.LoadContext(
+                    projectName, DetectDocumentDomain(), sourceLang, targetLang,
                     tokenBudget: 24000, queryText: queryText);
 
                 if (ctx == null) return null;
@@ -4676,6 +4655,219 @@ namespace Supervertaler.Trados
             {
                 return null; // KB is optional – never block translation
             }
+        }
+
+        /// <summary>
+        /// Returns the reader for the active bank, re-creating it if the bank
+        /// changed (the SuperMemory toolbar dropdown can swap banks without a
+        /// restart). First run lands here too. UI thread only – the shared
+        /// <see cref="_kbReader"/> field is not synchronised.
+        /// </summary>
+        private MemoryBankReader EnsureKbReader()
+        {
+            var bankName = ActiveMemoryBankName;
+            if (_kbReader == null || !string.Equals(_kbReaderBankName, bankName, StringComparison.Ordinal))
+            {
+                _kbReader = new MemoryBankReader(ActiveMemoryBankDir);
+                _kbReaderBankName = bankName;
+            }
+            return _kbReader;
+        }
+
+        /// <summary>
+        /// Best-effort domain of the open document, used to pick the right
+        /// 03_DOMAINS article. Returns null when nothing is open or analysis
+        /// fails – the bank still loads, just without domain gating.
+        /// </summary>
+        private string DetectDocumentDomain()
+        {
+            try
+            {
+                if (_activeDocument == null) return null;
+
+                var docCtx = CollectDocumentContext();
+                if (docCtx.Item1 == null || docCtx.Item1.Count == 0) return null;
+
+                return DocumentAnalyzer.Analyze(docCtx.Item1)?.PrimaryDomain;
+            }
+            catch
+            {
+                return null; // domain detection is best-effort
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        //  SuperMemory over the bridge (issues #51, #22)
+        //
+        //  The bank has fed the plugin's own prompts since day one, but was
+        //  invisible to anything driving Supervertaler over MCP. These three
+        //  methods put the same knowledge on the bridge, so an external AI
+        //  client sees what the in-Trados chat sees.
+        // ══════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Bridge: the memory-bank context for the current project, formatted
+        /// exactly as it would be injected into a translation prompt, plus the
+        /// article paths that produced it so the AI can cite its sources.
+        /// </summary>
+        private BridgeSuperMemoryContextResponse BridgeGetSuperMemoryContext(BridgeSuperMemoryQuery query)
+        {
+            // Domain detection reads the open document, so this has to run on
+            // the UI thread like the other bridge snapshot builders.
+            var ctrl = _control?.Value;
+            if (ctrl != null && !ctrl.IsDisposed && ctrl.InvokeRequired)
+            {
+                return (BridgeSuperMemoryContextResponse)ctrl.Invoke(
+                    new Func<BridgeSuperMemoryContextResponse>(() => BridgeGetSuperMemoryContext(query)));
+            }
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BridgeGetSuperMemoryContext(query));
+
+            if (_settings?.AiSettings?.IncludeSuperMemoryContext == false)
+            {
+                return new BridgeSuperMemoryContextResponse
+                {
+                    Available = false,
+                    Note = "SuperMemory context is switched off in AI Settings."
+                };
+            }
+
+            var reader = EnsureKbReader();
+            if (reader == null || !reader.VaultExists)
+            {
+                return new BridgeSuperMemoryContextResponse
+                {
+                    Available = false,
+                    Bank = ActiveMemoryBankName,
+                    Note = "No memory bank found at " + ActiveMemoryBankDir
+                };
+            }
+
+            var budget = query != null && query.TokenBudget > 0 ? query.TokenBudget : 24000;
+            var domain = !string.IsNullOrWhiteSpace(query?.Domain) ? query.Domain : DetectDocumentDomain();
+
+            var ctx = reader.LoadContext(
+                GetProjectName(),
+                domain,
+                GetDocumentSourceLanguage(),
+                GetDocumentTargetLanguage(),
+                tokenBudget: budget,
+                queryText: query?.Query);
+
+            if (ctx == null)
+            {
+                return new BridgeSuperMemoryContextResponse
+                {
+                    Available = false,
+                    Bank = ActiveMemoryBankName,
+                    Domain = domain,
+                    Note = "The memory bank has no content matching this project, domain or language pair."
+                };
+            }
+
+            var sources = new List<string>();
+            if (!string.IsNullOrEmpty(ctx.ClientProfilePath)) sources.Add(ctx.ClientProfilePath);
+            if (!string.IsNullOrEmpty(ctx.DomainArticlePath)) sources.Add(ctx.DomainArticlePath);
+            if (!string.IsNullOrEmpty(ctx.StyleGuidePath)) sources.Add(ctx.StyleGuidePath);
+            if (ctx.TerminologyPaths != null) sources.AddRange(ctx.TerminologyPaths);
+
+            return new BridgeSuperMemoryContextResponse
+            {
+                Available = true,
+                Bank = ActiveMemoryBankName,
+                Client = ctx.ClientName,
+                Domain = ctx.DomainName ?? domain,
+                DetectionMethod = ctx.DetectionMethod,
+                Context = MemoryBankReader.FormatForPrompt(ctx),
+                Sources = sources
+            };
+        }
+
+        /// <summary>
+        /// Bridge: free-text search across the active bank – the "where did I
+        /// write about X?" question, as opposed to the automatic per-segment
+        /// retrieval above.
+        /// </summary>
+        private BridgeSuperMemorySearchResponse BridgeSearchSuperMemory(BridgeSuperMemorySearchQuery query)
+        {
+            var bankName = ActiveMemoryBankName;
+
+            if (query == null || string.IsNullOrWhiteSpace(query.Query))
+                return new BridgeSuperMemorySearchResponse { Available = false, Note = "missing 'q'" };
+
+            // Deliberately NOT the shared _kbReader: searching reads every
+            // article body, which is too slow to run on the UI thread, and the
+            // cached reader is not safe to touch from the listener thread.
+            var reader = new MemoryBankReader(ActiveMemoryBankDir);
+            if (!reader.VaultExists)
+            {
+                return new BridgeSuperMemorySearchResponse
+                {
+                    Available = false,
+                    Bank = bankName,
+                    Note = "No memory bank found at " + ActiveMemoryBankDir
+                };
+            }
+
+            var limit = query.Limit > 0 ? query.Limit : 10;
+            var hits = reader.Search(query.Query, limit);
+
+            return new BridgeSuperMemorySearchResponse
+            {
+                Available = true,
+                Bank = bankName,
+                Hits = hits.Select(h => new BridgeSuperMemorySearchHit
+                {
+                    Path = h.RelativePath,
+                    Folder = h.Folder,
+                    Title = h.Title,
+                    Score = h.Score,
+                    Snippet = h.Snippet
+                }).ToList(),
+                Note = hits.Count == 0
+                    ? "No articles matched. The search covers 01_CLIENTS, 02_TERMINOLOGY, 03_DOMAINS and 04_STYLE; raw 00_INBOX material is not indexed."
+                    : null
+            };
+        }
+
+        /// <summary>
+        /// Bridge: every memory bank on disk and which one is active, so an AI
+        /// client can tell the user which knowledge it is actually working from.
+        /// </summary>
+        private BridgeSuperMemoryBanksResponse BridgeListSuperMemoryBanks()
+        {
+            var activeName = ActiveMemoryBankName;
+            var names = UserDataPath.ListMemoryBanks() ?? new List<string>();
+
+            var banks = new List<BridgeSuperMemoryBank>();
+            foreach (var name in names)
+            {
+                var count = 0;
+                try
+                {
+                    var bankReader = new MemoryBankReader(UserDataPath.GetMemoryBankDir(name));
+                    if (bankReader.VaultExists) count = bankReader.GetIndexSnapshot().Count;
+                }
+                catch { /* a bank we cannot read still deserves a listing */ }
+
+                banks.Add(new BridgeSuperMemoryBank
+                {
+                    Name = name,
+                    Active = string.Equals(name, activeName, StringComparison.OrdinalIgnoreCase),
+                    Articles = count
+                });
+            }
+
+            return new BridgeSuperMemoryBanksResponse
+            {
+                Available = banks.Count > 0,
+                Root = UserDataPath.MemoryBanksRoot,
+                ActiveBank = activeName,
+                Banks = banks,
+                Note = banks.Count == 0
+                    ? "No memory banks found under " + UserDataPath.MemoryBanksRoot
+                    : null
+            };
         }
 
         // ══════════════════════════════════════════════════════════════
