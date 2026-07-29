@@ -7,6 +7,27 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.147 / 19.20.147] – 2026-07-29
+
+### Fixed (Clipboard Mode · multi-paragraph translations were cut short)
+
+- **Pasting back a segment whose translation runs to more than one paragraph kept only the first one**, silently discarding the rest. If your source segment contains blank lines – a fault description followed by the steps to fix it, say – everything after the first blank line was lost on re-import. The response parser treated a blank line as the end of the translation; it now keeps reading to the end of the segment block, which was already marked by the next `Segment N` header. (Reported by a user.)
+- **The same parser also cut a translation short at any paragraph beginning with a word and a colon** – `Note: …` in English, or `注意：…` in Chinese and Japanese. This was never reported separately, but anyone translating into CJK was especially likely to hit it. Both stopping rules are gone; the only thing that now ends a translation is the source-language label, for the models that put the pair the other way round.
+
+### Added (Supervertaler MCP Server · your memory bank, from any AI client)
+
+- **Three read-only tools put SuperMemory on the MCP server**, so Claude Desktop – or any MCP client – can consult your memory bank while you translate, whatever CAT tool you have open. `get_supermemory_context` loads the bank for the current project and cites the articles it drew from; `search_supermemory` searches the active bank by keyword; `list_supermemory_banks` shows which banks exist and which is active. Nothing is written back.
+- **The tools reach existing installs without reinstalling the MCP extension** – the exe reads its tool list from the plugin, so a plugin update is enough.
+
+### Fixed (SuperMemory · unverified notes no longer overrule the AI)
+
+- **A note you had flagged as low-confidence, or that was never finished, carried the same authority as a verified one.** The prompt told the AI that knowledge-base decisions take priority, full stop – so a half-written Quick Add note could override a model that had it right. Low-confidence, draft and stub articles are now marked *unverified* and explicitly presented as a hint rather than an instruction, with the AI told to prefer its own judgement where the two disagree. Notes with no confidence set are unchanged.
+
+### Fixed (Dialogs · long text no longer clipped)
+
+- **The in-app survey cut off longer questions mid-sentence**, and could overlap its own controls at some display-scaling settings. Both dialogs now size themselves to their text instead of using fixed positions, so they render correctly whatever your resolution, DPI scaling or system font size.
+- **A one-off notice could reappear on every launch.** Several startup tasks each saved the whole settings file, so whichever finished last silently discarded what the others had written. They now re-read immediately before saving.
+
 ## [18.20.146 / 19.20.146] – 2026-07-28
 
 ### Fixed (AI Assistant · GPT-5.6 failed instantly in chat)
