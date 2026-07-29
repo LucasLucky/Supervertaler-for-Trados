@@ -179,13 +179,13 @@ namespace Supervertaler.Trados.Core
         /// format is not detected.
         /// </summary>
         public static List<ParsedTranslation> ParseTranslationResponse(
-            string response, int expectedCount, string targetLang)
+            string response, int expectedCount, string targetLang, string sourceLang = null)
         {
             if (string.IsNullOrWhiteSpace(response))
                 return new List<ParsedTranslation>();
 
             // Try bilingual format first
-            var results = ParseBilingualResponse(response, targetLang);
+            var results = ParseBilingualResponse(response, targetLang, sourceLang);
 
             // Fall back to simple numbered list (1. translation)
             if (results.Count == 0)
@@ -200,7 +200,8 @@ namespace Supervertaler.Trados.Core
         ///   {lang}: source text
         ///   {lang}: target text
         /// </summary>
-        private static List<ParsedTranslation> ParseBilingualResponse(string response, string targetLang)
+        private static List<ParsedTranslation> ParseBilingualResponse(
+            string response, string targetLang, string sourceLang = null)
         {
             var results = new List<ParsedTranslation>();
 
@@ -219,6 +220,22 @@ namespace Supervertaler.Trados.Core
             var targetPrefix = new Regex(
                 @"^\s*" + Regex.Escape(baseLang) + @"(?:\s*\([^)]*\))?\s*:\s*(.*)",
                 RegexOptions.IgnoreCase);
+
+            // The ONLY line that legitimately ends a translation inside a block:
+            // the source-language label, in case a model emits the pair the other
+            // way round. Everything else in the block belongs to the translation.
+            Regex sourcePrefix = null;
+            if (!string.IsNullOrWhiteSpace(sourceLang))
+            {
+                var baseSource = LanguageUtils.GetBaseLanguageName(sourceLang);
+                if (!string.IsNullOrWhiteSpace(baseSource) &&
+                    !baseSource.Equals(baseLang, StringComparison.OrdinalIgnoreCase))
+                {
+                    sourcePrefix = new Regex(
+                        @"^\s*" + Regex.Escape(baseSource) + @"(?:\s*\([^)]*\))?\s*:",
+                        RegexOptions.IgnoreCase);
+                }
+            }
 
             for (int i = 0; i < matches.Count; i++)
             {
@@ -239,27 +256,34 @@ namespace Supervertaler.Trados.Core
 
                 foreach (var line in lines)
                 {
-                    var targetMatch = targetPrefix.Match(line);
-                    if (targetMatch.Success)
+                    if (!foundTarget)
                     {
-                        foundTarget = true;
-                        targetText.Append(targetMatch.Groups[1].Value.Trim());
+                        var targetMatch = targetPrefix.Match(line);
+                        if (targetMatch.Success)
+                        {
+                            foundTarget = true;
+                            targetText.Append(targetMatch.Groups[1].Value.Trim());
+                        }
                         continue;
                     }
 
-                    if (foundTarget)
-                    {
-                        // Stop at empty line or next language label
-                        var trimmed = line.Trim();
-                        if (string.IsNullOrEmpty(trimmed))
-                            break;
-                        // Check if this is a language label (e.g., "Dutch: ...")
-                        if (Regex.IsMatch(line, @"^\s*\w[\w\s]*:\s"))
-                            break;
-                        // Continuation line
-                        targetText.AppendLine();
-                        targetText.Append(trimmed);
-                    }
+                    // Everything from here to the end of the block is part of the
+                    // translation. The block is already bounded by the next
+                    // "Segment N" header, so no other terminator is needed — and
+                    // the two that used to be here both destroyed valid output:
+                    //
+                    //   * breaking on the first blank line truncated any segment
+                    //     whose translation has more than one paragraph, keeping
+                    //     only the first (reported by a user, 2026-07-29);
+                    //   * breaking on /^\s*\w[\w\s]*:\s/ as a "language label"
+                    //     matched any paragraph opening with a word and a colon.
+                    //     \w matches Unicode letters in .NET, so a Chinese target
+                    //     beginning "注意：" or an English one beginning "Note: "
+                    //     was silently cut off at that point.
+                    if (sourcePrefix != null && sourcePrefix.IsMatch(line))
+                        break;
+
+                    targetText.Append('\n').Append(line.TrimEnd('\r'));
                 }
 
                 if (foundTarget)

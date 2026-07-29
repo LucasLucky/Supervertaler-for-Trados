@@ -7758,7 +7758,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 {
                     // Parse translations
                     var parsed = ClipboardRelay.ParseTranslationResponse(
-                        text, _clipboardSegments.Count, targetLang);
+                        text, _clipboardSegments.Count, targetLang, GetDocumentSourceLanguage());
 
                     if (parsed.Count == 0)
                     {
