@@ -33,7 +33,14 @@ public sealed class BridgeClient
     /// </summary>
     public const int ExeProtocolVersion = 2;
 
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(30) };
+    // Generous on purpose. A write that lands but times out before its
+    // confirmation is the worst outcome available: the caller cannot tell it
+    // from a failure, and retrying re-applies the edit. Field report: batches of
+    // ~45 segment updates exceeded the old 30 s ceiling on a large document,
+    // and the writes had all applied. The bridge caps batch sizes itself
+    // (SupervertalerBridge.MaxUpdatesPerRequest), so this only has to be longer
+    // than the slowest legitimate call, not a safety limit in its own right.
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(5) };
 
     /// <summary>Set by BridgeLocator when a custom handshake path is passed via SUPERVERTALER_BRIDGE_FILE (tests).</summary>
     private static string? HandshakeOverride => Environment.GetEnvironmentVariable("SUPERVERTALER_BRIDGE_FILE");

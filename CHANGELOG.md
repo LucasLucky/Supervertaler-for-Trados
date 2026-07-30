@@ -7,6 +7,31 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.148 / 19.20.148] – 2026-07-30
+
+All of the below came out of one real job: a 2,889-segment manual translated end to end through the MCP server. None of it was found in testing.
+
+### Fixed (Supervertaler MCP Server · find & replace quietly unconfirmed finished work)
+
+- **A single find & replace demoted every segment it touched to Draft**, with no way to opt out. Editing a segment's content makes Studio reset its confirmation status – correct while you are still translating, wrong when you are running a consistency sweep over a file that is already finished. On a fully translated document the replacement worked and the file silently became unfinished; you only noticed if you thought to re-check the statuses afterwards. Each changed segment now keeps the status it had. The AI can still ask for a specific status where that is what you want, and the response reports which of the two happened. (Reported by a user.)
+
+### Added (Supervertaler MCP Server · non-breaking spaces you can actually see)
+
+- **A new `check_nbsp` QA check** lists translated segments that came out with fewer non-breaking spaces than their source. Non-breaking spaces are invisible in Studio, in the AI's view of your segments and in every report, so a lost one normally surfaces only when the client rejects the file – which matters if your style guide wants one between a value and its unit (230 V, 3,5 mm, 50 %) or before a figure reference.
+- **The AI can now write one, as `&nbsp;`.** A non-breaking space placed directly into a tool call does not reach Trados: somewhere between the AI and the plugin it becomes an ordinary space, and because the write itself succeeds, nothing indicates the result is wrong. Escape codes are no better – the AI client turns them into the character first, and the character is then flattened like any other. `update_segments` and `find_and_replace` therefore take a `decodeEntities` option, which lets the AI write the HTML entity `&nbsp;` (or any `&#NNN;` code point) and have Supervertaler convert it at the Trados end; plain ASCII travels intact, so nothing en route can mangle it. It applies to both sides of find & replace, so *"put a non-breaking space between every value and its unit"* fixes a whole document in one pass – and because find & replace now preserves confirmation status, a finished file stays finished. Opt-in by design, so a document that genuinely contains the text `&nbsp;` is never silently rewritten. Supervertaler itself was never the culprit: it stores and returns the character faithfully, which is exactly why the loss was so hard to spot.
+
+### Fixed (Supervertaler MCP Server · verification results that looked current but weren't)
+
+- **`run_verification` reads the last *saved* state of your files, and its findings gave no sign of it.** That is documented behaviour, but the response came back as a full, confident findings list, so edits the AI had just applied were invisible to it – in one case reporting 17 segments as still untranslated when they had all been translated moments earlier. The response now carries an explicit `stale` flag whenever there are unsaved AI edits, and tells the AI to save and re-run rather than report anything. Nothing is saved automatically: that stays your decision.
+
+### Fixed (Supervertaler MCP Server · large write batches could lose their confirmation)
+
+- **Batches above roughly 45 segment updates outran the connection timeout.** The write itself went through, but the confirmation never came back, leaving the AI unable to tell success from failure – and a retry would apply the same edit twice. The per-call limit drops from 200 to 40, and the timeout on the MCP server side is raised well beyond any legitimate call, so both ends of the problem are closed.
+
+### Added (Supervertaler MCP Server · a warning when no termbase is switched on)
+
+- **`get_active_project` now warns when the open project has no read-enabled termbase.** Termbases are activated per project, so a project with all of them switched off is indistinguishable over MCP from one with no terminology attached: lookups simply return nothing, and nothing says why. A whole job was translated that way before anyone noticed. `list_resources` carries the same warning alongside its `readEnabled` flags.
+
 ## [18.20.147 / 19.20.147] – 2026-07-29
 
 ### Fixed (Clipboard Mode · multi-paragraph translations were cut short)

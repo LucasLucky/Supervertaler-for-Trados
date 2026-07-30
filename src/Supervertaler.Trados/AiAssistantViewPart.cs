@@ -1226,6 +1226,12 @@ namespace Supervertaler.Trados
                     .OrderByDescending(kv => kv.Value)
                     .Select(kv => new BridgeStatusCount { Status = kv.Key, Segments = kv.Value })
                     .ToList();
+
+                // Orientation call – the right place to surface a setup problem
+                // the caller would otherwise never see.
+                var termbaseWarning = BridgeTermbaseWarning();
+                if (termbaseWarning != null)
+                    snapshot.Warnings = new List<string> { termbaseWarning };
             }
             catch (Exception ex)
             {
@@ -1554,9 +1560,15 @@ namespace Supervertaler.Trados
                     continue;
                 }
 
+                // Decode once, here, so the tag-aware path and the plain-text
+                // fallback below both see the real characters.
+                var targetText = u.Target;
+                if (req.DecodeEntities && targetText != null)
+                    targetText = Core.EntityEscapes.Decode(targetText);
+
                 try
                 {
-                    if (u.Target != null)
+                    if (targetText != null)
                     {
                         _activeDocument.ProcessSegmentPair(pair, "Supervertaler MCP",
                             (sp, cancel) =>
@@ -1571,7 +1583,7 @@ namespace Supervertaler.Trados
                                 var combinedMap = BuildCombinedTagMap(sourceSer.TagMap, targetSer.TagMap);
 
                                 var resolved = Core.Export.BilingualTagNamer.ResolveSemanticNames(
-                                    u.Target, combinedMap);
+                                    targetText, combinedMap);
 
                                 bool hasAnyMarker = combinedMap.Count > 0
                                     || resolved.IndexOf("<t", StringComparison.Ordinal) >= 0;
@@ -1583,7 +1595,7 @@ namespace Supervertaler.Trados
 
                                 if (!reconstructed)
                                 {
-                                    var plain = Core.SegmentTagHandler.StripTagPlaceholders(u.Target);
+                                    var plain = Core.SegmentTagHandler.StripTagPlaceholders(targetText);
                                     plain = System.Text.RegularExpressions.Regex.Replace(
                                         plain, @"</?(?:bi|b|i|u)>", "",
                                         System.Text.RegularExpressions.RegexOptions.IgnoreCase);
@@ -1616,9 +1628,44 @@ namespace Supervertaler.Trados
                 }
             }
 
+            // Escape-sequence safety net. Callers are told to send an invisible
+            // character as a JSON escape, because a literal U+00A0 in a tool
+            // argument gets normalised to a plain space by some MCP clients
+            // before it ever reaches us. If the client did NOT decode the
+            // escape, the six characters land in the segment verbatim - say so
+            // rather than decoding it here: silently reinterpreting the text a
+            // caller asked us to write is how the original bug stayed invisible.
+            // Two different mistakes, so two different warnings. A backslash
+            // escape is never decoded (there is no opt-in for it), so it is
+            // always wrong. An entity is only wrong when the caller forgot to
+            // ask for decoding — with decodeEntities it is the happy path, and
+            // crying wolf there just teaches the caller to ignore the warning.
+            bool wroteBackslashEscape = false, wroteUndecodedEntity = false;
+            foreach (var u in req.Updates)
+            {
+                var t = u?.Target;
+                if (t == null) continue;
+                if (t.IndexOf("\\u00", StringComparison.OrdinalIgnoreCase) >= 0)
+                    wroteBackslashEscape = true;
+                if (!req.DecodeEntities
+                    && t.IndexOf("&nbsp;", StringComparison.OrdinalIgnoreCase) >= 0)
+                    wroteUndecodedEntity = true;
+            }
+
             if (response.Applied > 0)
+            {
                 response.Note = "Changes are applied to the open document in Trados Studio; the user still " +
                                 "needs to save the document to persist them. Tell the user exactly what was changed.";
+                if (wroteBackslashEscape)
+                    response.Note += " WARNING: at least one target contained a literal \\uXXXX escape, which was " +
+                        "written to the segment exactly as sent — nothing here decodes backslash escapes. To write " +
+                        "a non-breaking space, set decodeEntities=true and use &nbsp; instead.";
+                if (wroteUndecodedEntity)
+                    response.Note += " WARNING: at least one target contained &nbsp; but decodeEntities was not set, " +
+                        "so it was written as those six literal characters. Re-send with decodeEntities=true if you " +
+                        "meant a non-breaking space.";
+                _bridgeUnsavedWritesDoc = _activeDocument;
+            }
             return response;
         }
 
@@ -1627,6 +1674,22 @@ namespace Supervertaler.Trados
         /// lets the bridge refresh it lazily on document switches without
         /// touching the export code paths.</summary>
         private IStudioDocument _bridgeFileMapDoc;
+
+        /// <summary>The document that has bridge-applied edits not yet saved,
+        /// or null. Set by update_segments / find_and_replace, cleared by
+        /// save_document. run_verification reads the LAST SAVED files, so
+        /// without this its findings silently describe a superseded state –
+        /// field report: a caller reported 17 segments as "still untranslated"
+        /// from a stale read. Scoped to a document so switching files can't
+        /// leave a stale flag behind. Only covers our own writes: edits the
+        /// user makes directly in Studio are invisible to us, which is why the
+        /// advisory note stays in place regardless.</summary>
+        private IStudioDocument _bridgeUnsavedWritesDoc;
+
+        /// <summary>True when the open document holds bridge writes that have
+        /// not been saved.</summary>
+        private bool BridgeHasUnsavedWrites =>
+            _bridgeUnsavedWritesDoc != null && ReferenceEquals(_bridgeUnsavedWritesDoc, _activeDocument);
 
         private void EnsureBridgeFileMapFresh()
         {
@@ -1668,6 +1731,12 @@ namespace Supervertaler.Trados
             public string Id;
             public string Source;        // tag-stripped, whitespace-collapsed
             public string Target;        // tag-stripped, whitespace-collapsed ("" if empty)
+            // Tag-stripped but NOT whitespace-collapsed. The collapsing above uses
+            // \s+, and .NET's \s matches U+00A0 – so the fields above cannot be
+            // used to reason about non-breaking spaces at all. The nbsp check
+            // needs the characters exactly as the document holds them.
+            public string SourceRaw;
+            public string TargetRaw;
             public string Status;
             public int SourceTagCount;
             public int TargetTagCount;
@@ -1702,17 +1771,18 @@ namespace Supervertaler.Trados
                 try
                 {
                     var sourceSer = Core.SegmentTagHandler.Serialize(pair.Source);
+                    var sourceRaw = Core.SegmentTagHandler.StripTagPlaceholders(sourceSer.SerializedText ?? "");
                     var source = System.Text.RegularExpressions.Regex.Replace(
-                        Core.SegmentTagHandler.StripTagPlaceholders(sourceSer.SerializedText ?? ""),
-                        @"\s+", " ").Trim();
+                        sourceRaw, @"\s+", " ").Trim();
                     if (source.Length == 0) continue;
 
                     var targetSer = pair.Target != null
                         ? Core.SegmentTagHandler.Serialize(pair.Target) : null;
+                    var targetRaw = targetSer != null
+                        ? Core.SegmentTagHandler.StripTagPlaceholders(targetSer.SerializedText ?? "")
+                        : "";
                     var target = targetSer != null
-                        ? System.Text.RegularExpressions.Regex.Replace(
-                            Core.SegmentTagHandler.StripTagPlaceholders(targetSer.SerializedText ?? ""),
-                            @"\s+", " ").Trim()
+                        ? System.Text.RegularExpressions.Regex.Replace(targetRaw, @"\s+", " ").Trim()
                         : "";
 
                     var puId = _activeDocument.GetParentParagraphUnit(pair)
@@ -1732,6 +1802,8 @@ namespace Supervertaler.Trados
                         Id = puId + ":" + segId,
                         Source = source,
                         Target = target,
+                        SourceRaw = sourceRaw,
+                        TargetRaw = targetRaw,
                         Status = (pair.Properties?.ConfirmationLevel
                             ?? Sdl.Core.Globalization.ConfirmationLevel.Unspecified).ToString(),
                         SourceTagCount = sourceSer.TagMap?.Count ?? 0,
@@ -1809,6 +1881,29 @@ namespace Supervertaler.Trados
                 else
                     response.Note = (response.Note ?? "") +
                         "A count difference is not always an error (formatting may legitimately differ) – review each case.";
+            }
+            else if (q.Type == "nbsp")
+            {
+                // Non-breaking spaces are invisible in every view the user and
+                // the AI have, so a lost one is never noticed until the client
+                // rejects the file. Compare counts on the RAW text: the
+                // whitespace-collapsed fields would have folded U+00A0 into a
+                // plain space already.
+                foreach (var s in translated)
+                {
+                    int src = CountNbsp(s.SourceRaw);
+                    int tgt = CountNbsp(s.TargetRaw);
+                    if (src > 0 && tgt < src)
+                        AddIssue(s, $"source has {src} non-breaking space(s), target has {tgt}");
+                }
+                if (response.IssuesFound == 0)
+                    response.Note = "Every translated segment keeps at least as many non-breaking spaces as its source.";
+                else
+                    response.Note = "A missing non-breaking space is invisible on screen – verify against the " +
+                        "source before fixing, as the target legitimately needs fewer in some segments. To write " +
+                        "one back, use update_segments or find_and_replace with decodeEntities=true and write the " +
+                        "character as &nbsp;. A literal U+00A0 does not survive the trip, and neither does the " +
+                        "JSON escape \\u00a0 – both arrive as an ordinary space, so the 'fix' changes nothing.";
             }
             else // terminology
             {
@@ -1958,6 +2053,19 @@ namespace Supervertaler.Trados
             return response;
         }
 
+        /// <summary>Counts U+00A0 in a string. Deliberately only the no-break
+        /// space, not the whole Unicode space family: the narrow no-break space
+        /// and friends are separate characters a style guide may or may not
+        /// want, and folding them together would hide exactly the substitution
+        /// this check exists to catch.</summary>
+        private static int CountNbsp(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return 0;
+            int n = 0;
+            foreach (var c in text) if (c == '\u00a0') n++;
+            return n;
+        }
+
         private static List<string> ExtractNumbers(string text)
         {
             // Number tokens incl. decimal/thousand separators; normalized by
@@ -1969,6 +2077,85 @@ namespace Supervertaler.Trados
                 result.Add(System.Text.RegularExpressions.Regex.Replace(m.Value, @"[.,  ]", ""));
             }
             return result;
+        }
+
+        /// <summary>
+        /// Counts termbases and how many of them are read-enabled, across both
+        /// Supervertaler termbases and the Trados project's own. Returns false
+        /// when the state can't be determined – callers then say nothing rather
+        /// than warn on a guess.
+        ///
+        /// Termbase activation is per project, so a project where everything is
+        /// switched off looks identical over the bridge to one with no termbases
+        /// attached: TermLens simply returns no matches, and nothing in the MCP
+        /// surface says why. Field report: a whole job was translated with two
+        /// relevant termbases silently inactive, and it only came to light
+        /// because the translator happened to ask.
+        /// </summary>
+        private bool TryCountReadEnabledTermbases(out int readEnabled, out int total)
+        {
+            readEnabled = 0;
+            total = 0;
+            bool known = false;
+
+            try
+            {
+                var dbPath = ResolveSupervertalerDbPath();
+                if (!string.IsNullOrEmpty(dbPath) && File.Exists(dbPath))
+                {
+                    var settings = TermLensSettings.Load();
+                    var disabled = settings?.DisabledTermbaseIds != null
+                        ? new HashSet<long>(settings.DisabledTermbaseIds) : new HashSet<long>();
+                    using (var tbReader = new TermbaseReader(dbPath))
+                    {
+                        if (tbReader.Open())
+                        {
+                            foreach (var tb in tbReader.GetTermbases() ?? new List<Models.TermbaseInfo>())
+                            {
+                                total++;
+                                if (!disabled.Contains(tb.Id)) readEnabled++;
+                            }
+                            known = true;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[SupervertalerBridge] termbase enable-count (supervertaler) threw: {ex.Message}");
+            }
+
+            try
+            {
+                foreach (var info in TermLensEditorViewPart.GetMultiTermInfos()
+                         ?? new List<Models.MultiTermTermbaseInfo>())
+                {
+                    total++;
+                    if (info.IsEnabled && info.LoadMode != Models.MultiTermLoadMode.Failed) readEnabled++;
+                    known = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[SupervertalerBridge] termbase enable-count (studio) threw: {ex.Message}");
+            }
+
+            return known;
+        }
+
+        /// <summary>The "no termbase is read-enabled" warning text, or null when
+        /// at least one is enabled (or the state is unknown).</summary>
+        private string BridgeTermbaseWarning()
+        {
+            int enabled, total;
+            if (!TryCountReadEnabledTermbases(out enabled, out total)) return null;
+            if (total == 0 || enabled > 0) return null;
+            return $"No termbase is read-enabled for this project ({total} available), so terminology lookups " +
+                   "and TermLens will return nothing at all. This is almost always a misconfiguration – tell " +
+                   "the user before relying on terminology, and point them at Supervertaler settings > " +
+                   "TermLens to switch the relevant termbases back on.";
         }
 
         /// <summary>
@@ -2103,6 +2290,13 @@ namespace Supervertaler.Trados
                 System.Diagnostics.Debug.WriteLine(
                     $"[SupervertalerBridge] studio termbase listing threw: {ex.Message}");
             }
+
+            // Derived from the list just built rather than re-queried, so the
+            // warning can never contradict the rows above it.
+            if (response.Termbases.Count > 0 && !response.Termbases.Any(t => t.ReadEnabled))
+                response.Note = ((response.Note ?? "") + " No termbase is read-enabled, so every terminology " +
+                    "lookup will come back empty – say so before relying on terminology. The user can switch " +
+                    "them back on in Supervertaler settings > TermLens.").Trim();
 
             return response;
         }
@@ -2576,6 +2770,8 @@ namespace Supervertaler.Trados
             try
             {
                 _editorController.Save(_activeDocument);
+                if (ReferenceEquals(_bridgeUnsavedWritesDoc, _activeDocument))
+                    _bridgeUnsavedWritesDoc = null;
                 return new BridgeResultResponse
                 {
                     Ok = true,
@@ -3543,20 +3739,46 @@ namespace Supervertaler.Trados
             if (string.IsNullOrEmpty(req?.Find))
                 return new BridgeFindReplaceResponse { Ok = false, Error = "missing 'find'" };
 
+            // Decode before validating, so the pattern that gets checked is the
+            // one that will actually run.
+            var find = req.DecodeEntities ? Core.EntityEscapes.Decode(req.Find) : req.Find;
+
             // Validate a regex up front so a bad pattern fails clearly.
             if (req.Regex)
             {
-                try { var _ = new System.Text.RegularExpressions.Regex(req.Find); }
+                try { var _ = new System.Text.RegularExpressions.Regex(find); }
                 catch (Exception ex)
                 {
                     return new BridgeFindReplaceResponse { Ok = false, Error = "invalid regex: " + ex.Message };
                 }
             }
 
+            // Confirmation-status policy. Writing content through
+            // ProcessSegmentPair makes Studio demote the segment to Draft, which
+            // is right mid-translation and wrong for a consistency sweep over a
+            // finished file – a single replace would quietly turn 2,889
+            // Translated segments into Draft ones. Default to putting each
+            // segment's status back.
+            var statusMode = string.IsNullOrWhiteSpace(req.SetStatus) ? "preserve" : req.SetStatus.Trim();
+            bool preserveStatus = statusMode.Equals("preserve", StringComparison.OrdinalIgnoreCase);
+            Sdl.Core.Globalization.ConfirmationLevel forcedLevel = default;
+            if (!preserveStatus
+                && !Enum.TryParse(statusMode, true, out forcedLevel))
+            {
+                return new BridgeFindReplaceResponse
+                {
+                    Ok = false,
+                    Error = $"unknown setStatus '{statusMode}' – use 'preserve' (default) or one of: " +
+                            "Unspecified, Draft, Translated, RejectedTranslation, ApprovedTranslation, " +
+                            "RejectedSignOff, ApprovedSignOff"
+                };
+            }
+
             var response = new BridgeFindReplaceResponse
             {
                 Ok = true,
                 DryRun = req.DryRun,
+                StatusMode = preserveStatus ? "preserve" : forcedLevel.ToString(),
                 Changes = new List<BridgeFindReplaceChange>(),
                 SkippedTagSpanning = new List<string>()
             };
@@ -3583,7 +3805,23 @@ namespace Supervertaler.Trados
             }
 
             var replace = req.Replace ?? "";
+            // Entity decoding is what makes a non-breaking space insertable at
+            // all: "(\d) (V|mm|%)" -> "$1&nbsp;$2" is the whole point of the
+            // feature, and a literal U+00A0 in the argument would not survive.
+            // It applies to 'find' as well, or the character would be writable
+            // but not searchable - you could create non-breaking spaces and
+            // then have no way to audit or remove them again.
+            if (req.DecodeEntities) replace = Core.EntityEscapes.Decode(replace);
             int processed = 0;
+
+            // Status writes are deferred to a second pass. Setting the level
+            // inline, straight after ProcessSegmentPair, does NOT work: reading
+            // ConfirmationLevel back at that point still returns the PRE-edit
+            // value, and Studio applies its own demotion to Draft after our
+            // callback returns. So an inline write gets overwritten, and a
+            // "has it actually changed?" guard never fires in the first place.
+            var pendingStatus =
+                new List<KeyValuePair<ISegmentPair, Sdl.Core.Globalization.ConfirmationLevel>>();
 
             foreach (var pair in _activeDocument.SegmentPairs)
             {
@@ -3611,7 +3849,7 @@ namespace Supervertaler.Trados
                     }
 
                     var currentTarget = pair.Target.ToString() ?? "";
-                    var expected = FindReplacePerform(currentTarget, req.Find, replace,
+                    var expected = FindReplacePerform(currentTarget, find, replace,
                         req.CaseSensitive, req.Regex, req.WholeWord);
                     if (expected == currentTarget) continue; // no match here
 
@@ -3636,7 +3874,7 @@ namespace Supervertaler.Trados
                     var iTexts = new List<IText>();
                     FindReplaceCollectTexts(pair.Target, iTexts);
                     var simulated = string.Concat(iTexts.Select(t =>
-                        FindReplacePerform(t.Properties.Text ?? "", req.Find, replace,
+                        FindReplacePerform(t.Properties.Text ?? "", find, replace,
                             req.CaseSensitive, req.Regex, req.WholeWord)));
                     if (iTexts.Count == 0 || simulated != expected)
                     {
@@ -3659,6 +3897,12 @@ namespace Supervertaler.Trados
 
                     if (!req.DryRun)
                     {
+                        // Read the status before the edit: ProcessSegmentPair is
+                        // what demotes it, so this is the only chance to know
+                        // what to put back.
+                        var levelBefore = pair.Properties?.ConfirmationLevel
+                            ?? Sdl.Core.Globalization.ConfirmationLevel.Unspecified;
+
                         _activeDocument.ProcessSegmentPair(pair, "Supervertaler MCP",
                             (sp, cancel) =>
                             {
@@ -3667,17 +3911,43 @@ namespace Supervertaler.Trados
                                 foreach (var t in liveTexts)
                                 {
                                     var oldVal = t.Properties.Text ?? "";
-                                    var newVal = FindReplacePerform(oldVal, req.Find, replace,
+                                    var newVal = FindReplacePerform(oldVal, find, replace,
                                         req.CaseSensitive, req.Regex, req.WholeWord);
                                     if (!string.Equals(oldVal, newVal, StringComparison.Ordinal))
                                         t.Properties.Text = newVal;
                                 }
                             });
+
+                        pendingStatus.Add(
+                            new KeyValuePair<ISegmentPair, Sdl.Core.Globalization.ConfirmationLevel>(
+                                pair, preserveStatus ? levelBefore : forcedLevel));
                     }
                 }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"[SupervertalerBridge] find-replace segment threw: {ex.Message}");
+                }
+            }
+
+            // Second pass: now that every content edit has been committed and
+            // Studio has applied whatever demotion it wanted to, write the
+            // status we actually want. Unconditional — see the note above on
+            // why comparing against the current value is useless here.
+            foreach (var kv in pendingStatus)
+            {
+                try
+                {
+                    var sp = kv.Key;
+                    if (sp.Properties == null) continue;
+                    sp.Properties.ConfirmationLevel = kv.Value;
+                    _activeDocument.UpdateSegmentPairProperties(sp, sp.Properties);
+                    if (preserveStatus && kv.Value != Sdl.Core.Globalization.ConfirmationLevel.Draft)
+                        response.StatusRestored++;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[SupervertalerBridge] find-replace status restore threw: {ex.Message}");
                 }
             }
 
@@ -3691,8 +3961,16 @@ namespace Supervertaler.Trados
                     "straddles inline formatting/tags – those need a manual edit in Studio.";
             if (response.SkippedLocked > 0)
                 response.Note += $" {response.SkippedLocked} locked segment(s) skipped.";
+            if (!req.DryRun && response.StatusRestored > 0)
+                response.Note += $" Confirmation status preserved on {response.StatusRestored} segment(s) " +
+                    "(editing content would otherwise have demoted them to Draft) – pass setStatus to change that.";
+            else if (!req.DryRun && !preserveStatus && response.SegmentsChanged > 0)
+                response.Note += $" All changed segments were set to {forcedLevel}.";
             if (!req.DryRun && response.SegmentsChanged > 0)
+            {
                 response.Note += " Changes are in the open document; the user still needs to save in Studio.";
+                _bridgeUnsavedWritesDoc = _activeDocument;
+            }
             if (req.DryRun && response.SegmentsChanged > 0)
                 response.Note += " Nothing was written – call again with dryRun=false to apply.";
             return response;
@@ -3770,12 +4048,14 @@ namespace Supervertaler.Trados
             Guid[] fileIds = null;
             var fileNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             string grabError = null;
+            bool stale = false;
 
             var ctrl = _control?.Value;
             Action grab = () =>
             {
                 try
                 {
+                    stale = BridgeHasUnsavedWrites;
                     project = _activeDocument?.Project as Sdl.ProjectAutomation.FileBased.FileBasedProject;
                     if (project == null) { grabError = "no file-based project is open in the editor"; return; }
                     var targets = project.GetTargetLanguageFiles()
@@ -3848,7 +4128,12 @@ namespace Supervertaler.Trados
                 }
             }
 
-            var response = new BridgeVerifyResponse { Ok = true, Findings = new List<BridgeVerifyFinding>() };
+            var response = new BridgeVerifyResponse
+            {
+                Ok = true,
+                Stale = stale,
+                Findings = new List<BridgeVerifyFinding>()
+            };
             try
             {
                 var findings = ParseVerifyReport(reportXml, fileNames);
@@ -3862,6 +4147,11 @@ namespace Supervertaler.Trados
                     response.Note = "These are Trados Studio's own QA Checker findings, from the LAST SAVED " +
                         "state of the document – if you have unsaved edits, ask the user to save (Ctrl+S) and " +
                         "run again. Triage each against the source before fixing; some are false positives.";
+                if (stale)
+                    response.Note = "STALE RESULTS: you have applied edits to this document that are not saved " +
+                        "yet, so these findings describe the file BEFORE those edits and some will already be " +
+                        "fixed. Save the document (save_document, or ask the user for Ctrl+S) and run this " +
+                        "again before reporting any of it. " + response.Note;
                 if (response.Truncated)
                     response.Note = $"Showing {response.Returned} of {findings.Count} findings. " + response.Note;
             }

@@ -316,7 +316,13 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "lockedSegments", Order = 6)] public int LockedSegments { get; set; }
         [DataMember(Name = "statusCounts", Order = 7, EmitDefaultValue = false)]
         public List<BridgeStatusCount> StatusCounts { get; set; }
-        [DataMember(Name = "note", Order = 8, EmitDefaultValue = false)] public string Note { get; set; }
+        /// <summary>Misconfigurations that silently degrade quality and are
+        /// invisible from the MCP side otherwise – currently "no termbase is
+        /// read-enabled". Surfaced here because get_active_project is the
+        /// orientation call every session starts with.</summary>
+        [DataMember(Name = "warnings", Order = 8, EmitDefaultValue = false)]
+        public List<string> Warnings { get; set; }
+        [DataMember(Name = "note", Order = 9, EmitDefaultValue = false)] public string Note { get; set; }
 
         // In-process only (no [DataMember] – never serialised to the wire): the
         // full path to the open project's .sdlproj, so /v1/statistics can read
@@ -464,7 +470,7 @@ namespace Supervertaler.Trados.Core
     /// <summary>Parsed query for GET /v1/qa-check.</summary>
     public class BridgeQaQuery
     {
-        /// <summary>"numbers", "tags", or "terminology".</summary>
+        /// <summary>"numbers", "tags", "terminology", or "nbsp".</summary>
         public string Type;
         public int Limit = 50;
     }
@@ -757,6 +763,17 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "file", EmitDefaultValue = false)] public string File { get; set; }
         /// <summary>Restrict to segments with this confirmation status.</summary>
         [DataMember(Name = "status", EmitDefaultValue = false)] public string Status { get; set; }
+        /// <summary>What to do with each changed segment's confirmation status.
+        /// "preserve" (default) restores the status the segment had before the
+        /// replacement – editing content through ProcessSegmentPair otherwise
+        /// silently demotes it to Draft, which turns a consistency sweep over a
+        /// finished file into an unfinished one. Any ConfirmationLevel name
+        /// ("Draft", "Translated", …) forces that status instead.</summary>
+        [DataMember(Name = "setStatus", EmitDefaultValue = false)] public string SetStatus { get; set; }
+        /// <summary>Opt in to HTML-entity decoding of 'replace' - the only
+        /// reliable way to insert a non-breaking space, since a literal one
+        /// does not survive the trip. See <see cref="EntityEscapes"/>.</summary>
+        [DataMember(Name = "decodeEntities", EmitDefaultValue = false)] public bool DecodeEntities { get; set; }
     }
 
     [DataContract]
@@ -784,7 +801,11 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "skippedTagSpanning", Order = 7, EmitDefaultValue = false)]
         public List<string> SkippedTagSpanning { get; set; }
         [DataMember(Name = "skippedLocked", Order = 8)] public int SkippedLocked { get; set; }
-        [DataMember(Name = "note", Order = 9, EmitDefaultValue = false)] public string Note { get; set; }
+        /// <summary>Echo of the effective setStatus mode ("preserve" or a ConfirmationLevel name).</summary>
+        [DataMember(Name = "statusMode", Order = 9, EmitDefaultValue = false)] public string StatusMode { get; set; }
+        /// <summary>Segments whose pre-existing confirmation status was restored after the write.</summary>
+        [DataMember(Name = "statusRestored", Order = 10)] public int StatusRestored { get; set; }
+        [DataMember(Name = "note", Order = 11, EmitDefaultValue = false)] public string Note { get; set; }
     }
 
     [DataContract]
@@ -797,7 +818,12 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "truncated", Order = 4)] public bool Truncated { get; set; }
         [DataMember(Name = "findings", Order = 5, EmitDefaultValue = false)]
         public List<BridgeVerifyFinding> Findings { get; set; }
-        [DataMember(Name = "note", Order = 6, EmitDefaultValue = false)] public string Note { get; set; }
+        /// <summary>True when the open document has bridge-applied edits that
+        /// have not been saved, so these findings describe an older state of the
+        /// file. A top-level flag rather than prose in 'note', because the
+        /// findings otherwise look perfectly current.</summary>
+        [DataMember(Name = "stale", Order = 6)] public bool Stale { get; set; }
+        [DataMember(Name = "note", Order = 7, EmitDefaultValue = false)] public string Note { get; set; }
     }
 
     // ─── MCP write endpoints (v1: /update-segments, /add-term) ──────────────
@@ -818,6 +844,64 @@ namespace Supervertaler.Trados.Core
     {
         [DataMember(Name = "updates", IsRequired = true)]
         public List<BridgeSegmentUpdate> Updates { get; set; }
+        /// <summary>Opt in to HTML-entity decoding of every 'target'. See
+        /// <see cref="EntityEscapes"/> for why this exists.</summary>
+        [DataMember(Name = "decodeEntities", EmitDefaultValue = false)] public bool DecodeEntities { get; set; }
+    }
+
+    /// <summary>
+    /// Decodes a small set of HTML entities in text arriving over the bridge,
+    /// strictly opt-in per request.
+    ///
+    /// Why: a caller cannot reliably transmit an invisible character. Measured
+    /// on a real client, a non-breaking space written into a tool argument –
+    /// whether typed literally or as the JSON escape \u00a0, which the client's
+    /// own parser turns into the literal character before we ever see it –
+    /// arrives here as an ordinary space. The write then lands wrong with
+    /// nothing to indicate it. Entities dodge the problem completely: they are
+    /// plain ASCII on the wire, so no transport, tokeniser or normaliser can
+    /// touch them, and the substitution happens here where it can be trusted.
+    ///
+    /// Opt-in because a document may legitimately contain the text "&amp;nbsp;" –
+    /// an HTML manual, for one – and silently rewriting it would be its own
+    /// silent corruption bug.
+    /// </summary>
+    public static class EntityEscapes
+    {
+        private static readonly System.Text.RegularExpressions.Regex Pattern =
+            new System.Text.RegularExpressions.Regex(
+            @"&(?:(?<name>nbsp|amp)|#(?<dec>[0-9]{1,7})|#[xX](?<hex>[0-9a-fA-F]{1,6}));",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        public static string Decode(string text)
+        {
+            if (string.IsNullOrEmpty(text) || text.IndexOf('&') < 0) return text;
+            return Pattern.Replace(text, m =>
+            {
+                try
+                {
+                    if (m.Groups["name"].Success)
+                        return m.Groups["name"].Value.Equals("amp", StringComparison.OrdinalIgnoreCase)
+                            ? "&" : "\u00a0";
+
+                    int cp;
+                    if (m.Groups["dec"].Success)
+                        cp = int.Parse(m.Groups["dec"].Value, System.Globalization.CultureInfo.InvariantCulture);
+                    else
+                        cp = int.Parse(m.Groups["hex"].Value, System.Globalization.NumberStyles.HexNumber,
+                            System.Globalization.CultureInfo.InvariantCulture);
+
+                    // Reject anything that isn't a legal scalar value rather
+                    // than throwing – an unparseable entity stays as written.
+                    if (cp <= 0 || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return m.Value;
+                    return char.ConvertFromUtf32(cp);
+                }
+                catch
+                {
+                    return m.Value;
+                }
+            });
+        }
     }
 
     [DataContract]
@@ -923,8 +1007,16 @@ namespace Supervertaler.Trados.Core
 
         /// <summary>Max segment updates per /v1/update-segments call – keeps a
         /// single request from freezing the editor thread for minutes on huge
-        /// documents; callers page through larger jobs.</summary>
-        public const int MaxUpdatesPerRequest = 200;
+        /// documents; callers page through larger jobs.
+        ///
+        /// Kept below what the MCP server exe's HTTP client will wait for
+        /// (BridgeClient.Http.Timeout). Field feedback: batches of ~45+ took
+        /// longer than the exe's old 30 s timeout, and because the write had
+        /// already been applied by then, the caller lost the confirmation
+        /// without losing the edit – indistinguishable from a failure. The exe
+        /// timeout has since been raised, but the cap stays conservative so an
+        /// older exe still gets an answer.</summary>
+        public const int MaxUpdatesPerRequest = 40;
 
         // ── MCP exe version handshake ────────────────────────────────────────
         //
@@ -2574,12 +2666,12 @@ namespace Supervertaler.Trados.Core
             }
 
             var type = (QueryUtf8(context.Request)["type"] ?? "").ToLowerInvariant();
-            if (type != "numbers" && type != "tags" && type != "terminology")
+            if (type != "numbers" && type != "tags" && type != "terminology" && type != "nbsp")
             {
                 WriteJson(context, 400, new BridgeQaResponse
                 {
                     Available = false,
-                    Note = "missing or unknown 'type' – use numbers, tags, or terminology"
+                    Note = "missing or unknown 'type' – use numbers, tags, terminology, or nbsp"
                 });
                 return;
             }
