@@ -1818,15 +1818,109 @@ namespace Supervertaler.Trados
         }
 
         /// <summary>
-        /// Bridge delegate for GET /v1/compare-tm (MCP compare_document_to_tm).
-        /// Answers the question concordance search cannot: across the whole
-        /// document, where does the translation differ from what the TM already
-        /// holds for that exact source?
+        /// A path inside the open project, for TmSearcher.FindProjectTms to walk
+        /// up from. MUST be called on the UI thread.
         ///
-        /// The snapshot is taken on the UI thread; the TM enumeration and the
-        /// join run off it, the same split the QA checks use. Only deviations
-        /// cross the bridge - never the TM itself.
+        /// Several routes, because no single one proved dependable: the
+        /// FileBasedProject cast and ActiveFile.LocalFilePath both came back
+        /// empty on a perfectly ordinary single-file project, even though
+        /// ActiveFile itself was live enough to report its Name. Reflection is
+        /// used for the SDK members that are not on the interfaces we compile
+        /// against, so a route that does not exist simply loses rather than
+        /// failing the build.
         /// </summary>
+        private string ResolveProjectAnchorPathCore()
+        {
+            return ResolveProjectAnchorPathCore(null);
+        }
+
+        /// <param name="trace">Optional: receives what each route produced, so a
+        /// failure can be diagnosed from the tool response instead of guessing.</param>
+        private string ResolveProjectAnchorPathCore(List<string> trace)
+        {
+            Action<string, string> note = (route, value) =>
+            {
+                if (trace != null)
+                    trace.Add(route + "=" + (string.IsNullOrEmpty(value) ? "(empty)" : value));
+            };
+
+            // 1. The project's own .sdlproj.
+            try
+            {
+                var fbp = _activeDocument?.Project as Sdl.ProjectAutomation.FileBased.FileBasedProject;
+                var v = fbp?.FilePath;
+                note("Project.FilePath", v);
+                if (!string.IsNullOrEmpty(v)) return v;
+            }
+            catch (Exception ex) { note("Project.FilePath", "threw: " + ex.Message); }
+
+            // 2. ProjectInfo.LocalProjectFolder, via reflection so we do not
+            //    depend on the concrete project type.
+            try
+            {
+                var proj = (object)_activeDocument?.Project;
+                var mi = proj?.GetType().GetMethod("GetProjectInfo", Type.EmptyTypes);
+                var info = mi?.Invoke(proj, null);
+                var folder = info?.GetType().GetProperty("LocalProjectFolder")?.GetValue(info, null) as string;
+                note("ProjectInfo.LocalProjectFolder", folder);
+                if (!string.IsNullOrEmpty(folder))
+                {
+                    // FindProjectTms takes the DIRECTORY of what it is given, so
+                    // hand it a path inside the folder rather than the folder.
+                    return System.IO.Path.Combine(folder, "anchor.sdlxliff");
+                }
+            }
+            catch (Exception ex) { note("ProjectInfo.LocalProjectFolder", "threw: " + ex.Message); }
+
+            // 3. The active file's own path.
+            try
+            {
+                var v = _activeDocument?.ActiveFile?.LocalFilePath;
+                note("ActiveFile.LocalFilePath", v);
+                if (!string.IsNullOrEmpty(v)) return v;
+            }
+            catch (Exception ex) { note("ActiveFile.LocalFilePath", "threw: " + ex.Message); }
+
+            // 4. Any string property on ActiveFile that looks like a rooted path.
+            try
+            {
+                var af = (object)_activeDocument?.ActiveFile;
+                if (af != null)
+                {
+                    foreach (var pi in af.GetType().GetProperties())
+                    {
+                        if (pi.PropertyType != typeof(string)) continue;
+                        string v = null;
+                        try { v = pi.GetValue(af, null) as string; } catch { }
+                        if (string.IsNullOrEmpty(v)) continue;
+                        if (v.Length > 3 && v[1] == ':' && v.IndexOf('\\') > 0)
+                        {
+                            note("ActiveFile." + pi.Name, v);
+                            return v;
+                        }
+                    }
+                }
+                note("ActiveFile.<rooted-string-property>", null);
+            }
+            catch (Exception ex) { note("ActiveFile.<scan>", "threw: " + ex.Message); }
+
+            // 5. Any file of the document.
+            try
+            {
+                var files = TryGetEnumerable(_activeDocument, "Files");
+                if (files != null)
+                    foreach (var f in files)
+                    {
+                        var v = f?.GetType().GetProperty("LocalFilePath")?.GetValue(f, null) as string;
+                        if (!string.IsNullOrEmpty(v)) { note("Files[].LocalFilePath", v); return v; }
+                    }
+                note("Files[].LocalFilePath", null);
+            }
+            catch (Exception ex) { note("Files[]", "threw: " + ex.Message); }
+
+            return null;
+        }
+
         private BridgeTmCompareResponse BridgeCompareTm(BridgeTmCompareQuery q)
         {
             var raw = BridgeCollectRawSegments();
@@ -1840,15 +1934,17 @@ namespace Supervertaler.Trados
             // Resolving the project's TMs needs the active file, so read that on
             // the UI thread before going wide.
             string activeFilePath = null;
+            var anchorTrace = new List<string>();
             var ctrl = _control?.Value;
             try
             {
-                if (ctrl != null && !ctrl.IsDisposed
-                    && (ctrl.InvokeRequired || (UiThread.InvokeRequired && UiThread.IsAvailable)))
+                if (ctrl != null && !ctrl.IsDisposed && ctrl.InvokeRequired)
                     activeFilePath = (string)ctrl.Invoke(new Func<string>(
-                        () => { try { return _activeDocument?.ActiveFile?.LocalFilePath; } catch { return null; } }));
+                        () => ResolveProjectAnchorPathCore(anchorTrace)));
+                else if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                    activeFilePath = UiThread.Invoke(() => ResolveProjectAnchorPathCore(anchorTrace));
                 else
-                    activeFilePath = _activeDocument?.ActiveFile?.LocalFilePath;
+                    activeFilePath = ResolveProjectAnchorPathCore(anchorTrace);
             }
             catch { }
 
@@ -1856,7 +1952,8 @@ namespace Supervertaler.Trados
                 return new BridgeTmCompareResponse
                 {
                     Available = false,
-                    Error = "Could not locate the open project on disk, so its TMs cannot be read."
+                    Error = "Could not locate the open project on disk, so its TMs cannot be read. "
+                        + "Routes tried: " + string.Join("; ", anchorTrace)
                 };
 
             var tmEntries = Core.TmSearcher.FindProjectTms(activeFilePath) ?? new List<string>();
@@ -2356,9 +2453,9 @@ namespace Supervertaler.Trados
                 var ctrl = _control?.Value;
                 if (ctrl != null && !ctrl.IsDisposed && (ctrl.InvokeRequired || (UiThread.InvokeRequired && UiThread.IsAvailable)))
                     activeFilePath = (string)ctrl.Invoke(new Func<string>(
-                        () => { try { return _activeDocument?.ActiveFile?.LocalFilePath; } catch { return null; } }));
+                        () => ResolveProjectAnchorPathCore()));
                 else
-                    activeFilePath = _activeDocument?.ActiveFile?.LocalFilePath;
+                    activeFilePath = ResolveProjectAnchorPathCore();
             }
             catch { }
 
@@ -2498,9 +2595,9 @@ namespace Supervertaler.Trados
             {
                 if (ctrl != null && !ctrl.IsDisposed && (ctrl.InvokeRequired || (UiThread.InvokeRequired && UiThread.IsAvailable)))
                     activeFilePath = (string)ctrl.Invoke(new Func<string>(
-                        () => { try { return _activeDocument?.ActiveFile?.LocalFilePath; } catch { return null; } }));
+                        () => ResolveProjectAnchorPathCore()));
                 else
-                    activeFilePath = _activeDocument?.ActiveFile?.LocalFilePath;
+                    activeFilePath = ResolveProjectAnchorPathCore();
             }
             catch { /* fall through to the no-path error below */ }
 
