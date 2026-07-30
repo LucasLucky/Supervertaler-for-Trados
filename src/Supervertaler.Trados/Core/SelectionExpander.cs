@@ -141,7 +141,12 @@ namespace Supervertaler.Trados.Core
         {
             int trimStart = 0;
             while (trimStart < text.Length && !IsWordChar(text[trimStart]))
+            {
+                // Keep a bracket that is balanced inside the selection:
+                // "(her)certificering" is a term, not a stray edge character.
+                if (IsBalancedOpener(text, trimStart, text.Length - 1)) break;
                 trimStart++;
+            }
 
             int trimEnd = text.Length - 1;
             while (trimEnd >= trimStart && !IsWordChar(text[trimEnd]))
@@ -156,39 +161,25 @@ namespace Supervertaler.Trados.Core
             if (trimStart > trimEnd)
                 return text.Trim(); // degenerate case
 
-            var kept = text.Substring(trimStart, trimEnd - trimStart + 1);
-            return DropAttachedBracketSuffix(DropAttachedBracketPrefix(text, trimStart, trimEnd));
+            return text.Substring(trimStart, trimEnd - trimStart + 1);
         }
 
-        /// <summary>
-        /// Mirror of <see cref="DropAttachedBracketSuffix"/> for the other end:
-        /// "(re)certification" and "(her)certificering" yield "certification" /
-        /// "certificering". Reads from the ORIGINAL text, because the leading
-        /// bracket has already been trimmed off the kept range by the time we
-        /// get here — that trim is what turns "(re)certification" into the
-        /// unbalanced "re)certification" seen in real termbase data.
-        /// </summary>
-        private static string DropAttachedBracketPrefix(string text, int trimStart, int trimEnd)
+        /// <summary>True when text[start] opens a bracket closed at or before
+        /// <paramref name="end"/> - the pair is intact within the range.</summary>
+        private static bool IsBalancedOpener(string text, int start, int end)
         {
             const string openers = "([{";
             const string closers = ")]}";
+            int o = openers.IndexOf(text[start]);
+            if (o < 0) return false;
 
-            var kept = text.Substring(trimStart, trimEnd - trimStart + 1);
-
-            // Only relevant when an opener sat immediately before the kept range.
-            if (trimStart == 0 || openers.IndexOf(text[trimStart - 1]) < 0) return kept;
-            int o = openers.IndexOf(text[trimStart - 1]);
-
-            int close = kept.IndexOf(closers[o]);
-            if (close < 0) return kept;                        // no closer to pair with
-
-            // Attached to the word that follows, or a standalone parenthetical?
-            if (close + 1 >= kept.Length || !IsWordChar(kept[close + 1])) return kept;
-
-            var tail = kept.Substring(close + 1);
-            int s = 0;
-            while (s < tail.Length && !IsWordChar(tail[s])) s++;
-            return s >= tail.Length ? kept : tail.Substring(s);
+            int depth = 0;
+            for (int i = start; i <= end && i < text.Length; i++)
+            {
+                if (text[i] == openers[o]) depth++;
+                else if (text[i] == closers[o] && --depth == 0) return true;
+            }
+            return false;
         }
 
         /// <summary>True when text[end] closes a bracket opened at or after
@@ -207,47 +198,6 @@ namespace Supervertaler.Trados.Core
                 else if (text[i] == openers[c] && --depth == 0) return true;
             }
             return false;
-        }
-
-        /// <summary>
-        /// Drops a trailing bracket group that is attached directly to a word,
-        /// so "verkoper(s)" yields the base term "verkoper".
-        ///
-        /// The "(s)" optional-plural convention is everywhere in Dutch and
-        /// English legal text, and the base word is what belongs in the
-        /// termbase: TermMatcher tokenises "verkoper(s)" in a segment as
-        /// "verkoper" + "s", so an entry storing the brackets would never be
-        /// highlighted.
-        ///
-        /// Attachment is the signal. "verkoper(s)" has no space before the
-        /// bracket and marks an inflection; "tekst (met noot)" is a parenthetical
-        /// phrase the user deliberately selected, and is left intact.
-        /// </summary>
-        private static string DropAttachedBracketSuffix(string text)
-        {
-            const string openers = "([{";
-            const string closers = ")]}";
-
-            if (text.Length < 3) return text;
-            int c = closers.IndexOf(text[text.Length - 1]);
-            if (c < 0) return text;                       // doesn't end with a bracket
-
-            // Walk back to the matching opener.
-            int depth = 0, open = -1;
-            for (int i = text.Length - 1; i >= 0; i--)
-            {
-                if (text[i] == closers[c]) depth++;
-                else if (text[i] == openers[c] && --depth == 0) { open = i; break; }
-            }
-            if (open <= 0) return text;                   // unmatched, or the whole string
-
-            // Attached to the preceding word, or a separate parenthetical?
-            if (!IsWordChar(text[open - 1])) return text;
-
-            var head = text.Substring(0, open);
-            int end = head.Length - 1;
-            while (end >= 0 && !IsWordChar(head[end])) end--;
-            return end < 0 ? text : head.Substring(0, end + 1);
         }
 
         /// <summary>

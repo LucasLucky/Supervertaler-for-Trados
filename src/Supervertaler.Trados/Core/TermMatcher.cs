@@ -98,7 +98,44 @@ namespace Supervertaler.Trados.Core
         public void LoadIndex(Dictionary<string, List<TermEntry>> termIndex)
         {
             _termIndex = termIndex ?? new Dictionary<string, List<TermEntry>>(StringComparer.OrdinalIgnoreCase);
+            AddBracketAliases(_termIndex);
             _multiWordTermsCache = null;
+        }
+
+        // A bracket group attached to a word: the "(s)" of "verkoper(s)", the
+        // "(re)" of "(re)certification".
+        private static readonly Regex AttachedBracketGroup = new Regex(
+            @"(?<=\w)\([^()]*\)|\([^()]*\)(?=\w)", RegexOptions.Compiled);
+
+        /// <summary>
+        /// Indexes a bracket-stripped alias for every term carrying an attached
+        /// bracket group, so "kandidaat-koper(s)" is also findable as
+        /// "kandidaat-koper". The original key stays, so both spellings resolve.
+        ///
+        /// The tokenizer splits a segment's "kandidaat-koper(s)" into
+        /// "kandidaat-koper" + "s", because brackets are not word characters.
+        /// Without an alias a term stored WITH its brackets could never match
+        /// the very text it was created from - and translators do store them
+        /// that way, because "(s)" is how an optional plural is written. The
+        /// entry should record what the user chose; making the lookup cope is
+        /// better than quietly rewriting their term to suit the tokenizer.
+        /// </summary>
+        private static void AddBracketAliases(Dictionary<string, List<TermEntry>> index)
+        {
+            if (index == null || index.Count == 0) return;
+
+            var extra = new List<KeyValuePair<string, List<TermEntry>>>();
+            foreach (var kv in index)
+            {
+                if (kv.Key.IndexOf('(') < 0) continue;
+                var alias = AttachedBracketGroup.Replace(kv.Key, "").Trim();
+                if (alias.Length == 0 || string.Equals(alias, kv.Key, StringComparison.Ordinal)) continue;
+                if (index.ContainsKey(alias)) continue;
+                extra.Add(new KeyValuePair<string, List<TermEntry>>(alias, kv.Value));
+            }
+
+            foreach (var kv in extra)
+                if (!index.ContainsKey(kv.Key)) index[kv.Key] = kv.Value;
         }
 
         /// <summary>
@@ -120,6 +157,7 @@ namespace Supervertaler.Trados.Core
                 else
                     _termIndex[kvp.Key] = new List<TermEntry>(kvp.Value);
             }
+            AddBracketAliases(_termIndex);
             _multiWordTermsCache = null;
         }
 
