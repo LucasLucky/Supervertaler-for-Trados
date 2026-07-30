@@ -969,6 +969,7 @@ namespace Supervertaler.Trados
                     findInconsistencies: BuildBridgeInconsistencies,
                     searchStudioTm: BridgeSearchStudioTm,
                     runQaCheck: BridgeRunQaCheck,
+                    compareTm: BridgeCompareTm,
                     listResources: BridgeListResources,
                     goToSegment: BridgeGoToSegment,
                     getComments: BridgeGetComments,
@@ -1814,6 +1815,180 @@ namespace Supervertaler.Trados
                 catch { /* skip unreadable segment */ }
             }
             return list;
+        }
+
+        /// <summary>
+        /// Bridge delegate for GET /v1/compare-tm (MCP compare_document_to_tm).
+        /// Answers the question concordance search cannot: across the whole
+        /// document, where does the translation differ from what the TM already
+        /// holds for that exact source?
+        ///
+        /// The snapshot is taken on the UI thread; the TM enumeration and the
+        /// join run off it, the same split the QA checks use. Only deviations
+        /// cross the bridge - never the TM itself.
+        /// </summary>
+        private BridgeTmCompareResponse BridgeCompareTm(BridgeTmCompareQuery q)
+        {
+            var raw = BridgeCollectRawSegments();
+            if (raw == null)
+                return new BridgeTmCompareResponse
+                {
+                    Available = false,
+                    Error = "No document is open in the Trados editor."
+                };
+
+            // Resolving the project's TMs needs the active file, so read that on
+            // the UI thread before going wide.
+            string activeFilePath = null;
+            var ctrl = _control?.Value;
+            try
+            {
+                if (ctrl != null && !ctrl.IsDisposed
+                    && (ctrl.InvokeRequired || (UiThread.InvokeRequired && UiThread.IsAvailable)))
+                    activeFilePath = (string)ctrl.Invoke(new Func<string>(
+                        () => { try { return _activeDocument?.ActiveFile?.LocalFilePath; } catch { return null; } }));
+                else
+                    activeFilePath = _activeDocument?.ActiveFile?.LocalFilePath;
+            }
+            catch { }
+
+            if (string.IsNullOrEmpty(activeFilePath))
+                return new BridgeTmCompareResponse
+                {
+                    Available = false,
+                    Error = "Could not locate the open project on disk, so its TMs cannot be read."
+                };
+
+            var tmEntries = Core.TmSearcher.FindProjectTms(activeFilePath) ?? new List<string>();
+            if (!string.IsNullOrWhiteSpace(q.Tm))
+                tmEntries = tmEntries
+                    .Where(t => (Core.TmSearcher.DisplayName(t) ?? "")
+                        .IndexOf(q.Tm.Trim(), StringComparison.OrdinalIgnoreCase) >= 0)
+                    .ToList();
+
+            if (tmEntries.Count == 0)
+                return new BridgeTmCompareResponse
+                {
+                    Available = false,
+                    Error = string.IsNullOrWhiteSpace(q.Tm)
+                        ? "No translation memory is attached to this project."
+                        : "No TM matching that name is attached to this project - call list_resources for the list."
+                };
+
+            var response = new BridgeTmCompareResponse
+            {
+                Available = true,
+                TmsCompared = new List<string>(),
+                Items = new List<BridgeTmDeviation>()
+            };
+
+            // One budget shared across every TM, so the call still answers inside
+            // the caller's HTTP timeout instead of dying without a reply.
+            var budget = TimeSpan.FromSeconds(20);
+            var started = System.Diagnostics.Stopwatch.StartNew();
+
+            var index = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in tmEntries)
+            {
+                var remaining = budget - started.Elapsed;
+                if (remaining <= TimeSpan.Zero) { response.TmPartiallyRead = true; break; }
+
+                int read;
+                bool complete;
+                string err;
+                var part = Core.TmComparer.BuildIndex(entry, 250000, remaining,
+                    out read, out complete, out err);
+                response.TmUnitsRead += read;
+                if (!complete) response.TmPartiallyRead = true;
+                if (err != null)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        "[SupervertalerBridge] compare-tm: " + entry + ": " + err);
+                    continue;
+                }
+                response.TmsCompared.Add(Core.TmSearcher.DisplayName(entry));
+
+                foreach (var kv in part)
+                {
+                    List<string> existing;
+                    if (!index.TryGetValue(kv.Key, out existing)) { index[kv.Key] = kv.Value; continue; }
+                    foreach (var t in kv.Value)
+                        if (!existing.Contains(t, StringComparer.Ordinal)) existing.Add(t);
+                }
+            }
+
+            var wantStatus = string.IsNullOrWhiteSpace(q.Status) ? null : q.Status.Trim();
+            foreach (var seg in raw)
+            {
+                if (string.IsNullOrEmpty(seg.TargetRaw)) continue;
+                if (wantStatus == null)
+                {
+                    // Default to finished work: an unconfirmed segment differing
+                    // from the TM is not news.
+                    if (!string.Equals(seg.Status, "Translated", StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(seg.Status, "ApprovedTranslation", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                }
+                else if (!string.Equals(seg.Status, wantStatus, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                response.SegmentsChecked++;
+
+                var key = Core.TmComparer.NormaliseWhitespace(seg.SourceRaw);
+                List<string> tmTargets;
+                if (key.Length == 0 || !index.TryGetValue(key, out tmTargets) || tmTargets.Count == 0)
+                    continue;
+
+                response.ExactSourceHits++;
+
+                var mine = Core.TmComparer.NormaliseWhitespace(seg.TargetRaw);
+                if (tmTargets.Contains(mine, StringComparer.Ordinal)) continue;
+
+                response.Deviations++;
+                if (response.Items.Count >= q.Limit) { response.Truncated = true; continue; }
+
+                response.Items.Add(new BridgeTmDeviation
+                {
+                    Id = seg.Id,
+                    Number = seg.Id != null && seg.Id.LastIndexOf(':') >= 0
+                        ? seg.Id.Substring(seg.Id.LastIndexOf(':') + 1) : null,
+                    FileName = seg.FileName,
+                    Source = TruncateForBridge(seg.SourceRaw, 300),
+                    DocumentTarget = TruncateForBridge(seg.TargetRaw, 300),
+                    TmTargets = tmTargets.Select(t => TruncateForBridge(t, 300)).Take(3).ToList()
+                });
+            }
+
+            response.Returned = response.Items.Count;
+
+            if (response.TmsCompared.Count == 0)
+                response.Note = "None of the attached TMs could be read.";
+            else if (response.ExactSourceHits == 0)
+                response.Note = "No segment's source was found in the TM verbatim, so there was nothing to "
+                    + "compare. That is normal for a document translated from scratch; it does NOT mean the "
+                    + "translation agrees with the TM.";
+            else if (response.Deviations == 0)
+                response.Note = "All " + response.ExactSourceHits + " segment(s) whose source appears in the "
+                    + "TM match what the TM holds.";
+            else
+                response.Note = response.Deviations + " of " + response.ExactSourceHits + " segment(s) with an "
+                    + "exact source match are translated differently from the TM. A difference is NOT "
+                    + "automatically an error - a deliberate improvement looks exactly like a mistake here - so "
+                    + "present these for the user to review rather than aligning them automatically.";
+
+            if (response.Truncated)
+                response.Note = "Showing " + response.Returned + " of " + response.Deviations + ". " + response.Note;
+            if (response.TmPartiallyRead)
+                response.Note += " WARNING: a TM was too large to read completely in the time available, so some "
+                    + "segments may not have been compared at all. Treat this as a partial answer.";
+
+            return response;
+        }
+
+        /// <summary>Shortens a value for a bridge response, marking that it was shortened.</summary>
+        private static string TruncateForBridge(string s, int max)
+        {
+            return string.IsNullOrEmpty(s) || s.Length <= max ? s : s.Substring(0, max) + "\u2026";
         }
 
         /// <summary>

@@ -518,6 +518,46 @@ namespace Supervertaler.Trados.Core
         public string ExampleTarget { get; set; }
     }
 
+    /// <summary>Parsed query for GET /v1/compare-tm.</summary>
+    public class BridgeTmCompareQuery
+    {
+        /// <summary>TM name or partial name; empty = every TM on the project.</summary>
+        public string Tm;
+        /// <summary>Only compare segments with this confirmation status. Empty = translated ones.</summary>
+        public string Status;
+        public int Limit = 100;
+    }
+
+    [DataContract]
+    public class BridgeTmDeviation
+    {
+        [DataMember(Name = "id", Order = 0)] public string Id { get; set; }
+        [DataMember(Name = "number", Order = 1, EmitDefaultValue = false)] public string Number { get; set; }
+        [DataMember(Name = "fileName", Order = 2, EmitDefaultValue = false)] public string FileName { get; set; }
+        [DataMember(Name = "source", Order = 3)] public string Source { get; set; }
+        [DataMember(Name = "documentTarget", Order = 4)] public string DocumentTarget { get; set; }
+        /// <summary>What the TM holds for this exact source. More than one when the TM disagrees with itself.</summary>
+        [DataMember(Name = "tmTargets", Order = 5)] public List<string> TmTargets { get; set; }
+    }
+
+    [DataContract]
+    public class BridgeTmCompareResponse
+    {
+        [DataMember(Name = "available", Order = 0)] public bool Available { get; set; }
+        [DataMember(Name = "error", Order = 1, EmitDefaultValue = false)] public string Error { get; set; }
+        [DataMember(Name = "tmsCompared", Order = 2, EmitDefaultValue = false)] public List<string> TmsCompared { get; set; }
+        [DataMember(Name = "tmUnitsRead", Order = 3)] public int TmUnitsRead { get; set; }
+        [DataMember(Name = "segmentsChecked", Order = 4)] public int SegmentsChecked { get; set; }
+        /// <summary>Segments whose source was found in the TM verbatim.</summary>
+        [DataMember(Name = "exactSourceHits", Order = 5)] public int ExactSourceHits { get; set; }
+        [DataMember(Name = "deviations", Order = 6)] public int Deviations { get; set; }
+        [DataMember(Name = "returned", Order = 7)] public int Returned { get; set; }
+        [DataMember(Name = "truncated", Order = 8)] public bool Truncated { get; set; }
+        /// <summary>True when a TM was too large to read fully within the time budget.</summary>
+        [DataMember(Name = "tmPartiallyRead", Order = 9)] public bool TmPartiallyRead { get; set; }
+        [DataMember(Name = "items", Order = 10, EmitDefaultValue = false)] public List<BridgeTmDeviation> Items { get; set; }
+        [DataMember(Name = "note", Order = 11, EmitDefaultValue = false)] public string Note { get; set; }
+    }
     [DataContract]
     public class BridgeTmResource
     {
@@ -990,6 +1030,7 @@ namespace Supervertaler.Trados.Core
         private readonly Func<int, BridgeInconsistenciesResponse> _findInconsistencies;
         private readonly Func<BridgeStudioTmQuery, BridgeTmSearchResponse> _searchStudioTm;
         private readonly Func<BridgeQaQuery, BridgeQaResponse> _runQaCheck;
+        private readonly Func<BridgeTmCompareQuery, BridgeTmCompareResponse> _compareTm;
         private readonly Func<BridgeResourcesResponse> _listResources;
         private readonly Func<BridgeGoToRequest, BridgeResultResponse> _goToSegment;
         private readonly Func<string, BridgeCommentsResponse> _getComments;
@@ -1073,6 +1114,7 @@ namespace Supervertaler.Trados.Core
             Func<int, BridgeInconsistenciesResponse> findInconsistencies = null,
             Func<BridgeStudioTmQuery, BridgeTmSearchResponse> searchStudioTm = null,
             Func<BridgeQaQuery, BridgeQaResponse> runQaCheck = null,
+            Func<BridgeTmCompareQuery, BridgeTmCompareResponse> compareTm = null,
             Func<BridgeResourcesResponse> listResources = null,
             Func<BridgeGoToRequest, BridgeResultResponse> goToSegment = null,
             Func<string, BridgeCommentsResponse> getComments = null,
@@ -1102,6 +1144,7 @@ namespace Supervertaler.Trados.Core
             _findInconsistencies = findInconsistencies;
             _searchStudioTm = searchStudioTm;
             _runQaCheck = runQaCheck;
+            _compareTm = compareTm;
             _listResources = listResources;
             _goToSegment = goToSegment;
             _getComments = getComments;
@@ -1394,6 +1437,12 @@ namespace Supervertaler.Trados.Core
             if (method == "GET" && path == "/v1/qa-check")
             {
                 HandleQaCheck(context);
+                return;
+            }
+
+            if (method == "GET" && path == "/v1/compare-tm")
+            {
+                HandleCompareTm(context);
                 return;
             }
 
@@ -2660,6 +2709,40 @@ namespace Supervertaler.Trados.Core
             WriteJson(context, 200, response);
         }
 
+        private void HandleCompareTm(HttpListenerContext context)
+        {
+            if (_compareTm == null)
+            {
+                TryWriteError(context, 501, "compare-tm endpoint not wired");
+                return;
+            }
+
+            var q = new BridgeTmCompareQuery
+            {
+                Tm = QueryUtf8(context.Request)["tm"],
+                Status = QueryUtf8(context.Request)["status"]
+            };
+            int limit;
+            if (int.TryParse(QueryUtf8(context.Request)["limit"], out limit) && limit > 0)
+                q.Limit = Math.Min(limit, 500);
+
+            BridgeTmCompareResponse response;
+            try
+            {
+                response = _compareTm(q) ?? new BridgeTmCompareResponse { Available = false };
+            }
+            catch (Exception ex)
+            {
+                BridgeLog.Write($"[SupervertalerBridge] compare-tm threw: {ex.Message}");
+                response = new BridgeTmCompareResponse
+                {
+                    Available = false,
+                    Error = "TM comparison failed: " + ex.Message
+                };
+            }
+
+            WriteJson(context, 200, response);
+        }
         private void HandleQaCheck(HttpListenerContext context)
         {
             if (_runQaCheck == null)

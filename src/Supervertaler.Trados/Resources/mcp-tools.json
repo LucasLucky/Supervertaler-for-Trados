@@ -377,6 +377,38 @@
       "fixedBody": {}
     },
     {
+      "name": "compare_document_to_tm",
+      "description": "Compare the WHOLE open document against the translation memories attached to the project, and return only the segments where your translation differs from what the TM already holds for that exact same source. This is the pre-delivery consistency check, and it answers a question concordance search cannot: search_studio_tm tells you whether a phrase you already suspect exists in the TM, one query at a time, whereas this compares every segment at once - so it surfaces the cases you had no reason to look up. Typical use: the client supplied a reference TM and you want to know where you have departed from their established wording before you deliver. IMPORTANT: a difference is NOT automatically an error. A deliberate improvement looks exactly like an inconsistency here, and on a real job most differences are intentional. Present the list for the user to judge; never align segments to the TM automatically. Only segments whose source matches the TM verbatim are compared - fuzzy matches are not, so a clean result does not mean the whole document agrees with the TM. By default only finished segments (Translated / ApprovedTranslation) are checked. The comparison ignores differences in ordinary spacing but NOT in non-breaking spaces, so a target that lost one is reported.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tm": {
+            "description": "Name or partial name of one attached TM (as shown by list_resources). Omit to compare against every TM on the project.",
+            "type": "string",
+            "default": null
+          },
+          "status": {
+            "description": "Only compare segments with this confirmation status. Omit for finished work only (Translated and ApprovedTranslation), which is almost always what you want.",
+            "type": "string",
+            "default": null
+          },
+          "limit": {
+            "description": "Maximum deviations to return (default 100). The counts in the response are complete regardless of this.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "default": null
+          }
+        }
+      },
+      "method": "GET",
+      "path": "/v1/compare-tm",
+      "paramMap": {},
+      "fixedQuery": {},
+      "fixedBody": {}
+    },
+    {
       "name": "get_active_project",
       "description": "Get the Trados Studio project currently open in the editor: project name, source and target language, the document/file being edited, and progress statistics (segment counts per confirmation status, word counts). Call this first to orient yourself. The response may carry a 'warnings' array for setup problems that silently degrade quality – currently, no termbase being read-enabled. Relay any warning to the user rather than working around it silently.",
       "inputSchema": {
