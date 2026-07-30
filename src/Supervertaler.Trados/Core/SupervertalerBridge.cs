@@ -770,9 +770,10 @@ namespace Supervertaler.Trados.Core
         /// finished file into an unfinished one. Any ConfirmationLevel name
         /// ("Draft", "Translated", …) forces that status instead.</summary>
         [DataMember(Name = "setStatus", EmitDefaultValue = false)] public string SetStatus { get; set; }
-        /// <summary>Opt in to HTML-entity decoding of 'replace' - the only
-        /// reliable way to insert a non-breaking space, since a literal one
-        /// does not survive the trip. See <see cref="EntityEscapes"/>.</summary>
+        /// <summary>Opt in to HTML-entity decoding of 'find' and 'replace' -
+        /// the only reliable way to carry a non-breaking space, since sending
+        /// the character itself only works sometimes. See
+        /// <see cref="EntityEscapes"/>.</summary>
         [DataMember(Name = "decodeEntities", EmitDefaultValue = false)] public bool DecodeEntities { get; set; }
     }
 
@@ -854,13 +855,15 @@ namespace Supervertaler.Trados.Core
     /// strictly opt-in per request.
     ///
     /// Why: a caller cannot reliably transmit an invisible character. Measured
-    /// on a real client, a non-breaking space written into a tool argument –
-    /// whether typed literally or as the JSON escape \u00a0, which the client's
-    /// own parser turns into the literal character before we ever see it –
-    /// arrives here as an ordinary space. The write then lands wrong with
-    /// nothing to indicate it. Entities dodge the problem completely: they are
-    /// plain ASCII on the wire, so no transport, tokeniser or normaliser can
-    /// touch them, and the substitution happens here where it can be trusted.
+    /// on a real client, a non-breaking space written into a tool argument
+    /// sometimes arrives here intact and sometimes as an ordinary space - and
+    /// the JSON escape \u00a0 is no safer, because the client's own parser
+    /// turns it into the character before we ever see it. The write reports
+    /// success either way, so the caller cannot tell which happened;
+    /// intermittent is worse than broken, because it survives testing.
+    /// Entities dodge the problem completely: they are plain ASCII on the wire,
+    /// so no transport, tokeniser or normaliser can touch them, and the
+    /// substitution happens here where it can be trusted.
     ///
     /// Opt-in because a document may legitimately contain the text "&amp;nbsp;" –
     /// an HTML manual, for one – and silently rewriting it would be its own

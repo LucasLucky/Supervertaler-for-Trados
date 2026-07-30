@@ -1902,8 +1902,9 @@ namespace Supervertaler.Trados
                     response.Note = "A missing non-breaking space is invisible on screen – verify against the " +
                         "source before fixing, as the target legitimately needs fewer in some segments. To write " +
                         "one back, use update_segments or find_and_replace with decodeEntities=true and write the " +
-                        "character as &nbsp;. A literal U+00A0 does not survive the trip, and neither does the " +
-                        "JSON escape \\u00a0 – both arrive as an ordinary space, so the 'fix' changes nothing.";
+                        "character as &nbsp;. Sending the character itself – or the JSON escape \\u00a0 – is " +
+                        "unreliable: it sometimes arrives intact and sometimes as an ordinary space, with success " +
+                        "reported either way, so re-run this check afterwards to confirm the fix landed.";
             }
             else // terminology
             {
