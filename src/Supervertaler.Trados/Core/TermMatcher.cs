@@ -20,8 +20,16 @@ namespace Supervertaler.Trados.Core
         // Includes subscript digits (₀-₉, U+2080-U+2089) and superscript digits
         // (⁰¹²³⁴⁵⁶⁷⁸⁹) so that chemical/scientific tokens like H₂O or CO₂ are
         // captured as a single word rather than split at the subscript character.
+        //
+        // The punctuation is listed one character at a time ON PURPOSE. This
+        // used to read "%-/", which looks like three literals but is a RANGE
+        // (U+0025 to U+002F) and so also matched ( ) * + & - which meant
+        // "verkoper(s)" tokenised as ONE word and could never match the term
+        // "verkoper" in the termbase. The "(s)" plural convention is everywhere
+        // in Dutch and English legal text, so every such term silently lost its
+        // highlight. Keep '-' escaped and last so it cannot start a range again.
         private static readonly Regex WordPattern = new Regex(
-            @"(?<!\w)[\w.,%-/\u2080-\u2089\u2070\u00B9\u00B2\u00B3\u2074-\u2079]+(?!\w)",
+            @"(?<!\w)[\w.,%&'*+/\u2080-\u2089\u2070\u00B9\u00B2\u00B3\u2074-\u2079\-]+(?!\w)",
             RegexOptions.Compiled);
 
         // Tags from various CAT tools to strip before display
