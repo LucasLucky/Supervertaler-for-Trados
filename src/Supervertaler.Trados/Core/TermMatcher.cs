@@ -124,18 +124,31 @@ namespace Supervertaler.Trados.Core
         {
             if (index == null || index.Count == 0) return;
 
+            // Collected first, applied after the loop - the alias may need to
+            // MERGE into a key that already exists. Skipping existing keys was
+            // a bug: with "prospective buyer" and "prospective buyer(s)" both
+            // in the termbase, the bracketed entry silently lost its alias and
+            // never surfaced, so the panel showed only the base-form entry.
             var extra = new List<KeyValuePair<string, List<TermEntry>>>();
             foreach (var kv in index)
             {
                 if (kv.Key.IndexOf('(') < 0) continue;
                 var alias = AttachedBracketGroup.Replace(kv.Key, "").Trim();
                 if (alias.Length == 0 || string.Equals(alias, kv.Key, StringComparison.Ordinal)) continue;
-                if (index.ContainsKey(alias)) continue;
                 extra.Add(new KeyValuePair<string, List<TermEntry>>(alias, kv.Value));
             }
 
             foreach (var kv in extra)
-                if (!index.ContainsKey(kv.Key)) index[kv.Key] = kv.Value;
+            {
+                List<TermEntry> existing;
+                if (!index.TryGetValue(kv.Key, out existing))
+                {
+                    index[kv.Key] = new List<TermEntry>(kv.Value);
+                    continue;
+                }
+                foreach (var e in kv.Value)
+                    if (!existing.Contains(e)) existing.Add(e);
+            }
         }
 
         /// <summary>
