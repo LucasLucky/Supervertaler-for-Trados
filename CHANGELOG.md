@@ -7,6 +7,12 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.149 / 19.20.149] – 2026-07-31
+
+### Fixed (Translate active segment · single segments now get the same context as a batch)
+
+- **Translating a single segment (Alt+T, or right-click → Translate active segment) produced noticeably weaker translations than Batch Translate – and the difference was real, not an impression.** Both use the same provider, model, prompt and termbase configuration, but the batch pipeline also hands the AI the document context (the surrounding source text, up to your configured limit) and your SuperMemory bank context. The single-segment path passed neither, so the model translated one isolated sentence with no register, no disambiguation and nothing to stay consistent with. Single-segment translation now sends the same context blocks a batch run does, honouring the same *Include document context* setting and the same 32-bit memory limits. If you translate segment by segment as a way into Supervertaler, the quality should now match what Batch Translate gives you. (Reported by a user.)
+
 ## [18.20.148 / 19.20.148] – 2026-07-30
 
 All of the below came out of one real job: a 2,889-segment manual translated end to end through the MCP server. None of it was found in testing.

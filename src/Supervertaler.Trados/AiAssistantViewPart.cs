@@ -10152,6 +10152,18 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     var customPromptContent = instance.ResolveCustomPromptContent(sourceLang, targetLang);
                     var customSystemPrompt = aiSettings.CustomSystemPrompt;
 
+                    // The same document context and memory-bank context a batch
+                    // run gets. These two blocks were the entire quality gap
+                    // between single-segment and batch translation: identical
+                    // prompt, provider and termbase, but the model received one
+                    // isolated sentence - no register, no disambiguation, no
+                    // consistency anchor. (Reported by a user.)
+                    List<string> docSegments = null;
+                    if (aiSettings.IncludeDocumentContext)
+                        docSegments = instance.CollectDocumentContext().Item1;
+                    var kbContext = instance.LoadKbContextForPrompt(
+                        instance.GetProjectName(), sourceLang, targetLang);
+
                     // Log and run
                     batchControl.AppendLog(
                         $"Ctrl+T: translating \"{Truncate(SegmentTagHandler.StripTagPlaceholders(sourceText), 60)}\"...");
@@ -10171,7 +10183,8 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                             await instance._batchTranslator.TranslateAsync(
                                 segments, sourceLang, targetLang,
                                 aiSettings, termbaseTerms, 1, ct,
-                                customPromptContent, customSystemPrompt);
+                                customPromptContent, customSystemPrompt,
+                                docSegments, kbContext);
                         }
                         catch (Exception ex)
                         {
@@ -10295,6 +10308,14 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 var allTerms = TermLensEditorViewPart.GetCurrentTermbaseTerms();
                 var termbaseTerms = allTerms.Where(t => aiSettings.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
 
+                // Document context, same as a batch run. SuperMemory context is
+                // pane state and the pane has never been opened on this path,
+                // so that block stays out here - still a far cry from the bare
+                // sentence this used to send.
+                List<string> docSegments = null;
+                if (aiSettings.IncludeDocumentContext)
+                    docSegments = CollectDocumentSourceSegments(doc);
+
                 // Resolve the selected custom prompt from disk (no pane needed).
                 string customPromptContent = null;
                 try
@@ -10331,7 +10352,8 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         await worker.TranslateAsync(
                             segments, sourceLang, targetLang,
                             aiSettings, termbaseTerms, 1, cts.Token,
-                            customPromptContent, customSystemPrompt);
+                            customPromptContent, customSystemPrompt,
+                            docSegments);
                     }
                     catch (Exception ex)
                     {
@@ -10817,6 +10839,24 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 // Document may not be accessible during transitions
             }
 
+            return segments;
+        }
+
+        /// <summary>Source-side document context over a caller-supplied
+        /// document, for the pane-less Ctrl+T fallback (#41) where the instance
+        /// tracking behind <see cref="CollectDocumentContext"/> was never wired
+        /// up. Same collection, minus the active-index bookkeeping the batch
+        /// prompt does not use.</summary>
+        private static List<string> CollectDocumentSourceSegments(IStudioDocument doc)
+        {
+            var segments = new List<string>();
+            if (doc == null) return segments;
+            try
+            {
+                foreach (var pair in doc.SegmentPairs)
+                    segments.Add(pair.Source?.ToString() ?? "");
+            }
+            catch { /* document may not be accessible during transitions */ }
             return segments;
         }
 
