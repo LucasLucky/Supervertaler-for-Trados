@@ -7,6 +7,13 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.150 / 19.20.150] – 2026-08-01
+
+### Fixed (TermLens & TermPicker · Escape now dismisses both pop-ups)
+
+- **Escape now closes the floating TermLens popup.** The popup opens on a Ctrl tap and closed on a second tap, but Escape – the key everyone tries first – did nothing. The popup deliberately never takes keyboard focus (so your typing stays in the editor), which meant its own Escape handler could never fire; Escape is now caught at the application level, closes the popup, and is consumed so Studio does not also act on it. With no popup open, Escape reaches Studio exactly as before.
+- **Escape now dismisses the TermPicker pane.** Alt+P prefers the docked TermPicker pane when it is in your layout – with the pane on auto-hide, it slides out looking like a popup, but neither Escape nor a second Alt+P would put it away. Escape in the pane now returns focus to the editor, which also retracts an auto-hidden pane. The modal Alt+P dialog (shown when the pane is not in the layout) already closed on Escape and is unchanged.
+
 ## [18.20.149 / 19.20.149] – 2026-07-31
 
 ### Fixed (Translate active segment · single segments now get the same context as a batch)

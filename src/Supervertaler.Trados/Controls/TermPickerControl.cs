@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 using Sdl.Desktop.IntegrationApi.Interfaces;
+using Sdl.TranslationStudioAutomation.IntegrationApi;
 using Supervertaler.Trados.Core;
 using Supervertaler.Trados.Models;
 
@@ -405,17 +406,41 @@ namespace Supervertaler.Trados.Controls
         }
 
         /// <summary>
+        /// True when this control is hosted in the docked pane (set by
+        /// TermPickerViewPart). There, Escape hands focus back to the Studio
+        /// editor - which also retracts the pane when it is on auto-hide, so
+        /// the Alt+P "popup" (really the pane sliding out) is dismissed the
+        /// way users expect. Deliberately NOT set for the modal Alt+P dialog:
+        /// its own ProcessCmdKey closes the window, and stealing Escape here
+        /// would break that.
+        /// </summary>
+        public bool EscapeReturnsFocusToEditor { get; set; }
+
+        /// <summary>
         /// Escape is pre-processed by Windows as a dialog key, so it never
         /// reaches the ListView's KeyDown. ProcessCmdKey runs on the focused
         /// control before the host form sees the key, which lets the details
-        /// popup swallow the first Escape in BOTH surfaces: in the docked pane
-        /// nothing else happens, and in the Alt+P popup the window itself only
-        /// closes on the next press.
+        /// popup swallow the first Escape in BOTH surfaces; the second Escape
+        /// closes the modal popup (host form) or, in the docked pane, returns
+        /// focus to the editor.
         /// </summary>
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            if (keyData == Keys.Escape && TryHideInfoPopup())
-                return true;
+            if (keyData == Keys.Escape)
+            {
+                if (TryHideInfoPopup())
+                    return true;
+                if (EscapeReturnsFocusToEditor)
+                {
+                    try
+                    {
+                        SdlTradosStudio.Application
+                            .GetController<EditorController>()?.Activate();
+                    }
+                    catch { /* editor may be mid-transition; Escape just does nothing */ }
+                    return true;
+                }
+            }
             return base.ProcessCmdKey(ref msg, keyData);
         }
 

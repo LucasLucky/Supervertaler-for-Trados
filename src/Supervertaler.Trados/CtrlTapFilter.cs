@@ -35,17 +35,26 @@ namespace Supervertaler.Trados
         private const int VK_RMENU    = 0xA5;
         private const int VK_LWIN     = 0x5B;
         private const int VK_RWIN     = 0x5C;
+        private const int VK_ESCAPE   = 0x1B;
 
         private readonly Action _onCtrlTap;
+        private readonly Func<bool> _onEscape;
         private readonly int _maxHoldMs;
 
         private bool _ctrlDown;
         private bool _otherKeyPressed;
         private DateTime _ctrlDownTime;
 
-        public CtrlTapFilter(Action onCtrlTap, int maxHoldMs = 400)
+        /// <param name="onEscape">Optional. Called on a plain Escape key-down;
+        /// return true to CONSUME the keypress (used to close the TermLens
+        /// popup, which is WS_EX_NOACTIVATE and therefore never receives keys
+        /// itself). Return false to let Escape reach Studio untouched - which
+        /// is what happens whenever no Supervertaler popup is open, so
+        /// Studio's own Escape behaviour is unaffected.</param>
+        public CtrlTapFilter(Action onCtrlTap, int maxHoldMs = 400, Func<bool> onEscape = null)
         {
             _onCtrlTap = onCtrlTap ?? throw new ArgumentNullException(nameof(onCtrlTap));
+            _onEscape = onEscape;
             _maxHoldMs = maxHoldMs;
         }
 
@@ -57,6 +66,14 @@ namespace Supervertaler.Trados
             // with system key events on x64. Read as Int64 first, then mask to
             // the low byte (the virtual-key code) before narrowing.
             int vk  = (int)(m.WParam.ToInt64() & 0xFF);
+
+            // Plain Escape (WM_KEYDOWN only - Alt+Escape is a Windows window
+            // switcher and must not be touched): give the owner a chance to
+            // close an open popup. Consumed only when it actually closed one.
+            if (msg == WM_KEYDOWN && vk == VK_ESCAPE && _onEscape != null)
+            {
+                if (_onEscape()) return true;
+            }
 
             // --- Key down ---
             if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)

@@ -149,7 +149,9 @@ namespace Supervertaler.Trados
             // Alt+P for users who want the list-based UI.
             if (_ctrlTapFilter == null)
             {
-                _ctrlTapFilter = new CtrlTapFilter(() => HandleTermLensPopup());
+                _ctrlTapFilter = new CtrlTapFilter(
+                    () => HandleTermLensPopup(),
+                    onEscape: () => TryCloseTermLensPopup());
                 System.Windows.Forms.Application.AddMessageFilter(_ctrlTapFilter);
             }
 
@@ -2898,6 +2900,22 @@ namespace Supervertaler.Trados
         /// done with arrow keys / Tab inside the popup, not by re-pressing
         /// the open shortcut.
         /// </summary>
+        /// <summary>
+        /// Closes the floating TermLens popup if it is open. Returns true when
+        /// there was one to close - the CtrlTapFilter uses that to decide
+        /// whether the Escape that triggered this should be consumed or passed
+        /// through to Studio. Needed because the popup is WS_EX_NOACTIVATE:
+        /// it never owns the keyboard, so its own Escape handler only ever
+        /// fires in the rare case the user clicked into it first.
+        /// </summary>
+        public static bool TryCloseTermLensPopup()
+        {
+            var popup = _currentPopup;
+            if (popup == null || popup.IsDisposed || !popup.Visible) return false;
+            try { popup.Close(); } catch { return false; }
+            return true;
+        }
+
         public static void HandleTermLensPopup()
         {
             var instance = _currentInstance;

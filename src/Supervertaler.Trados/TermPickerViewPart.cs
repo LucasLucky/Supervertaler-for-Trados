@@ -72,6 +72,7 @@ namespace Supervertaler.Trados
 
             _control = new TermPickerControl();
             _control.ShowHint = true;
+            _control.EscapeReturnsFocusToEditor = true;
 
             // Insert through the same path the popup and the TermLens chips use,
             // so casing adaptation and the "TermLens" origin label are identical.
