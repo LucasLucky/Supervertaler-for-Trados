@@ -249,6 +249,7 @@ namespace Supervertaler.Trados
 
             // Wire remaining buttons (SettingsRequested already wired above)
             _control.Value.ModelChangeRequested += OnModelChangeRequested;
+            _control.Value.CustomProfilesSource = GetCustomProfileMenuItems;
 
             // Chat font size: restore persisted size and wire change handler
             _control.Value.SetChatFontSize(_settings.ChatFontSize);
@@ -269,6 +270,7 @@ namespace Supervertaler.Trados
             batchControl.PreviewPromptRequested += OnPreviewPromptRequested;
             batchControl.TranslateViaWorkbenchRequested += OnTranslateViaWorkbenchRequested;
             batchControl.ModelChangeRequested += OnModelChangeRequested;
+            batchControl.CustomProfilesSource = GetCustomProfileMenuItems;
 
             // Wire reports control events
             var reportsControl = _control.Value.ReportsControl;
@@ -439,6 +441,37 @@ namespace Supervertaler.Trados
                 var model = aiSettings.GetSelectedModel() ?? "";
                 _control.Value.UpdateProviderInfo(provider, model);
             }
+        }
+
+        /// <summary>
+        /// Builds the "Custom (OpenAI-compatible)" submenu entries for the two
+        /// provider menus (Batch Translate + chat status bar) from the current
+        /// AI settings. Called lazily each time a menu opens, so profiles
+        /// added or renamed in Settings appear without any refresh wiring.
+        /// </summary>
+        private List<Controls.CustomProfileMenuItem> GetCustomProfileMenuItems()
+        {
+            var items = new List<Controls.CustomProfileMenuItem>();
+            try
+            {
+                var ai = _settings?.AiSettings;
+                if (ai?.CustomOpenAiProfiles == null) return items;
+                var activeName = ai.SelectedProvider == LlmModels.ProviderCustomOpenAi
+                    ? (ai.GetActiveCustomProfile()?.Name ?? "")
+                    : "";
+                foreach (var p in ai.CustomOpenAiProfiles)
+                {
+                    if (p == null || string.IsNullOrWhiteSpace(p.Name)) continue;
+                    items.Add(new Controls.CustomProfileMenuItem
+                    {
+                        Name = p.Name,
+                        Model = p.Model,
+                        IsActive = string.Equals(p.Name, activeName, StringComparison.OrdinalIgnoreCase)
+                    });
+                }
+            }
+            catch { /* menu decoration only – never break the click */ }
+            return items;
         }
 
         private void OnModelChangeRequested(string providerKey, string modelId)
@@ -8939,6 +8972,16 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 int index = 0;
                 foreach (var pair in pairs)
                 {
+                    // Locked segments are never proofread – same rule as batch
+                    // translate. Worse here: a locked segment has a target, so
+                    // the proofreader would not only read it but could rewrite
+                    // content someone locked precisely to protect it.
+                    if (pair.Properties?.IsLocked == true)
+                    {
+                        index++;
+                        continue;
+                    }
+
                     var targetText = pair.Target != null
                         ? SegmentTagHandler.GetFinalText(pair.Target) : "";
 
@@ -9063,6 +9106,18 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 int index = 0;
                 foreach (var pair in pairs)
                 {
+                    // Locked means locked: never send a locked segment's content
+                    // to the AI, in any scope. Locked segments used to slip in
+                    // (they typically have empty targets, so EmptyOnly picked
+                    // them up first) and the batch would translate them and jump
+                    // the editor to them – burning tokens on content someone
+                    // locked precisely so it would be left alone.
+                    if (pair.Properties?.IsLocked == true)
+                    {
+                        index++;
+                        continue;
+                    }
+
                     var targetText = pair.Target != null
                         ? SegmentTagHandler.GetFinalText(pair.Target) : "";
 
@@ -9135,6 +9190,11 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     foreach (var pair in _activeDocument.SegmentPairs)
                     {
                         total++;
+                        // Locked segments are excluded from batching, so keep
+                        // the scope counters consistent with what a run will
+                        // actually process.
+                        if (pair.Properties?.IsLocked == true)
+                            continue;
                         var targetText = pair.Target != null
                             ? SegmentTagHandler.GetFinalText(pair.Target) : "";
                         if (string.IsNullOrWhiteSpace(targetText))

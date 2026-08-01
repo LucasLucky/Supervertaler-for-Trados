@@ -7,6 +7,16 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.154 / 19.20.154] – 2026-08-01
+
+### Fixed (Batch translate & proofread · locked segments are now left alone)
+
+- **Batch translation sent locked segments to the AI.** Locked segments typically have empty targets, so the "empty segments" scope picked them up first: a batch run would jump the editor to locked content at the top of the file and pay to translate exactly the text someone locked so it would be left alone – instead of starting at the first genuinely open segment. Verified by a user against the batch backup TMX. Locked segments are now excluded from every batch-translate scope, from batch proofreading (worse there: a locked segment has a target, so the proofreader could *rewrite* protected content), and from the segment counters above the Translate button, so the numbers match what a run will actually process. (Reported by a user.)
+
+### Added (Batch translate & chat · custom providers in the model menus)
+
+- **Custom OpenAI-compatible profiles now appear in the provider menus.** The model selector at the bottom of Batch Translate (and the chat status bar) listed every built-in provider's models but silently omitted the user-defined custom endpoints, so anyone comparing institutional gateways had to open Settings for every switch. Both menus now end with a "Custom (OpenAI-compatible)" submenu listing each profile with its model, active profile ticked – switching is one click, exactly like the built-ins. (Requested by a user.)
+
 ## [18.20.153 / 19.20.153] – 2026-08-01
 
 All of the below came out of one production incident: an AI adding a term pair through the MCP server wrote it reversed into two termbases of opposite directions, and the tools reported success throughout.

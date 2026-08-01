@@ -1931,46 +1931,18 @@ namespace Supervertaler.Trados.Controls
         /// </summary>
         public event Action<string, string> ModelChangeRequested;
 
+        /// <summary>
+        /// Supplies the user's custom OpenAI-compatible profiles for the model
+        /// menu, set by the view part. Same contract as
+        /// <see cref="BatchTranslateControl.CustomProfilesSource"/>.
+        /// </summary>
+        public Func<List<CustomProfileMenuItem>> CustomProfilesSource { get; set; }
+
         private void OnModelSelectorClicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
             var menu = new ContextMenuStrip { Font = new Font("Segoe UI", UiScale.FontSize(8.5f)) };
-
-            foreach (var providerKey in LlmModels.AllProviderKeys)
-            {
-                var models = LlmModels.GetModelsForProvider(providerKey);
-
-                // Custom OpenAI profiles are handled separately
-                if (providerKey == LlmModels.ProviderCustomOpenAi)
-                    continue;
-
-                if (models.Length == 0) continue;
-
-                var providerName = LlmModels.GetProviderDisplayName(providerKey);
-                var providerItem = new ToolStripMenuItem(providerName);
-
-                foreach (var model in models)
-                {
-                    var modelItem = new ToolStripMenuItem(model.DisplayName)
-                    {
-                        ToolTipText = model.Description,
-                        Tag = new[] { providerKey, model.Id }
-                    };
-
-                    // Checkmark for current selection
-                    if (providerKey == _currentProvider && model.Id == _currentModel)
-                        modelItem.Checked = true;
-
-                    modelItem.Click += OnModelMenuItemClicked;
-                    providerItem.DropDownItems.Add(modelItem);
-                }
-
-                // Bold the provider submenu if it's the active one
-                if (providerKey == _currentProvider)
-                    providerItem.Font = new Font(providerItem.Font, FontStyle.Bold);
-
-                menu.Items.Add(providerItem);
-            }
-
+            BatchTranslateControl.BuildProviderMenuItems(menu, _currentProvider, _currentModel,
+                CustomProfilesSource, OnModelMenuItemClicked);
             menu.Show(_lblStatus, new Point(0, -menu.PreferredSize.Height));
         }
 

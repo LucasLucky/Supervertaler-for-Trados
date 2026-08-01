@@ -13,6 +13,19 @@ namespace Supervertaler.Trados.Controls
     /// Displays mode toggle, scope selector, provider info, progress, and log.
     /// All layout is programmatic (no designer file).
     /// </summary>
+    /// <summary>
+    /// One custom OpenAI-compatible profile as shown in a provider menu.
+    /// Built by the view part from AiSettings so the controls stay
+    /// settings-agnostic; Name doubles as the modelId for
+    /// AiSettings.SetProviderAndModel("custom_openai", name).
+    /// </summary>
+    public sealed class CustomProfileMenuItem
+    {
+        public string Name;
+        public string Model;
+        public bool IsActive;
+    }
+
     public class BatchTranslateControl : UserControl
     {
         // Header
@@ -825,15 +838,40 @@ namespace Supervertaler.Trados.Controls
 
         // ─── Provider/model selector menu ──────────────────────
 
+        /// <summary>
+        /// Supplies the user's custom OpenAI-compatible profiles for the
+        /// provider menu, set by the view part (the control itself never reads
+        /// settings). Null or empty = no "Custom" submenu. Requested by a user
+        /// who switches between several custom endpoints (institutional
+        /// gateways) and had to open Settings for every switch.
+        /// </summary>
+        public Func<List<CustomProfileMenuItem>> CustomProfilesSource { get; set; }
+
         private void OnProviderSelectorClicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
             var menu = new ContextMenuStrip { Font = new Font("Segoe UI", UiScale.FontSize(8.5f)) };
+            BuildProviderMenuItems(menu, _currentProvider, _currentModel,
+                CustomProfilesSource, OnModelMenuItemClicked);
+            menu.Show(_lblProvider, new Point(0, -menu.PreferredSize.Height));
+        }
 
+        /// <summary>
+        /// Fills a provider/model menu: every built-in provider's models, then
+        /// one submenu with the custom OpenAI-compatible profiles (their
+        /// profile NAME travels as the modelId, which is what
+        /// AiSettings.SetProviderAndModel expects for custom_openai). Shared by
+        /// this control and the chat status bar so the two menus can't drift.
+        /// </summary>
+        internal static void BuildProviderMenuItems(ContextMenuStrip menu,
+            string currentProvider, string currentModel,
+            Func<List<CustomProfileMenuItem>> customProfilesSource,
+            EventHandler onItemClicked)
+        {
             foreach (var providerKey in LlmModels.AllProviderKeys)
             {
                 var models = LlmModels.GetModelsForProvider(providerKey);
 
-                // Custom OpenAI profiles are handled separately
+                // Custom OpenAI profiles get their own submenu below.
                 if (providerKey == LlmModels.ProviderCustomOpenAi)
                     continue;
 
@@ -851,21 +889,42 @@ namespace Supervertaler.Trados.Controls
                     };
 
                     // Checkmark for current selection
-                    if (providerKey == _currentProvider && model.Id == _currentModel)
+                    if (providerKey == currentProvider && model.Id == currentModel)
                         modelItem.Checked = true;
 
-                    modelItem.Click += OnModelMenuItemClicked;
+                    modelItem.Click += onItemClicked;
                     providerItem.DropDownItems.Add(modelItem);
                 }
 
                 // Bold the provider submenu if it's the active one
-                if (providerKey == _currentProvider)
+                if (providerKey == currentProvider)
                     providerItem.Font = new Font(providerItem.Font, FontStyle.Bold);
 
                 menu.Items.Add(providerItem);
             }
 
-            menu.Show(_lblProvider, new Point(0, -menu.PreferredSize.Height));
+            var profiles = customProfilesSource?.Invoke();
+            if (profiles != null && profiles.Count > 0)
+            {
+                var customItem = new ToolStripMenuItem(
+                    LlmModels.GetProviderDisplayName(LlmModels.ProviderCustomOpenAi));
+                foreach (var p in profiles)
+                {
+                    var label = string.IsNullOrEmpty(p.Model)
+                        ? p.Name
+                        : p.Name + "  (" + p.Model + ")";
+                    var profileItem = new ToolStripMenuItem(label)
+                    {
+                        Tag = new[] { LlmModels.ProviderCustomOpenAi, p.Name }
+                    };
+                    if (p.IsActive) profileItem.Checked = true;
+                    profileItem.Click += onItemClicked;
+                    customItem.DropDownItems.Add(profileItem);
+                }
+                if (currentProvider == LlmModels.ProviderCustomOpenAi)
+                    customItem.Font = new Font(customItem.Font, FontStyle.Bold);
+                menu.Items.Add(customItem);
+            }
         }
 
         private void OnModelMenuItemClicked(object sender, EventArgs e)
