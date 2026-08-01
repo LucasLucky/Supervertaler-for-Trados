@@ -124,7 +124,6 @@ namespace Supervertaler.Trados.Controls
         public TermEntryEditorDialog(TermEntry entry, string dbPath, TermbaseInfo termbase,
             string projectSourceLang = null)
         {
-            Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
             _dbPath = dbPath;
             _termbase = termbase;
             _termId = entry?.Id ?? -1;
@@ -261,6 +260,10 @@ namespace Supervertaler.Trados.Controls
             // with their own UiScale-driven layout, set AutoScaleMode = None
             // instead and let UiScale own scaling.
             AutoScaleMode = AutoScaleMode.Dpi;
+            // In BuildUI rather than a constructor: the dialog has three ctors
+            // (edit / add / multi-entry) and only the edit one used to set the
+            // icon, so Add mode showed the generic WinForms icon.
+            Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
             Text = IsEditMode ? $"Edit term entry (ID {_termId})" : "Add term entry";
             if (termbase != null)
                 Text += $" \u2014 {termbase.Name}";

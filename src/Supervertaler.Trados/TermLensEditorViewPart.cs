@@ -75,6 +75,14 @@ namespace Supervertaler.Trados
         private string _currentProjectPath;
         private string _currentProjectName;
 
+        // Editor-selection → TermLens highlight. The SDK's SourceSelection is a
+        // stable per-document instance with a plain Changed event; the exact
+        // instance we subscribed to is kept so unsubscription can't miss when
+        // the active document changes. The timer debounces the burst of Changed
+        // events fired while the user drags a selection.
+        private SourceSelection _subscribedSourceSelection;
+        private System.Windows.Forms.Timer _selectionHighlightTimer;
+
         // --- Alt+digit shortcut state machine ---
         private static int? _pendingDigit;
         private static int _pendingRepeatCount;   // repeated mode: how many times same digit pressed
@@ -254,6 +262,7 @@ namespace Supervertaler.Trados
                     _activeDocument = _editorController.ActiveDocument;
                     _activeDocument.ActiveSegmentChanged += OnActiveSegmentChanged;
                     _activeDocument.ActiveFilePropertiesChanged += OnActiveFilePropertiesChanged;
+                    SubscribeSourceSelection(_activeDocument);
 
                     // Apply per-project settings if available
                     ApplyProjectSettingsFromDocument(_activeDocument);
@@ -1207,6 +1216,7 @@ namespace Supervertaler.Trados
                 _activeDocument.ActiveSegmentChanged -= OnActiveSegmentChanged;
                 _activeDocument.ActiveFilePropertiesChanged -= OnActiveFilePropertiesChanged;
             }
+            UnsubscribeSourceSelection();
 
             _activeDocument = _editorController?.ActiveDocument;
 
@@ -1214,6 +1224,7 @@ namespace Supervertaler.Trados
             {
                 _activeDocument.ActiveSegmentChanged += OnActiveSegmentChanged;
                 _activeDocument.ActiveFilePropertiesChanged += OnActiveFilePropertiesChanged;
+                SubscribeSourceSelection(_activeDocument);
 
                 // Check if the project has changed – if so, save outgoing and load incoming settings
                 ApplyProjectSettingsFromDocument(_activeDocument);
@@ -1668,6 +1679,82 @@ namespace Supervertaler.Trados
                 LoadMultiTermTermbases();
 
             UpdateFromActiveSegment();
+        }
+
+        // --- Editor-selection → TermLens highlight ---------------------------
+
+        private void SubscribeSourceSelection(IStudioDocument doc)
+        {
+            try
+            {
+                var sel = doc?.Selection?.Source;
+                if (sel == null) return;
+                sel.Changed += OnSourceSelectionChanged;
+                _subscribedSourceSelection = sel;
+            }
+            catch
+            {
+                // Selection tracking is a nicety – never let it break wiring.
+                _subscribedSourceSelection = null;
+            }
+        }
+
+        private void UnsubscribeSourceSelection()
+        {
+            var sel = _subscribedSourceSelection;
+            _subscribedSourceSelection = null;
+            if (sel == null) return;
+            try { sel.Changed -= OnSourceSelectionChanged; } catch { }
+            // The outgoing document's highlight would otherwise linger until
+            // the next segment render.
+            try { SafeInvoke(() => { if (_control.IsValueCreated) _control.Value.ClearEditorSelectionHighlight(); }); } catch { }
+        }
+
+        private void OnSourceSelectionChanged(object sender, EventArgs e)
+        {
+            // Fires once per caret step while the user drags – debounce on the
+            // UI thread rather than re-render the panel dozens of times.
+            SafeInvoke(RestartSelectionHighlightTimer);
+        }
+
+        private void RestartSelectionHighlightTimer()
+        {
+            if (_selectionHighlightTimer == null)
+            {
+                _selectionHighlightTimer = new System.Windows.Forms.Timer { Interval = 120 };
+                _selectionHighlightTimer.Tick += OnSelectionHighlightTimerTick;
+            }
+            _selectionHighlightTimer.Stop();
+            _selectionHighlightTimer.Start();
+        }
+
+        private void OnSelectionHighlightTimerTick(object sender, EventArgs e)
+        {
+            _selectionHighlightTimer.Stop();
+            try
+            {
+                var sel = _activeDocument?.Selection?.Source;
+                string text = null;
+                int offset = 0;
+                if (sel != null && sel.IsValid && !sel.IsEmpty)
+                {
+                    text = sel.ToString();
+                    try
+                    {
+                        long f = sel.From != null ? sel.From.CursorPosition : 0;
+                        long u = sel.UpTo != null ? sel.UpTo.CursorPosition : f;
+                        offset = (int)Math.Max(0, Math.Min(Math.Min(f, u), int.MaxValue));
+                    }
+                    catch { /* occurrence hint only – zero is a fine fallback */ }
+                }
+                if (_control.IsValueCreated)
+                    _control.Value.HighlightEditorSelection(text, offset);
+            }
+            catch
+            {
+                // Reading the selection during document transitions can throw;
+                // skipping one highlight update is harmless.
+            }
         }
 
         /// <summary>
@@ -3066,6 +3153,13 @@ namespace Supervertaler.Trados
             {
                 _activeDocument.ActiveSegmentChanged -= OnActiveSegmentChanged;
                 _activeDocument.ActiveFilePropertiesChanged -= OnActiveFilePropertiesChanged;
+            }
+            UnsubscribeSourceSelection();
+            if (_selectionHighlightTimer != null)
+            {
+                _selectionHighlightTimer.Stop();
+                _selectionHighlightTimer.Dispose();
+                _selectionHighlightTimer = null;
             }
 
             if (_editorController != null)

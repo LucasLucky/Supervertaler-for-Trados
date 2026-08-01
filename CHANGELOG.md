@@ -7,6 +7,16 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.151 / 19.20.151] – 2026-08-01
+
+### Added (TermLens · your editor selection is now mirrored in the panel)
+
+- **Selecting text in the source segment now highlights the corresponding words in TermLens.** On a long segment – a patent claim running to a dozen lines – the panel shows the whole segment's terms, and finding the part you are actually reading meant scanning the entire flow. Now the words covered by your editor selection carry a soft yellow band, matched and unmatched alike, so your eye lands straight on the right region and the term chips around it. The highlight follows the selection live, clears when the selection does, and when the same phrase occurs more than once in a segment the occurrence nearest your cursor is the one that lights up. Selections spanning an inline tag simply show no highlight rather than a wrong one.
+
+### Fixed (Add term entry dialog · generic title-bar icon)
+
+- **The Add term entry dialog showed the generic WinForms icon instead of the Supervertaler logo.** The dialog is one class with three entry paths – add, edit and multi-termbase edit – and only the edit path set the icon. All three now share it.
+
 ## [18.20.150 / 19.20.150] – 2026-08-01
 
 ### Fixed (TermLens & TermPicker · Escape now dismisses both pop-ups)

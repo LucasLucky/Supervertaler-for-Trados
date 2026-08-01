@@ -739,6 +739,127 @@ namespace Supervertaler.Trados.Controls
         }
 
         /// <summary>
+        /// Highlights the run of displayed words covered by the editor's
+        /// current source selection, so the eye lands on the right part of a
+        /// long segment. Pass null/empty to clear.
+        ///
+        /// The editor selects over the raw segment text while this panel shows
+        /// a tokenised rendering (tags stripped, whitespace normalised), so
+        /// the two sides are matched on a whitespace-free "squashed" form of
+        /// the text — immune to tokenisation spacing differences. Partial-word
+        /// selections highlight the whole covered token, which is the right
+        /// visual grain for an eye anchor.
+        /// </summary>
+        /// <param name="selectedText">The selection as reported by
+        /// DocumentSelection.Source.ToString().</param>
+        /// <param name="approxOffset">The selection start's cursor position from
+        /// ContentSelectionInfo, in editor text coordinates. Used only to pick
+        /// the right occurrence when the selected phrase appears more than once
+        /// in the segment, so approximate is fine.</param>
+        public void HighlightEditorSelection(string selectedText, int approxOffset)
+        {
+            var controls = new List<Control>();
+            foreach (Control c in _flowPanel.Controls)
+                if (c is TermBlock || c is WordLabel) controls.Add(c);
+            if (controls.Count == 0) return;
+
+            var squashedSel = SquashWhitespace(selectedText);
+            if (squashedSel.Length == 0)
+            {
+                ApplySelectionHighlight(controls, -1, -1);
+                return;
+            }
+
+            // Squashed display text + per-character owner-control index.
+            var sb = new System.Text.StringBuilder();
+            var owner = new List<int>();
+            int displayLenWithSpaces = 0;
+            for (int i = 0; i < controls.Count; i++)
+            {
+                var tb = controls[i] as TermBlock;
+                string t = tb != null ? tb.SourceText : controls[i].Text;
+                if (string.IsNullOrEmpty(t)) continue;
+                displayLenWithSpaces += t.Length + 1; // + the joining space
+                foreach (var ch in t)
+                {
+                    if (char.IsWhiteSpace(ch)) continue;
+                    sb.Append(ch);
+                    owner.Add(i);
+                }
+            }
+            var squashedDoc = sb.ToString();
+            if (squashedDoc.Length == 0)
+            {
+                ApplySelectionHighlight(controls, -1, -1);
+                return;
+            }
+
+            var starts = new List<int>();
+            int searchFrom = 0;
+            while (searchFrom <= squashedDoc.Length - squashedSel.Length)
+            {
+                int k = squashedDoc.IndexOf(squashedSel, searchFrom, StringComparison.OrdinalIgnoreCase);
+                if (k < 0) break;
+                starts.Add(k);
+                searchFrom = k + 1;
+            }
+            if (starts.Count == 0)
+            {
+                // Selection spans something the panel doesn't render the same
+                // way (an inline tag, usually). No anchor is better than a
+                // wrong one.
+                ApplySelectionHighlight(controls, -1, -1);
+                return;
+            }
+
+            // Repeated phrase: pick the occurrence nearest the editor cursor.
+            // The cursor position counts spaces, the squashed text doesn't, so
+            // scale it into squashed coordinates before comparing.
+            int best = starts[0];
+            if (starts.Count > 1)
+            {
+                long scaled = (long)approxOffset * squashedDoc.Length
+                    / Math.Max(1, displayLenWithSpaces);
+                int target = (int)Math.Max(0, Math.Min(scaled, squashedDoc.Length));
+                foreach (var s in starts)
+                    if (Math.Abs(s - target) < Math.Abs(best - target)) best = s;
+            }
+
+            ApplySelectionHighlight(controls, owner[best], owner[best + squashedSel.Length - 1]);
+        }
+
+        /// <summary>Clears any editor-selection highlight without touching the
+        /// rest of the display.</summary>
+        public void ClearEditorSelectionHighlight()
+        {
+            var controls = new List<Control>();
+            foreach (Control c in _flowPanel.Controls)
+                if (c is TermBlock || c is WordLabel) controls.Add(c);
+            ApplySelectionHighlight(controls, -1, -1);
+        }
+
+        private static string SquashWhitespace(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return "";
+            var sb = new System.Text.StringBuilder(text.Length);
+            foreach (var ch in text)
+                if (!char.IsWhiteSpace(ch)) sb.Append(ch);
+            return sb.ToString();
+        }
+
+        private static void ApplySelectionHighlight(List<Control> controls, int first, int last)
+        {
+            for (int i = 0; i < controls.Count; i++)
+            {
+                bool on = first >= 0 && i >= first && i <= last;
+                var tb = controls[i] as TermBlock;
+                if (tb != null) { tb.SelectionHighlighted = on; continue; }
+                var wl = controls[i] as WordLabel;
+                if (wl != null) wl.SelectionHighlighted = on;
+            }
+        }
+
+        /// <summary>
         /// Sets the panel font size (in points). Call this on startup with the
         /// persisted value, or when the user changes it via Settings.
         /// </summary>

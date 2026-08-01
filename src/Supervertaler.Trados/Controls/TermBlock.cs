@@ -175,6 +175,32 @@ namespace Supervertaler.Trados.Controls
         }
 
         /// <summary>
+        /// Soft yellow fill behind the source word when the corresponding text
+        /// is selected in the Studio editor. Shared with WordLabel so a
+        /// selection reads as one continuous band across matched and
+        /// unmatched words alike.
+        /// </summary>
+        internal static readonly Color SelectionHighlightFill = Color.FromArgb(255, 249, 176);
+
+        private bool _selectionHighlighted;
+
+        /// <summary>
+        /// True while the editor's source selection covers this block's word.
+        /// Drawn as a plain fill behind the source text; the popup-only
+        /// IsCurrent ring takes precedence when both are set.
+        /// </summary>
+        public bool SelectionHighlighted
+        {
+            get => _selectionHighlighted;
+            set
+            {
+                if (_selectionHighlighted == value) return;
+                _selectionHighlighted = value;
+                Invalidate();
+            }
+        }
+
+        /// <summary>
         /// Number of extra translations to show in the +N badge.
         /// Includes: other entries - 1, plus the abbreviation pair if it exists
         /// and isn't already the primary display.
@@ -333,6 +359,20 @@ namespace Supervertaler.Trados.Controls
             float y = 3;
             var sourceHeight = g.MeasureString(_sourceText, SourceFont).Height;
             var sourceWidth = g.MeasureString(_sourceText, SourceFont).Width;
+
+            // Editor-selection highlight: plain fill behind the source word,
+            // drawn before the text. Skipped when the popup's IsCurrent ring
+            // is active so the two indicators never stack.
+            if (_selectionHighlighted && !_isCurrent)
+            {
+                float hlSourceWidth = Math.Min(sourceWidth, Width - 8);
+                var hlRect = new RectangleF(2, y - 1, hlSourceWidth + 4, sourceHeight + 2);
+                using (var hlBrush = new SolidBrush(SelectionHighlightFill))
+                using (var hlPath = RoundedRect(Rectangle.Round(hlRect), 3))
+                {
+                    g.FillPath(hlBrush, hlPath);
+                }
+            }
 
             // Current-match indicator (popup only): tight rounded rectangle around
             // the source word, drawn before the text so the text sits on top.
@@ -689,6 +729,8 @@ namespace Supervertaler.Trados.Controls
     /// </summary>
     public class WordLabel : Label
     {
+        private bool _selectionHighlighted;
+
         public WordLabel(string text)
         {
             Text = text;
@@ -697,6 +739,24 @@ namespace Supervertaler.Trados.Controls
             UseCompatibleTextRendering = true; // GDI+ rendering, same as TermBlock
             Padding = new Padding(UiScale.Pixels(2), UiScale.Pixels(3), UiScale.Pixels(2), 0);
             Margin = new Padding(UiScale.Pixels(2), UiScale.Pixels(1), UiScale.Pixels(2), UiScale.Pixels(1));
+        }
+
+        /// <summary>
+        /// True while the editor's source selection covers this word. BackColor
+        /// is ambient on Label, so unhighlighting restores the parent's colour
+        /// explicitly rather than assuming white.
+        /// </summary>
+        public bool SelectionHighlighted
+        {
+            get => _selectionHighlighted;
+            set
+            {
+                if (_selectionHighlighted == value) return;
+                _selectionHighlighted = value;
+                BackColor = value
+                    ? TermBlock.SelectionHighlightFill
+                    : (Parent?.BackColor ?? Color.White);
+            }
         }
     }
 
