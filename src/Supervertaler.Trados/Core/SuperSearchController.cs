@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -89,8 +89,15 @@ namespace Supervertaler.Trados.Core
         {
             switch (s)
             {
-                case "FilesAndTms": return SuperSearchSourceMode.FilesAndTms;
-                case "TmsOnly": return SuperSearchSourceMode.TmsOnly;
+                case "Everything": return SuperSearchSourceMode.Everything;
+                case "Tms": return SuperSearchSourceMode.Tms;
+                case "Termbases": return SuperSearchSourceMode.Termbases;
+                // Legacy names, written before the scopes were reorganised into
+                // Everything / Project files / TMs / Termbases. Accepted so an
+                // existing settings file doesn't silently reset the user's
+                // choice to Project files.
+                case "FilesAndTms": return SuperSearchSourceMode.Everything;
+                case "TmsOnly": return SuperSearchSourceMode.Tms;
                 default: return SuperSearchSourceMode.ProjectFiles;
             }
         }
@@ -199,8 +206,31 @@ namespace Supervertaler.Trados.Core
             var ct = _searchCts.Token;
 
             var mode = e.SourceMode;
-            bool needFiles = mode != SuperSearchSourceMode.TmsOnly;
-            bool needTms = mode != SuperSearchSourceMode.ProjectFiles;
+            bool needFiles = mode == SuperSearchSourceMode.ProjectFiles
+                          || mode == SuperSearchSourceMode.Everything;
+            bool needTms = mode == SuperSearchSourceMode.Tms
+                        || mode == SuperSearchSourceMode.Everything;
+            bool needTermbases = mode == SuperSearchSourceMode.Termbases
+                              || mode == SuperSearchSourceMode.Everything;
+
+            // Termbase discovery needs the Trados document (project settings),
+            // so resolve the project's MultiTerm/.ttb configuration on the UI
+            // thread; the reading itself happens on the background thread with
+            // everything else.
+            List<Models.MultiTermTermbaseConfig> projectTermbaseConfigs = null;
+            if (needTermbases)
+            {
+                projectTermbaseConfigs = SafeInvokeGet(() =>
+                {
+                    try
+                    {
+                        var doc = SdlTradosStudio.Application
+                            .GetController<EditorController>()?.ActiveDocument;
+                        return MultiTermProjectDetector.DetectTermbases(doc);
+                    }
+                    catch { return null; }
+                });
+            }
 
             // Resolve the active file path on the UI thread (Trados document
             // API); everything else — project discovery AND the search itself —
@@ -216,7 +246,7 @@ namespace Supervertaler.Trados.Core
             });
 
             var sw = Stopwatch.StartNew();
-            int searchedFiles = 0, searchedTms = 0;
+            int searchedFiles = 0, searchedTms = 0, searchedTermbases = 0;
             string emptyMessage = null;
 
             try
@@ -248,13 +278,22 @@ namespace Supervertaler.Trados.Core
                     searchedFiles = files.Count;
                     searchedTms = tms.Count;
 
-                    if (files.Count == 0 && tms.Count == 0)
+                    var termbases = needTermbases
+                        ? TermbaseSearcher.Discover(projectTermbaseConfigs)
+                        : new List<TermbaseSearcher.TermbaseSource>();
+                    searchedTermbases = termbases.Count;
+
+                    if (files.Count == 0 && tms.Count == 0 && termbases.Count == 0)
                     {
-                        emptyMessage = mode == SuperSearchSourceMode.TmsOnly
+                        emptyMessage = mode == SuperSearchSourceMode.Tms
                             ? "No translation memories found for this project."
-                            : mode == SuperSearchSourceMode.ProjectFiles
-                                ? "No project files found. Open a file in the editor first."
-                                : "No project files or translation memories found. Open a file in the editor first.";
+                            : mode == SuperSearchSourceMode.Termbases
+                                ? "No termbases found. Check your Supervertaler termbase settings, "
+                                  + "or attach a termbase in Trados Project Settings."
+                                : mode == SuperSearchSourceMode.ProjectFiles
+                                    ? "No project files found. Open a file in the editor first."
+                                    : "Nothing to search: no project files, translation memories or "
+                                      + "termbases found. Open a file in the editor first.";
                         return null;
                     }
 
@@ -279,6 +318,12 @@ namespace Supervertaler.Trados.Core
                                 tms, q, scope, e.CaseSensitive, e.UseRegex, e.WholeWord,
                                 (done, total) => SafeInvoke(() =>
                                     _control.SetStatus($"Searching TMs ({label})... ({done}/{total})")),
+                                ct));
+                        if (termbases.Count > 0)
+                            m.AddRange(TermbaseSearcher.Search(
+                                termbases, q, scope, e.CaseSensitive, e.UseRegex, e.WholeWord,
+                                (done, total) => SafeInvoke(() =>
+                                    _control.SetStatus($"Searching termbases ({label})... ({done}/{total})")),
                                 ct));
                         return m;
                     };
@@ -322,7 +367,7 @@ namespace Supervertaler.Trados.Core
                 SafeInvoke(() =>
                 {
                     _control.SetResults(results);
-                    _control.SetStatus(DescribeResults(results, searchedFiles, searchedTms, sw.ElapsedMilliseconds));
+                    _control.SetStatus(DescribeResults(results, searchedFiles, searchedTms, searchedTermbases, sw.ElapsedMilliseconds));
                     _control.SetSearching(false);
                 });
             }
@@ -357,17 +402,25 @@ namespace Supervertaler.Trados.Core
                 r.SourceText ?? "", r.TargetText ?? "");
         }
 
-        private static string DescribeResults(List<SearchResult> results, int fileCount, int tmCount, long ms)
+        private static string DescribeResults(List<SearchResult> results, int fileCount,
+            int tmCount, int termbaseCount, long ms)
         {
             int fileHits = results.Count(r => r.Kind == ResultKind.XliffSegment);
             int tmHits = results.Count(r => r.Kind == ResultKind.TmEntry);
+            int tbHits = results.Count(r => r.Kind == ResultKind.TermbaseEntry);
 
-            if (fileCount > 0 && tmCount > 0)
-                return $"{results.Count} result(s) — {fileHits} in {fileCount} file(s), " +
-                       $"{tmHits} in {tmCount} TM(s) — {ms} ms";
-            if (tmCount > 0)
-                return $"{tmHits} result(s) in {tmCount} TM(s) — {ms} ms";
-            return $"{fileHits} result(s) in {fileCount} file(s) — {ms} ms";
+            // Report only the sources actually searched, so the line stays
+            // readable in the single-source scopes.
+            var parts = new List<string>();
+            if (fileCount > 0) parts.Add($"{fileHits} in {fileCount} file(s)");
+            if (tmCount > 0) parts.Add($"{tmHits} in {tmCount} TM(s)");
+            if (termbaseCount > 0) parts.Add($"{tbHits} in {termbaseCount} termbase(s)");
+
+            if (parts.Count == 0)
+                return $"{results.Count} result(s) — {ms} ms";
+            if (parts.Count == 1)
+                return $"{parts[0]} — {ms} ms";
+            return $"{results.Count} result(s) — " + string.Join(", ", parts) + $" — {ms} ms";
         }
 
         private void OnStopRequested(object sender, EventArgs e)
@@ -391,11 +444,14 @@ namespace Supervertaler.Trados.Core
                 var result = _control.GetSelectedResult();
                 if (result == null) return;
 
-                // TM concordance hits aren't in any document — nothing to navigate to.
-                if (result.Kind == ResultKind.TmEntry)
+                // TM concordance hits and termbase entries aren't in any
+                // document — nothing to navigate to.
+                if (result.Kind == ResultKind.TmEntry
+                    || result.Kind == ResultKind.TermbaseEntry)
                 {
-                    _control.SetStatus(
-                        "This is a translation-memory hit — use the preview pane below to copy the text.");
+                    _control.SetStatus(result.Kind == ResultKind.TermbaseEntry
+                        ? "This is a termbase entry — use the preview pane below to copy the term."
+                        : "This is a translation-memory hit — use the preview pane below to copy the text.");
                     return;
                 }
 
@@ -447,11 +503,16 @@ namespace Supervertaler.Trados.Core
         {
             if (e.SelectedResult == null) return;
 
-            // Replace only applies to SDLXLIFF segments, not TM concordance hits.
-            if (e.SelectedResult.Kind == ResultKind.TmEntry)
+            // Replace only applies to SDLXLIFF segments — not to TM
+            // concordance hits, and not to termbase entries (edit those in the
+            // termbase editor, where the change is reviewable).
+            if (e.SelectedResult.Kind == ResultKind.TmEntry
+                || e.SelectedResult.Kind == ResultKind.TermbaseEntry)
             {
                 SafeInvoke(() => _control.SetStatus(
-                    "Replace doesn't apply to translation-memory results — select a project-file row."));
+                    e.SelectedResult.Kind == ResultKind.TermbaseEntry
+                        ? "Replace doesn't apply to termbase entries — select a project-file row."
+                        : "Replace doesn't apply to translation-memory results — select a project-file row."));
                 return;
             }
 

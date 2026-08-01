@@ -80,6 +80,9 @@ namespace Supervertaler.Trados.Controls
         // Translation-memory rows show their TM name in this blue in the File/TM
         // column, to set them apart from project-file rows at a glance.
         private static readonly Color TmNameColor = Color.FromArgb(30, 110, 195);
+        /// <summary>Termbase names in the File/TM column – green, echoing the
+        /// MultiTerm chip colour in TermLens.</summary>
+        private static readonly Color TermbaseNameColor = Color.FromArgb(46, 125, 50);
 
         // ─── Events ──────────────────────────────────────────────
 
@@ -202,22 +205,24 @@ namespace Supervertaler.Trados.Controls
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Width = 110
             };
-            // "Files + TMs" first so it reads as the recommended/default scope
-            // (searching both files AND TMs, incl. GroupShare). Index order here
-            // must stay in lockstep with SelectedSourceMode / SetSourceMode below.
-            _cboMode.Items.AddRange(new object[] { "Files + TMs", "Project files", "TMs only" });
+            // "Everything" first so it reads as the recommended/default scope,
+            // then one entry per source. Index order here must stay in lockstep
+            // with SelectedSourceMode / SetSourceMode below.
+            _cboMode.Items.AddRange(new object[] { "Everything", "Project files", "TMs", "Termbases" });
             _cboMode.SelectedIndex = 0;
             _cboMode.SelectedIndexChanged += (s, e) =>
             {
-                // Replace only applies to project-file results.
-                _chkShowReplace.Enabled = SelectedSourceMode != SuperSearchSourceMode.TmsOnly;
+                // Replace only applies to project-file results: neither a TM
+                // entry nor a term is a document location.
+                _chkShowReplace.Enabled = ModeIncludesFiles(SelectedSourceMode);
                 if (!_chkShowReplace.Enabled) _chkShowReplace.Checked = false;
                 ModeChanged?.Invoke(this, EventArgs.Empty);
             };
             var ttMode = new ToolTip();
             ttMode.SetToolTip(_cboMode,
-                "Where to search: the project's SDLXLIFF files, the files plus the " +
-                "project's translation memories, or the TMs only (concordance)");
+                "Where to search: everything at once, the project's SDLXLIFF files, " +
+                "the project's translation memories (concordance), or your termbases " +
+                "(Supervertaler, MultiTerm and Trados .ttb)");
             _searchPanel.Controls.Add(_cboMode);
 
             _chkCaseSensitive = new CheckBox
@@ -954,11 +959,16 @@ namespace Supervertaler.Trados.Controls
             foreach (var r in results)
             {
                 // TM concordance hits have no segment number; show the match
-                // score in the # column instead and a "TM" status.
+                // score in the # column instead and a "TM" status. Termbase
+                // hits have neither a number nor a score – the # column stays
+                // empty and the Status column carries the termbase kind.
                 var isTm = r.Kind == ResultKind.TmEntry;
+                var isTermbase = r.Kind == ResultKind.TermbaseEntry;
                 var numCell = isTm
                     ? (r.MatchScore > 0 ? r.MatchScore + "%" : "")
-                    : r.SegmentNumber.ToString();
+                    : isTermbase
+                        ? ""
+                        : r.SegmentNumber.ToString();
 
                 var idx = _grid.Rows.Add(r.FileName, numCell, r.SourceText, r.TargetText, r.Status);
                 var row = _grid.Rows[idx];
@@ -967,12 +977,21 @@ namespace Supervertaler.Trados.Controls
                 var fileCell = row.Cells["colFile"];
                 fileCell.ToolTipText = isTm
                     ? "Translation memory: " + r.FilePath
-                    : r.FilePath;
+                    : isTermbase
+                        ? "Termbase: " + r.FilePath
+                        : r.FilePath;
                 if (isTm)
                 {
                     // Tint the TM name blue so TM hits stand out from file rows.
                     fileCell.Style.ForeColor = TmNameColor;
                     fileCell.Style.SelectionForeColor = TmNameColor;
+                }
+                else if (isTermbase)
+                {
+                    // Green, matching the colour TermLens uses for MultiTerm
+                    // chips, so terminology reads as terminology at a glance.
+                    fileCell.Style.ForeColor = TermbaseNameColor;
+                    fileCell.Style.SelectionForeColor = TermbaseNameColor;
                 }
 
                 row.Cells["colSource"].ToolTipText = r.SourceText;
@@ -1015,19 +1034,27 @@ namespace Supervertaler.Trados.Controls
         /// </summary>
         public string SearchQuery => _txtSearch.Text;
 
+        /// <summary>True when the mode searches project files, i.e. when results
+        /// can be navigated to and replaced in.</summary>
+        internal static bool ModeIncludesFiles(SuperSearchSourceMode mode)
+            => mode == SuperSearchSourceMode.ProjectFiles
+            || mode == SuperSearchSourceMode.Everything;
+
         /// <summary>
-        /// The currently selected search-source mode (Project files / Files + TMs / TMs only).
+        /// The currently selected search-source mode
+        /// (Everything / Project files / TMs / Termbases).
         /// </summary>
         public SuperSearchSourceMode SelectedSourceMode
         {
             get
             {
-                // Item order: 0 = Files + TMs, 1 = Project files, 2 = TMs only.
+                // Item order: 0 = Everything, 1 = Project files, 2 = TMs, 3 = Termbases.
                 switch (_cboMode.SelectedIndex)
                 {
                     case 1: return SuperSearchSourceMode.ProjectFiles;
-                    case 2: return SuperSearchSourceMode.TmsOnly;
-                    default: return SuperSearchSourceMode.FilesAndTms;
+                    case 2: return SuperSearchSourceMode.Tms;
+                    case 3: return SuperSearchSourceMode.Termbases;
+                    default: return SuperSearchSourceMode.Everything;
                 }
             }
         }
@@ -1038,13 +1065,14 @@ namespace Supervertaler.Trados.Controls
         /// </summary>
         public void SetSourceMode(SuperSearchSourceMode mode)
         {
-            // Item order: 0 = Files + TMs, 1 = Project files, 2 = TMs only.
+            // Item order: 0 = Everything, 1 = Project files, 2 = TMs, 3 = Termbases.
             int idx;
             switch (mode)
             {
                 case SuperSearchSourceMode.ProjectFiles: idx = 1; break;
-                case SuperSearchSourceMode.TmsOnly: idx = 2; break;
-                default: idx = 0; break; // FilesAndTms
+                case SuperSearchSourceMode.Tms: idx = 2; break;
+                case SuperSearchSourceMode.Termbases: idx = 3; break;
+                default: idx = 0; break; // Everything
             }
 
             // Suppress the ModeChanged event for a programmatic restore.
@@ -1053,7 +1081,7 @@ namespace Supervertaler.Trados.Controls
             _cboMode.SelectedIndex = idx;
             ModeChanged = handler;
 
-            _chkShowReplace.Enabled = mode != SuperSearchSourceMode.TmsOnly;
+            _chkShowReplace.Enabled = ModeIncludesFiles(mode);
             if (!_chkShowReplace.Enabled) _chkShowReplace.Checked = false;
         }
 

@@ -11,12 +11,14 @@ namespace Supervertaler.Trados.Core
     /// <summary>
     /// Distinguishes a result that came from an SDLXLIFF project file (navigable,
     /// replaceable) from one that came from a translation memory (concordance hit —
-    /// no document location, not navigable, not replaceable).
+    /// no document location, not navigable, not replaceable) or from a termbase
+    /// (a term pair — likewise not navigable and not replaceable).
     /// </summary>
     public enum ResultKind
     {
         XliffSegment,
-        TmEntry
+        TmEntry,
+        TermbaseEntry
     }
 
     /// <summary>
@@ -51,15 +53,20 @@ namespace Supervertaler.Trados.Core
     }
 
     /// <summary>
-    /// Which sources SuperSearch searches: the project's SDLXLIFF files only,
-    /// the files plus the project's translation memories, or the TMs only
-    /// (concordance mode).
+    /// Which sources SuperSearch searches. One scope per source, plus
+    /// <see cref="Everything"/> which searches all three at once.
+    ///
+    /// <see cref="Everything"/> is the former "Files + TMs" (now including
+    /// termbases) and <see cref="Tms"/> the former "TMs only"; persisted
+    /// settings written under the old names are still accepted on load.
     /// </summary>
     public enum SuperSearchSourceMode
     {
         ProjectFiles,
-        FilesAndTms,
-        TmsOnly
+        /// <summary>Project files + TMs + termbases.</summary>
+        Everything,
+        Tms,
+        Termbases
     }
 
     /// <summary>

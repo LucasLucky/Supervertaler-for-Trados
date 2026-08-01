@@ -7,6 +7,15 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.155 / 19.20.155] – 2026-08-01
+
+### Added (SuperSearch · your termbases are now searchable too)
+
+- **SuperSearch now searches terminology alongside files and TMs.** "Where does this phrase appear?" and "what have I called this term?" are the same question at different granularities, and answering them in two different panels meant searching twice. All three kinds of termbase are covered: your **Supervertaler** termbases, the project's **MultiTerm** (`.sdltb`) termbases, and Trados 2026's **`.ttb`** termbases – through the same reader the rest of the plugin uses, so nothing new has to be configured.
+- **The scope dropdown is now one entry per source**: **Everything** · **Project files** · **TMs** · **Termbases**. "Everything" replaces the old "Files + TMs" and now includes terminology; "TMs" is the old "TMs only". A scope you had already chosen is carried over, not reset.
+- Search options behave identically in every scope – case sensitivity, regular expressions and whole-word matching all run through the same matcher the file and TM searches use, as does the source + target box combination.
+- Termbase hits show the **termbase name in green** (echoing TermLens's MultiTerm chips) and the termbase **kind** in the Status column – `Supervertaler`, `MultiTerm` or `TTB`. Termbases that are switched off are searched but marked `(inactive)`, so a hit that exists only in a disabled termbase is visible rather than silently missing. Navigate and Replace don't apply to a term (it isn't a document location) and say so.
+
 ## [18.20.154 / 19.20.154] – 2026-08-01
 
 ### Fixed (Batch translate & proofread · locked segments are now left alone)
