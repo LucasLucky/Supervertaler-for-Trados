@@ -2942,10 +2942,12 @@ namespace Supervertaler.Trados
                     };
 
                 var writeTermbases = new List<Models.TermbaseInfo>();
+                List<Models.TermbaseInfo> allTermbases = null;
                 using (var reader = new TermbaseReader(settings.TermbasePath))
                 {
                     if (reader.Open())
                     {
+                        allTermbases = reader.GetTermbases() ?? new List<Models.TermbaseInfo>();
                         foreach (var id in settings.WriteTermbaseIds)
                         {
                             var tb = reader.GetTermbaseById(id);
@@ -2957,6 +2959,49 @@ namespace Supervertaler.Trados
                 if (writeTermbases.Count == 0)
                     return new BridgeAddTermResponse { Ok = false, Error = "no write termbases found" };
 
+                // Optional targeting: names or numeric ids. Unknown / non-write
+                // names are reported per termbase rather than failing the call,
+                // so a mixed list still writes where it validly can.
+                var results = new List<BridgeAddTermResult>();
+                var targets = writeTermbases;
+                if (req.Termbases != null && req.Termbases.Count > 0)
+                {
+                    targets = new List<Models.TermbaseInfo>();
+                    foreach (var wanted in req.Termbases)
+                    {
+                        if (string.IsNullOrWhiteSpace(wanted)) continue;
+                        var w = wanted.Trim();
+                        var hit = writeTermbases.Find(t =>
+                            string.Equals(t.Name, w, StringComparison.OrdinalIgnoreCase)
+                            || (long.TryParse(w, out var wid) && t.Id == wid));
+                        if (hit != null)
+                        {
+                            if (!targets.Contains(hit)) targets.Add(hit);
+                            continue;
+                        }
+                        var known = allTermbases?.Find(t =>
+                            string.Equals(t.Name, w, StringComparison.OrdinalIgnoreCase)
+                            || (long.TryParse(w, out var kid) && t.Id == kid));
+                        results.Add(new BridgeAddTermResult
+                        {
+                            Termbase = w,
+                            Status = "error",
+                            Detail = known != null
+                                ? "this termbase is not Write-enabled – the user must tick its 'Write' " +
+                                  "column in the Supervertaler Termbases settings"
+                                : "no Supervertaler termbase with this name or id. Trados project " +
+                                  "termbases (.ttb / MultiTerm) are read-only from here and cannot be targeted."
+                        });
+                    }
+                    if (targets.Count == 0)
+                        return new BridgeAddTermResponse
+                        {
+                            Ok = false,
+                            Error = "none of the requested termbases can be written to – see results",
+                            Results = results
+                        };
+                }
+
                 string projSrcLang = "";
                 try { projSrcLang = _activeDocument?.ActiveFile?.SourceFile?.Language?.DisplayName ?? ""; }
                 catch { /* leave empty if unavailable */ }
@@ -2964,48 +3009,88 @@ namespace Supervertaler.Trados
                 var source = req.Source.Trim();
                 var target = req.Target.Trim();
 
-                var batchResults = TermbaseReader.InsertTermBatch(
-                    settings.TermbasePath, source, target, "", writeTermbases,
-                    projectSourceLang: projSrcLang);
-
-                if (batchResults.Count == 0)
-                    return new BridgeAddTermResponse
-                    {
-                        Ok = false,
-                        Error = "the term already exists in the configured write termbase(s)"
-                    };
+                var outcomes = TermbaseReader.InsertTermBatchDetailed(
+                    settings.TermbasePath, source, target,
+                    req.Definition ?? "", req.Domain ?? "", req.Notes ?? "",
+                    targets,
+                    projectSourceLang: projSrcLang,
+                    explicitSourceLang: req.SourceLang,
+                    explicitTargetLang: req.TargetLang);
 
                 var insertedEntries = new List<Models.TermEntry>();
                 var addedTo = new List<string>();
-                foreach (var (termbaseId, newId) in batchResults)
+                foreach (var o in outcomes)
                 {
-                    var tb = writeTermbases.Find(t => t.Id == termbaseId);
-                    if (tb == null) continue;
-                    addedTo.Add(tb.Name);
-                    insertedEntries.Add(new Models.TermEntry
+                    var tb = targets.Find(t => t.Id == o.TermbaseId);
+                    if (o.Status == TermbaseReader.TermInsertOutcome.StatusAdded)
                     {
-                        Id = newId,
-                        SourceTerm = source,
-                        TargetTerm = target,
-                        SourceLang = tb.SourceLang,
-                        TargetLang = tb.TargetLang,
-                        TermbaseId = tb.Id,
-                        TermbaseName = tb.Name,
-                        IsProjectTermbase = tb.IsProjectTermbase,
-                        Ranking = tb.Ranking,
-                        Definition = "",
-                        Domain = "",
-                        Notes = "",
-                        Forbidden = false,
-                        CaseSensitive = false,
-                        TargetSynonyms = new List<string>()
-                    });
+                        addedTo.Add(o.TermbaseName);
+                        results.Add(new BridgeAddTermResult
+                        {
+                            Termbase = o.TermbaseName,
+                            Status = "added",
+                            Stored = new BridgeStoredTerm
+                            {
+                                Source = o.StoredSource,
+                                Target = o.StoredTarget,
+                                SourceLang = tb?.SourceLang,
+                                TargetLang = tb?.TargetLang,
+                                Definition = string.IsNullOrEmpty(req.Definition) ? null : req.Definition,
+                                Domain = string.IsNullOrEmpty(req.Domain) ? null : req.Domain,
+                                Notes = string.IsNullOrEmpty(req.Notes) ? null : req.Notes,
+                                Reoriented = o.Swapped
+                            }
+                        });
+                        if (tb != null)
+                            insertedEntries.Add(new Models.TermEntry
+                            {
+                                Id = o.NewId,
+                                // Stored orientation, not the caller's – the old
+                                // code indexed the caller's order even when the
+                                // insert had swapped it for this termbase.
+                                SourceTerm = o.StoredSource,
+                                TargetTerm = o.StoredTarget,
+                                SourceLang = tb.SourceLang,
+                                TargetLang = tb.TargetLang,
+                                TermbaseId = tb.Id,
+                                TermbaseName = tb.Name,
+                                IsProjectTermbase = tb.IsProjectTermbase,
+                                Ranking = tb.Ranking,
+                                Definition = req.Definition ?? "",
+                                Domain = req.Domain ?? "",
+                                Notes = req.Notes ?? "",
+                                Forbidden = false,
+                                CaseSensitive = false,
+                                TargetSynonyms = new List<string>()
+                            });
+                    }
+                    else
+                    {
+                        results.Add(new BridgeAddTermResult
+                        {
+                            Termbase = o.TermbaseName,
+                            Status = o.Status == TermbaseReader.TermInsertOutcome.StatusDuplicate
+                                ? "duplicate" : "error",
+                            Detail = o.Detail
+                        });
+                    }
                 }
 
                 // Incremental TermLens index update – terms appear immediately.
-                TermLensEditorViewPart.NotifyTermInserted(insertedEntries);
+                if (insertedEntries.Count > 0)
+                    TermLensEditorViewPart.NotifyTermInserted(insertedEntries);
 
-                return new BridgeAddTermResponse { Ok = true, AddedTo = addedTo };
+                var response = new BridgeAddTermResponse
+                {
+                    Ok = addedTo.Count > 0,
+                    AddedTo = addedTo.Count > 0 ? addedTo : null,
+                    Results = results
+                };
+                if (addedTo.Count == 0)
+                    response.Error = results.TrueForAll(r => r.Status == "duplicate")
+                        ? "the term already exists in every targeted termbase – see results"
+                        : "nothing was added – see results for the per-termbase reasons";
+                return response;
             }
             catch (Exception ex)
             {

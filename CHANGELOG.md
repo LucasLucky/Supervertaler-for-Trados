@@ -7,6 +7,26 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.153 / 19.20.153] – 2026-08-01
+
+All of the below came out of one production incident: an AI adding a term pair through the MCP server wrote it reversed into two termbases of opposite directions, and the tools reported success throughout.
+
+### Fixed (Supervertaler MCP Server · add_term wrote reversed entries and reported success)
+
+- **The root cause was a contract gap, not broken direction logic.** The per-termbase orientation code was doing its job – but it rests on the assumption that `source` is the term in the *project's* source language, and nothing said so or checked it. The AI passed the pair the other way round; the orientation logic then faithfully produced a wrong entry in *each* termbase, one "aligned", one "swapped", both reversed. No language detection can catch this in translation work – term pairs are routinely identical across languages (radar, transponder) – so the fix is to make orientation explicit rather than guessed.
+- **`add_term` now takes `sourceLang`/`targetLang`.** When supplied, each termbase stores the pair according to its own declared direction – one call is correct for an en→nl and an nl→en termbase simultaneously. Without them, the project-direction assumption still applies but is now stated loudly in the tool contract, and a termbase whose languages cannot be related to the project's **refuses instead of writing silently**: no document open, or an unrelated language pair, is an error asking for explicit languages. A wrong silent write is far worse than a refusal.
+- **The response now proves what happened.** Instead of a bare list of termbase names, every targeted termbase reports back: `added` (with *exactly* what was stored – both terms in stored order, the termbase's languages, and whether the pair was reoriented), `duplicate`, or an error with the reason. Success can be verified, not trusted.
+
+### Added (Supervertaler MCP Server · add_term targeting and full fields)
+
+- **`termbases` parameter** – restrict the write to named termbases (or numeric ids) instead of fanning out to every Write-enabled one. Fan-out was the direct reason one wrong call corrupted two termbases. The default remains all Write-enabled termbases, now itemised in the response; unknown or read-only names are reported per entry without blocking the rest. Duplicate detection was already per termbase and stays that way.
+- **`definition`, `domain` and `notes`** can now be supplied – the storage always existed and `lookup_term` already returned the fields; they were simply unreachable from the MCP side, so all context had to be typed in by hand afterwards.
+
+### Fixed (Supervertaler MCP Server · lookup_term was blind to half the database)
+
+- **Exact lookup matched the source column only**, despite claiming "source or target". A query in the project's target language found nothing unless an entry stored that text in its source column – which is precisely what reversed entries do, so during the incident the tool surfaced *only* the corrupted entries and made them look normal, while hiding the correct ones. Worse, any exact hit suppressed the substring fallback (which does search both columns), so each query returned exactly one misleading termbase. Exact matching now covers source and target terms alike.
+- **Hits now report their evidence.** Each hit carries `matchedField` ("source"/"target"/"both") plus the entry's stored language pair, and the contract states plainly that results are returned exactly as stored, never reoriented – making `lookup_term` usable for verifying what `add_term` wrote. During the incident that verification was structurally impossible, which is how a reversed write passed its own check.
+
 ## [18.20.152 / 19.20.152] – 2026-08-01
 
 ### Added (TermLens · target selections highlight their term chips)

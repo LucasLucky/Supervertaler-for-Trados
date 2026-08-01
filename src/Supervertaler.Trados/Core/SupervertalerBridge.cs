@@ -161,6 +161,13 @@ namespace Supervertaler.Trados.Core
         /// OFF in the Supervertaler Termbases settings – the lookup searches the
         /// whole database, so inactive termbases still answer, but flagged.</summary>
         [DataMember(Name = "inactive", Order = 7, EmitDefaultValue = false)] public bool Inactive { get; set; }
+        /// <summary>Which stored column the query text matched: "source",
+        /// "target" or "both". source/target above are returned exactly as
+        /// stored (the termbase's own direction) – this says where the match
+        /// was, so orientation can be judged rather than guessed.</summary>
+        [DataMember(Name = "matchedField", Order = 8, EmitDefaultValue = false)] public string MatchedField { get; set; }
+        [DataMember(Name = "sourceLang", Order = 9, EmitDefaultValue = false)] public string SourceLang { get; set; }
+        [DataMember(Name = "targetLang", Order = 10, EmitDefaultValue = false)] public string TargetLang { get; set; }
     }
 
     [DataContract]
@@ -972,6 +979,44 @@ namespace Supervertaler.Trados.Core
     {
         [DataMember(Name = "source", IsRequired = true)] public string Source { get; set; }
         [DataMember(Name = "target", IsRequired = true)] public string Target { get; set; }
+        /// <summary>Optional: restrict the write to these termbases (names or
+        /// numeric ids). Empty/null = all write-enabled termbases.</summary>
+        [DataMember(Name = "termbases", EmitDefaultValue = false)] public List<string> Termbases { get; set; }
+        /// <summary>Optional: the language the <c>source</c> text is in. When
+        /// supplied, orientation is decided from it rather than assumed from
+        /// the project direction.</summary>
+        [DataMember(Name = "sourceLang", EmitDefaultValue = false)] public string SourceLang { get; set; }
+        [DataMember(Name = "targetLang", EmitDefaultValue = false)] public string TargetLang { get; set; }
+        [DataMember(Name = "definition", EmitDefaultValue = false)] public string Definition { get; set; }
+        [DataMember(Name = "domain", EmitDefaultValue = false)] public string Domain { get; set; }
+        [DataMember(Name = "notes", EmitDefaultValue = false)] public string Notes { get; set; }
+    }
+
+    /// <summary>Exactly what one termbase stored, echoed so the caller can
+    /// verify orientation instead of trusting a bare success.</summary>
+    [DataContract]
+    public class BridgeStoredTerm
+    {
+        [DataMember(Name = "source", Order = 0)] public string Source { get; set; }
+        [DataMember(Name = "target", Order = 1)] public string Target { get; set; }
+        [DataMember(Name = "sourceLang", Order = 2, EmitDefaultValue = false)] public string SourceLang { get; set; }
+        [DataMember(Name = "targetLang", Order = 3, EmitDefaultValue = false)] public string TargetLang { get; set; }
+        [DataMember(Name = "definition", Order = 4, EmitDefaultValue = false)] public string Definition { get; set; }
+        [DataMember(Name = "domain", Order = 5, EmitDefaultValue = false)] public string Domain { get; set; }
+        [DataMember(Name = "notes", Order = 6, EmitDefaultValue = false)] public string Notes { get; set; }
+        /// <summary>True when the caller's pair was reoriented to fit this
+        /// termbase's declared direction.</summary>
+        [DataMember(Name = "reoriented", Order = 7, EmitDefaultValue = false)] public bool Reoriented { get; set; }
+    }
+
+    [DataContract]
+    public class BridgeAddTermResult
+    {
+        [DataMember(Name = "termbase", Order = 0)] public string Termbase { get; set; }
+        /// <summary>"added" | "duplicate" | "error".</summary>
+        [DataMember(Name = "status", Order = 1)] public string Status { get; set; }
+        [DataMember(Name = "detail", Order = 2, EmitDefaultValue = false)] public string Detail { get; set; }
+        [DataMember(Name = "stored", Order = 3, EmitDefaultValue = false)] public BridgeStoredTerm Stored { get; set; }
     }
 
     [DataContract]
@@ -981,7 +1026,9 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "error", Order = 1, EmitDefaultValue = false)] public string Error { get; set; }
         [DataMember(Name = "addedTo", Order = 2, EmitDefaultValue = false)]
         public List<string> AddedTo { get; set; }
-        [DataMember(Name = "note", Order = 3, EmitDefaultValue = false)] public string Note { get; set; }
+        [DataMember(Name = "results", Order = 3, EmitDefaultValue = false)]
+        public List<BridgeAddTermResult> Results { get; set; }
+        [DataMember(Name = "note", Order = 4, EmitDefaultValue = false)] public string Note { get; set; }
     }
 
     /// <summary>
@@ -2159,7 +2206,10 @@ namespace Supervertaler.Trados.Core
                             Domain = entry.Domain,
                             Notes = entry.Notes,
                             NonTranslatable = entry.IsNonTranslatable,
-                            Inactive = inactive
+                            Inactive = inactive,
+                            MatchedField = ComputeMatchedField(q, entry.SourceTerm, entry.TargetTerm),
+                            SourceLang = entry.SourceLang,
+                            TargetLang = entry.TargetLang
                         });
                     }
                     if (excludedInactive > 0)
@@ -2181,7 +2231,10 @@ namespace Supervertaler.Trados.Core
                             Definition = entry.Definition,
                             Domain = entry.Domain,
                             Notes = notes,
-                            NonTranslatable = entry.IsNonTranslatable
+                            NonTranslatable = entry.IsNonTranslatable,
+                            MatchedField = ComputeMatchedField(q, entry.SourceTerm, entry.TargetTerm),
+                            SourceLang = entry.SourceLang,
+                            TargetLang = entry.TargetLang
                         });
                     }
 
@@ -2198,6 +2251,31 @@ namespace Supervertaler.Trados.Core
             }
 
             WriteJson(context, 200, response);
+        }
+
+        /// <summary>Which stored column the query text matched: "source",
+        /// "target" or "both". Tries exact (trailing-punctuation-tolerant)
+        /// equality first, then substring containment, mirroring the two
+        /// search stages – so the answer reflects however the hit was found.</summary>
+        private static string ComputeMatchedField(string q, string source, string target)
+        {
+            bool srcHit = FieldMatches(q, source);
+            bool tgtHit = FieldMatches(q, target);
+            if (srcHit && tgtHit) return "both";
+            if (tgtHit) return "target";
+            return "source";
+        }
+
+        private static bool FieldMatches(string q, string field)
+        {
+            if (string.IsNullOrEmpty(field)) return false;
+            var f = field.Trim();
+            var query = (q ?? "").Trim();
+            if (string.Equals(f, query, StringComparison.OrdinalIgnoreCase)) return true;
+            if (string.Equals(f.TrimEnd('.', '!', '?', ',', ';', ':'), query,
+                    StringComparison.OrdinalIgnoreCase)) return true;
+            return f.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
+                || query.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         /// <summary>Case-insensitive match of a query against a term entry's

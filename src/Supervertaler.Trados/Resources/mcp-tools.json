@@ -47,16 +47,41 @@
     },
     {
       "name": "add_term",
-      "description": "Add a source/target term pair to the user's configured Supervertaler Write termbases (same as Supervertaler's quick-add). Reports which termbases received the term, or an error if it already exists. NOTE: Trados's own project termbases (.ttb / MultiTerm) are READ-ONLY for you – if the user wants a term added there, tell them to add it in Trados itself. Only use when the user asked for a term to be added, or explicitly agreed to your suggestion to add one.",
+      "description": "Add a term pair to the user's Supervertaler Write termbases, optionally with definition/domain/notes. ORIENTATION: strongly prefer passing sourceLang/targetLang – each termbase then stores the pair according to its OWN declared direction, so one call is correct even for termbases of opposite directions. Without them, `source` is ASSUMED to be in the open project's source language; a termbase whose languages cannot be related to that refuses rather than guessing (no language detection – term pairs are often identical across languages). The response echoes per termbase exactly what was stored, including orientation – check it. Without `termbases`, writes go to EVERY Write-enabled termbase. NOTE: Trados's own project termbases (.ttb / MultiTerm) are READ-ONLY for you – if the user wants a term added there, tell them to add it in Trados itself. Only use when the user asked for a term to be added, or explicitly agreed to your suggestion to add one.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "source": {
-            "description": "The source-language term.",
+            "description": "One side of the term pair. In the language of sourceLang when given; otherwise MUST be in the project's source language (the language being translated FROM).",
             "type": "string"
           },
           "target": {
-            "description": "The target-language term.",
+            "description": "The other side of the pair (targetLang, or the project's target language).",
+            "type": "string"
+          },
+          "termbases": {
+            "description": "Restrict the write to these termbases, by name or numeric id (see list_resources). Omit = all Write-enabled termbases. Unknown or read-only names are reported per entry in results without blocking the rest.",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "sourceLang": {
+            "description": "Language of the `source` text (code like 'nl'/'en-GB' or a name like 'Dutch'). Supplying this makes orientation explicit and is the recommended way to call this tool.",
+            "type": "string"
+          },
+          "targetLang": {
+            "description": "Language of the `target` text.",
+            "type": "string"
+          },
+          "definition": {
+            "description": "Optional definition stored on the entry.",
+            "type": "string"
+          },
+          "domain": {
+            "description": "Optional subject domain, e.g. 'mechanical engineering'.",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Optional usage notes stored on the entry.",
             "type": "string"
           }
         },
@@ -680,7 +705,7 @@
     },
     {
       "name": "lookup_term",
-      "description": "Look up a term in the user's termbases: exact match first, then substring fallback. Searches EVERY Supervertaler termbase in the database - hits from termbases whose Read tick is OFF are flagged \"inactive\": true (mention that to the user when it matters, e.g. a hit only exists in an inactive termbase). Pass activeOnly=true to search only the active (Read-enabled) termbases - useful when the user has many termbases and wants results limited to what's in use. Also searches the Trados project's own termbases (.ttb/.sdltb) when a document is open (those are always active ones).",
+      "description": "Look up a term in the user's termbases: exact match first (against source AND target terms), then substring fallback. Each hit's source/target are returned EXACTLY as stored, in that termbase's own declared direction - never reoriented - with matchedField saying which column ('source'/'target'/'both') the query text was found in, and the entry's stored sourceLang/targetLang. That makes this tool safe for verifying what add_term wrote. Searches EVERY Supervertaler termbase in the database - hits from termbases whose Read tick is OFF are flagged \"inactive\": true (mention that to the user when it matters, e.g. a hit only exists in an inactive termbase). Pass activeOnly=true to search only the active (Read-enabled) termbases - useful when the user has many termbases and wants results limited to what's in use. Also searches the Trados project's own termbases (.ttb/.sdltb) when a document is open (those are always active ones).",
       "inputSchema": {
         "type": "object",
         "properties": {

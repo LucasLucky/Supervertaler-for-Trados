@@ -119,6 +119,14 @@ namespace Supervertaler.Trados.Core
         /// <summary>
         /// Searches for terms matching the given word/phrase across all active termbases.
         /// Mirrors Supervertaler's search_termbases() logic.
+        ///
+        /// Matches the SOURCE and TARGET columns alike. It originally matched
+        /// source only, which made the MCP term lookup blind to any entry
+        /// storing the queried text in its target column – for a query in the
+        /// project's target language every hit came from reversed (corrupted)
+        /// entries, which made the corruption itself invisible. Rows are
+        /// returned in STORED orientation; callers that need project
+        /// orientation swap for themselves (as LoadAllTerms does).
         /// </summary>
         public List<TermEntry> SearchTerm(string searchTerm)
         {
@@ -147,7 +155,10 @@ namespace Supervertaler.Trados.Core
                 LEFT JOIN termbases tb ON CAST(t.termbase_id AS INTEGER) = tb.id
                 WHERE (LOWER(t.source_term) = LOWER(@term)
                     OR LOWER(RTRIM(t.source_term, '.!?,;:')) = LOWER(@term)
-                    OR LOWER(@term) = LOWER(RTRIM(t.source_term, '.!?,;:')))
+                    OR LOWER(@term) = LOWER(RTRIM(t.source_term, '.!?,;:'))
+                    OR LOWER(t.target_term) = LOWER(@term)
+                    OR LOWER(RTRIM(t.target_term, '.!?,;:')) = LOWER(@term)
+                    OR LOWER(@term) = LOWER(RTRIM(t.target_term, '.!?,;:')))
                 ORDER BY ranking ASC, t.source_term ASC";
 
             using (var cmd = new SqliteCommand(sql, _connection))
@@ -1210,6 +1221,165 @@ namespace Supervertaler.Trados.Core
             bool isNonTranslatable = false,
             string projectSourceLang = null)
         {
+            // Legacy orientation semantics, preserved for the in-Studio quick-add
+            // actions: swap only when the project source matches the termbase's
+            // target language; NotApplicable / Aligned / Unrelated all store the
+            // caller's input as-is. (Pre-v4.19.56 any "not aligned" was treated
+            // as "inverted", which silently swapped data on its way into
+            // termbases for unrelated language pairs.)
+            var outcomes = InsertTermBatchCore(
+                dbPath, sourceTerm, targetTerm, definition, "", "",
+                termbases, isNonTranslatable,
+                tb =>
+                {
+                    var direction = LanguageUtils.CompareTermbaseDirection(
+                        projectSourceLang, tb.SourceLang, tb.TargetLang);
+                    return (direction == LanguageUtils.TermbaseDirection.Inverted, null);
+                });
+
+            var results = new List<(long, long)>();
+            foreach (var o in outcomes)
+                if (o.Status == TermInsertOutcome.StatusAdded)
+                    results.Add((o.TermbaseId, o.NewId));
+            return results;
+        }
+
+        /// <summary>
+        /// Per-termbase outcome of a batch term insert – built so callers can
+        /// report exactly what was stored (and why something wasn't) instead of
+        /// a bare list of row ids. Introduced for the MCP add_term path after a
+        /// reversed pair was written into two termbases while the tool reported
+        /// plain success.
+        /// </summary>
+        public sealed class TermInsertOutcome
+        {
+            public const string StatusAdded = "added";
+            public const string StatusDuplicate = "duplicate";
+            public const string StatusCannotOrient = "cannot-orient";
+
+            public long TermbaseId;
+            public string TermbaseName;
+            /// <summary>One of the Status* constants.</summary>
+            public string Status;
+            public long NewId = -1;
+            /// <summary>Exactly what went into the source_term column (added only).</summary>
+            public string StoredSource;
+            public string StoredTarget;
+            /// <summary>True when the caller's pair was reoriented for this termbase.</summary>
+            public bool Swapped;
+            /// <summary>Human-readable reason for duplicate / cannot-orient.</summary>
+            public string Detail;
+        }
+
+        /// <summary>
+        /// Batch insert with per-termbase orientation and full field support.
+        /// Orientation policy (the caller's <c>sourceTerm</c>/<c>targetTerm</c>
+        /// are placed into each termbase's columns according to that termbase's
+        /// OWN declared direction):
+        ///   1. Explicit wins – when <paramref name="explicitSourceLang"/> /
+        ///      <paramref name="explicitTargetLang"/> are supplied, they say
+        ///      which language each side of the pair is in; termbases whose
+        ///      declared pair can't be related to them refuse with
+        ///      cannot-orient rather than guessing.
+        ///   2. Otherwise the pair is assumed to be in PROJECT direction
+        ///      (source = the project's source language) and swapped per
+        ///      termbase, as the in-Studio quick-add has always done.
+        ///   3. No silent writes on ambiguity: no open document, or a termbase
+        ///      for an unrelated language pair, refuses with cannot-orient.
+        ///      Language detection is deliberately not attempted – in this
+        ///      domain term pairs are routinely identical across languages
+        ///      (radar, IFF, transponder), so a detector would guess, and a
+        ///      wrong silent write is far worse than a refusal.
+        /// </summary>
+        public static List<TermInsertOutcome> InsertTermBatchDetailed(
+            string dbPath, string sourceTerm, string targetTerm,
+            string definition, string domain, string notes,
+            List<TermbaseInfo> termbases,
+            string projectSourceLang,
+            string explicitSourceLang, string explicitTargetLang)
+        {
+            return InsertTermBatchCore(
+                dbPath, sourceTerm, targetTerm, definition, domain, notes,
+                termbases, isNonTranslatable: false,
+                orient: tb => DecideOrientationStrict(
+                    tb, projectSourceLang, explicitSourceLang, explicitTargetLang));
+        }
+
+        /// <summary>
+        /// The strict per-termbase orientation decision documented on
+        /// <see cref="InsertTermBatchDetailed"/>. Returns (swap, null) when
+        /// orientation is established, or (false, reason) when this termbase
+        /// must be refused.
+        /// </summary>
+        private static (bool swap, string cannotOrient) DecideOrientationStrict(
+            TermbaseInfo tb, string projectSourceLang,
+            string explicitSourceLang, string explicitTargetLang)
+        {
+            var tbPair = $"{tb.SourceLang} → {tb.TargetLang}";
+
+            bool hasExplicit = !string.IsNullOrWhiteSpace(explicitSourceLang)
+                || !string.IsNullOrWhiteSpace(explicitTargetLang);
+            if (hasExplicit)
+            {
+                // CompareTermbaseDirection(lang, tbSrc, tbTgt): Aligned = lang
+                // matches the termbase's source side, Inverted = its target side.
+                var srcDir = LanguageUtils.CompareTermbaseDirection(
+                    explicitSourceLang, tb.SourceLang, tb.TargetLang);
+                var tgtDir = LanguageUtils.CompareTermbaseDirection(
+                    explicitTargetLang, tb.SourceLang, tb.TargetLang);
+
+                if (srcDir == LanguageUtils.TermbaseDirection.Unrelated
+                    || tgtDir == LanguageUtils.TermbaseDirection.Unrelated)
+                    return (false, "the supplied sourceLang/targetLang don't match this " +
+                        $"termbase's declared pair ({tbPair})");
+
+                // A lang that was omitted (or the termbase declares no languages)
+                // comes back NotApplicable and simply doesn't vote.
+                bool srcVotes = srcDir == LanguageUtils.TermbaseDirection.Aligned
+                    || srcDir == LanguageUtils.TermbaseDirection.Inverted;
+                bool tgtVotes = tgtDir == LanguageUtils.TermbaseDirection.Aligned
+                    || tgtDir == LanguageUtils.TermbaseDirection.Inverted;
+                if (!srcVotes && !tgtVotes)
+                    return (false, "could not relate the supplied sourceLang/targetLang to this " +
+                        $"termbase's declared pair ({tbPair})");
+
+                // sourceLang matching the termbase TARGET side means the pair
+                // arrives reversed for this termbase → swap. targetLang matching
+                // the termbase SOURCE side means the same.
+                bool srcSaysSwap = srcDir == LanguageUtils.TermbaseDirection.Inverted;
+                bool tgtSaysSwap = tgtDir == LanguageUtils.TermbaseDirection.Aligned;
+                if (srcVotes && tgtVotes && srcSaysSwap != tgtSaysSwap)
+                    return (false, "sourceLang and targetLang resolve to the same side of this " +
+                        $"termbase ({tbPair}) – check the two languages are the pair's, one each");
+
+                return (srcVotes ? srcSaysSwap : tgtSaysSwap, null);
+            }
+
+            // No explicit languages: assume the pair is in PROJECT direction.
+            var dir = LanguageUtils.CompareTermbaseDirection(
+                projectSourceLang, tb.SourceLang, tb.TargetLang);
+            switch (dir)
+            {
+                case LanguageUtils.TermbaseDirection.Aligned:
+                    return (false, null);
+                case LanguageUtils.TermbaseDirection.Inverted:
+                    return (true, null);
+                case LanguageUtils.TermbaseDirection.NotApplicable:
+                    return (false, "no open document to infer term orientation from – " +
+                        "pass sourceLang/targetLang");
+                default:
+                    return (false, $"the termbase's language pair ({tbPair}) matches neither side " +
+                        $"of the project's source language ({projectSourceLang}) – " +
+                        "pass sourceLang/targetLang");
+            }
+        }
+
+        private static List<TermInsertOutcome> InsertTermBatchCore(
+            string dbPath, string sourceTerm, string targetTerm,
+            string definition, string domain, string notes,
+            List<TermbaseInfo> termbases, bool isNonTranslatable,
+            Func<TermbaseInfo, (bool swap, string cannotOrient)> orient)
+        {
             // Strip trailing sentence punctuation from translatable terms on save
             // (e.g. "circumference." -> "circumference"); non-translatables kept as-is.
             if (!isNonTranslatable)
@@ -1225,18 +1395,7 @@ namespace Supervertaler.Trados.Core
                 targetTerm = SanitizeTermWhitespace(targetTerm);
             }
 
-            // projectSourceLang: language of `sourceTerm` as supplied by the caller.
-            //   When provided, this method makes a PER-TERMBASE decision about
-            //   whether the text needs to be swapped to match that termbase's
-            //   stored direction. This fixes the long-standing bug where the
-            //   caller (QuickAddTermAction) made ONE swap decision based on the
-            //   first termbase and applied it to every termbase in the batch –
-            //   which corrupted any write termbases whose direction happened
-            //   to differ from the first one's.
-            //
-            //   When null (legacy callers), no per-termbase swap is done and the
-            //   caller's pre-swap semantics are preserved.
-            var results = new List<(long, long)>();
+            var outcomes = new List<TermInsertOutcome>();
 
             var connStr = new SqliteConnectionStringBuilder
             {
@@ -1273,29 +1432,30 @@ namespace Supervertaler.Trados.Core
                              term_uuid)
                         VALUES
                             (@source, @target, @tbId, @srcLang, @tgtLang,
-                             @def, '', '', 0, 0, @nt,
+                             @def, @domain, @notes, 0, 0, @nt,
                              @uuid);
                         SELECT last_insert_rowid();";
 
                     foreach (var tb in termbases)
                     {
-                        // Decide per-termbase whether to swap so the text lands in the
-                        // right columns FOR THIS termbase's declared direction.
-                        // Only invert when project source matches the termbase's
-                        // *target* language. NotApplicable / Aligned / Unrelated
-                        // all leave the user's input as-is – pre-v4.19.56 the check
-                        // treated any "not aligned" as "inverted", which silently
-                        // swapped data on its way into termbases for unrelated
-                        // language pairs.
-                        string termForSourceColumn = sourceTerm;
-                        string termForTargetColumn = targetTerm;
-                        var direction = LanguageUtils.CompareTermbaseDirection(
-                            projectSourceLang, tb.SourceLang, tb.TargetLang);
-                        if (direction == LanguageUtils.TermbaseDirection.Inverted)
+                        var outcome = new TermInsertOutcome
                         {
-                            termForSourceColumn = targetTerm;
-                            termForTargetColumn = sourceTerm;
+                            TermbaseId = tb.Id,
+                            TermbaseName = tb.Name
+                        };
+                        outcomes.Add(outcome);
+
+                        var decision = orient(tb);
+                        if (decision.cannotOrient != null)
+                        {
+                            outcome.Status = TermInsertOutcome.StatusCannotOrient;
+                            outcome.Detail = decision.cannotOrient;
+                            continue;
                         }
+
+                        var termForSourceColumn = decision.swap ? targetTerm : sourceTerm;
+                        var termForTargetColumn = decision.swap ? sourceTerm : targetTerm;
+                        outcome.Swapped = decision.swap;
 
                         // Skip if duplicate already exists in this termbase (either direction).
                         using (var check = new SqliteCommand(checkSql, conn, txn))
@@ -1305,7 +1465,11 @@ namespace Supervertaler.Trados.Core
                             check.Parameters.AddWithValue("@target", termForTargetColumn.Trim());
 
                             if (check.ExecuteScalar() != null)
-                                continue; // duplicate – skip this termbase
+                            {
+                                outcome.Status = TermInsertOutcome.StatusDuplicate;
+                                outcome.Detail = "an entry for this pair already exists in this termbase";
+                                continue;
+                            }
                         }
 
                         using (var cmd = new SqliteCommand(sql, conn, txn))
@@ -1316,20 +1480,32 @@ namespace Supervertaler.Trados.Core
                             cmd.Parameters.AddWithValue("@srcLang", tb.SourceLang);
                             cmd.Parameters.AddWithValue("@tgtLang", tb.TargetLang);
                             cmd.Parameters.AddWithValue("@def", definition ?? "");
+                            cmd.Parameters.AddWithValue("@domain", domain ?? "");
+                            cmd.Parameters.AddWithValue("@notes", notes ?? "");
                             cmd.Parameters.AddWithValue("@nt", isNonTranslatable ? 1 : 0);
                             cmd.Parameters.AddWithValue("@uuid", System.Guid.NewGuid().ToString());
 
                             var result = cmd.ExecuteScalar();
                             var newId = result != null ? Convert.ToInt64(result) : -1;
                             if (newId > 0)
-                                results.Add((tb.Id, newId));
+                            {
+                                outcome.Status = TermInsertOutcome.StatusAdded;
+                                outcome.NewId = newId;
+                                outcome.StoredSource = termForSourceColumn.Trim();
+                                outcome.StoredTarget = termForTargetColumn.Trim();
+                            }
+                            else
+                            {
+                                outcome.Status = TermInsertOutcome.StatusCannotOrient;
+                                outcome.Detail = "insert failed (no row id returned)";
+                            }
                         }
                     }
                     txn.Commit();
                 }
             }
 
-            return results;
+            return outcomes;
         }
 
         /// <summary>
