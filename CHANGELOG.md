@@ -7,6 +7,12 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.152 / 19.20.152] – 2026-08-01
+
+### Added (TermLens · target selections highlight their term chips)
+
+- **Selecting text in the target segment now lights up the term chips whose translation the selection covers.** The counterpart of 20.151's source-selection tracking, with one deliberate difference: a source selection highlights a continuous run of words, while a target selection highlights only term chips. That is not a shortcut – there is no word-alignment data between source and target in the editor, so mapping arbitrary target text back onto source words would be guesswork, and on heavily reordered language pairs it would guess wrong often. What TermLens does know is every chip's translation, abbreviation and target synonyms, so those are matched against your selection instead: select *"transverse ship axis (roll) and/or longitudinal ship axis"* and the chips for *dwarsscheepsas* and *langsscheepsas* light up. Partial words work too (*"radiating elem"* finds *radiating elements*). Matching is textual: if your target wording departs from every rendering the termbase knows, that chip stays unlit. Whichever side you selected last drives the highlight, so the panel always reflects exactly one selection.
+
 ## [18.20.151 / 19.20.151] – 2026-08-01
 
 ### Added (TermLens · your editor selection is now mirrored in the panel)

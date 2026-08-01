@@ -828,6 +828,89 @@ namespace Supervertaler.Trados.Controls
             ApplySelectionHighlight(controls, owner[best], owner[best + squashedSel.Length - 1]);
         }
 
+        /// <summary>
+        /// Highlights the term chips whose translation the editor's TARGET
+        /// selection covers – the reverse lookup of
+        /// <see cref="HighlightEditorSelection"/>. There is no word alignment
+        /// between source and target, so plain (unmatched) words are never
+        /// highlighted from a target selection; only chips whose known target
+        /// renderings (translation, abbreviation, synonyms) appear in the
+        /// selected text light up. Pass null/empty to clear.
+        /// </summary>
+        public void HighlightTargetSelection(string selectedText)
+        {
+            var selNorm = NormaliseForTargetMatch(selectedText);
+
+            foreach (Control c in _flowPanel.Controls)
+            {
+                var wl = c as WordLabel;
+                if (wl != null) { wl.SelectionHighlighted = false; continue; }
+                var tb = c as TermBlock;
+                if (tb == null) continue;
+                tb.SelectionHighlighted = selNorm.Length > 0
+                    && TargetSelectionCoversChip(selNorm, tb.GetTargetMatchCandidates());
+            }
+        }
+
+        private static bool TargetSelectionCoversChip(string selNorm, List<string> candidates)
+        {
+            foreach (var candidate in candidates)
+            {
+                var candNorm = NormaliseForTargetMatch(candidate);
+                if (candNorm.Length == 0) continue;
+
+                // Selection spans the whole translation (possibly along with
+                // other text). Whole-word occurrence only – with "as" for a
+                // candidate, a bare Contains would light up on "phase".
+                if (ContainsWholeWords(selNorm, candNorm))
+                    return true;
+
+                // Selection is a piece of the translation ("radiating elem").
+                // Minimum length keeps two-letter selections from lighting up
+                // half the panel.
+                if (selNorm.Length >= 3
+                    && candNorm.IndexOf(selNorm, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>Collapses all whitespace runs (including NBSP) to single
+        /// spaces and trims, so editor text and termbase text compare on
+        /// wording rather than spacing.</summary>
+        private static string NormaliseForTargetMatch(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return "";
+            var sb = new System.Text.StringBuilder(text.Length);
+            bool pendingSpace = false;
+            foreach (var ch in text)
+            {
+                if (char.IsWhiteSpace(ch)) { pendingSpace = sb.Length > 0; continue; }
+                if (pendingSpace) { sb.Append(' '); pendingSpace = false; }
+                sb.Append(ch);
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>True when <paramref name="needle"/> occurs in
+        /// <paramref name="haystack"/> with non-alphanumeric characters (or the
+        /// string edge) on both sides.</summary>
+        private static bool ContainsWholeWords(string haystack, string needle)
+        {
+            int from = 0;
+            while (from <= haystack.Length - needle.Length)
+            {
+                int k = haystack.IndexOf(needle, from, StringComparison.OrdinalIgnoreCase);
+                if (k < 0) return false;
+                bool leftOk = k == 0 || !char.IsLetterOrDigit(haystack[k - 1]);
+                int end = k + needle.Length;
+                bool rightOk = end >= haystack.Length || !char.IsLetterOrDigit(haystack[end]);
+                if (leftOk && rightOk) return true;
+                from = k + 1;
+            }
+            return false;
+        }
+
         /// <summary>Clears any editor-selection highlight without touching the
         /// rest of the display.</summary>
         public void ClearEditorSelectionHighlight()

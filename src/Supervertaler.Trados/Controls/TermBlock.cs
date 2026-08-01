@@ -240,6 +240,32 @@ namespace Supervertaler.Trados.Controls
             }
         }
 
+        /// <summary>
+        /// Every target-side rendering this chip could represent: the displayed
+        /// (case-adapted) translation, each entry's stored target term and
+        /// abbreviation, and all target synonyms. Used by the target-selection
+        /// highlight to answer "does the editor's target selection cover this
+        /// chip's translation?" – matching is textual, so a rendering the
+        /// termbase doesn't know can't match, by design.
+        /// </summary>
+        internal List<string> GetTargetMatchCandidates()
+        {
+            var list = new List<string>();
+            var shown = DisplayTargetText;
+            if (!string.IsNullOrWhiteSpace(shown)) list.Add(shown);
+            foreach (var entry in _entries)
+            {
+                if (entry == null) continue;
+                if (!string.IsNullOrWhiteSpace(entry.TargetTerm)) list.Add(entry.TargetTerm);
+                var abbr = entry.PrimaryTargetAbbreviation;
+                if (!string.IsNullOrWhiteSpace(abbr)) list.Add(abbr);
+                if (entry.TargetSynonyms != null)
+                    foreach (var syn in entry.TargetSynonyms)
+                        if (!string.IsNullOrWhiteSpace(syn)) list.Add(syn);
+            }
+            return list;
+        }
+
         private static int BadgeHeight => UiScale.Pixels(16);
 
         /// <summary>

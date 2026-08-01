@@ -75,12 +75,15 @@ namespace Supervertaler.Trados
         private string _currentProjectPath;
         private string _currentProjectName;
 
-        // Editor-selection → TermLens highlight. The SDK's SourceSelection is a
-        // stable per-document instance with a plain Changed event; the exact
-        // instance we subscribed to is kept so unsubscription can't miss when
+        // Editor-selection → TermLens highlight. The SDK's Source/TargetSelection
+        // are stable per-document instances with plain Changed events; the exact
+        // instances we subscribed to are kept so unsubscription can't miss when
         // the active document changes. The timer debounces the burst of Changed
-        // events fired while the user drags a selection.
+        // events fired while the user drags a selection. Selection.Current
+        // decides which side drives the highlight, so there is always exactly
+        // one selection reflected in the panel.
         private SourceSelection _subscribedSourceSelection;
+        private TargetSelection _subscribedTargetSelection;
         private System.Windows.Forms.Timer _selectionHighlightTimer;
 
         // --- Alt+digit shortcut state machine ---
@@ -1687,24 +1690,39 @@ namespace Supervertaler.Trados
         {
             try
             {
-                var sel = doc?.Selection?.Source;
-                if (sel == null) return;
-                sel.Changed += OnSourceSelectionChanged;
-                _subscribedSourceSelection = sel;
+                var docSel = doc?.Selection;
+                var src = docSel?.Source;
+                if (src != null)
+                {
+                    src.Changed += OnSourceSelectionChanged;
+                    _subscribedSourceSelection = src;
+                }
+                var tgt = docSel?.Target;
+                if (tgt != null)
+                {
+                    tgt.Changed += OnSourceSelectionChanged;
+                    _subscribedTargetSelection = tgt;
+                }
             }
             catch
             {
                 // Selection tracking is a nicety – never let it break wiring.
                 _subscribedSourceSelection = null;
+                _subscribedTargetSelection = null;
             }
         }
 
         private void UnsubscribeSourceSelection()
         {
-            var sel = _subscribedSourceSelection;
+            var src = _subscribedSourceSelection;
+            var tgt = _subscribedTargetSelection;
             _subscribedSourceSelection = null;
-            if (sel == null) return;
-            try { sel.Changed -= OnSourceSelectionChanged; } catch { }
+            _subscribedTargetSelection = null;
+            if (src != null)
+                try { src.Changed -= OnSourceSelectionChanged; } catch { }
+            if (tgt != null)
+                try { tgt.Changed -= OnSourceSelectionChanged; } catch { }
+            if (src == null && tgt == null) return;
             // The outgoing document's highlight would otherwise linger until
             // the next segment render.
             try { SafeInvoke(() => { if (_control.IsValueCreated) _control.Value.ClearEditorSelectionHighlight(); }); } catch { }
@@ -1733,22 +1751,36 @@ namespace Supervertaler.Trados
             _selectionHighlightTimer.Stop();
             try
             {
-                var sel = _activeDocument?.Selection?.Source;
-                string text = null;
-                int offset = 0;
-                if (sel != null && sel.IsValid && !sel.IsEmpty)
+                if (!_control.IsValueCreated) return;
+
+                // Current is whichever side the user last selected in, so a
+                // stale selection on the other side never drives the panel.
+                var cur = _activeDocument?.Selection?.Current;
+                if (cur == null || !cur.IsValid || cur.IsEmpty)
                 {
-                    text = sel.ToString();
-                    try
-                    {
-                        long f = sel.From != null ? sel.From.CursorPosition : 0;
-                        long u = sel.UpTo != null ? sel.UpTo.CursorPosition : f;
-                        offset = (int)Math.Max(0, Math.Min(Math.Min(f, u), int.MaxValue));
-                    }
-                    catch { /* occurrence hint only – zero is a fine fallback */ }
+                    _control.Value.ClearEditorSelectionHighlight();
+                    return;
                 }
-                if (_control.IsValueCreated)
-                    _control.Value.HighlightEditorSelection(text, offset);
+
+                if (cur is TargetSelection)
+                {
+                    // Reverse lookup: light up the chips whose translation the
+                    // target selection covers. No alignment data exists for the
+                    // rest of the words, so chips are all that can light up.
+                    _control.Value.HighlightTargetSelection(cur.ToString());
+                    return;
+                }
+
+                string text = cur.ToString();
+                int offset = 0;
+                try
+                {
+                    long f = cur.From != null ? cur.From.CursorPosition : 0;
+                    long u = cur.UpTo != null ? cur.UpTo.CursorPosition : f;
+                    offset = (int)Math.Max(0, Math.Min(Math.Min(f, u), int.MaxValue));
+                }
+                catch { /* occurrence hint only – zero is a fine fallback */ }
+                _control.Value.HighlightEditorSelection(text, offset);
             }
             catch
             {
