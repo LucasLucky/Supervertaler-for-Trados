@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -33,6 +33,7 @@ namespace Supervertaler.Trados.Controls
         private CheckBox _chkShowReplace;
         private Button _btnFiles;
         private Button _btnTms;
+        private Button _btnTbs;
         private Button _btnHelp;
 
         // ─── Replace bar row 2 (hidden by default) ──────────────
@@ -59,6 +60,11 @@ namespace Supervertaler.Trados.Controls
         private HashSet<string> _excludedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private List<string> _allProjectTms = new List<string>();
         private HashSet<string> _excludedTms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Termbases are identified by the label the controller builds
+        // ("Name (Kind)"), so a Supervertaler and a MultiTerm termbase that
+        // happen to share a name stay distinguishable.
+        private List<string> _allTermbases = new List<string>();
+        private HashSet<string> _excludedTermbases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // ─── Highlight state ─────────────────────────────────────
         private string _highlightSource;
@@ -193,7 +199,9 @@ namespace Supervertaler.Trados.Controls
             Core.ClickThrough.Attach(_btnSearch, () => FireSearch());
             _searchPanel.Controls.Add(_btnSearch);
 
-            _btnStop = CreateButton("Stop", bodyFont, 46, 26);
+            // 46 px clipped "Stop" to "Sto" at the user's display scaling — the
+            // label needs the same room "Search" gets, minus a little.
+            _btnStop = CreateButton("Stop", bodyFont, 60, 26);
             _btnStop.Visible = false;
             _btnStop.Click += (s, e) => StopRequested?.Invoke(this, EventArgs.Empty);
             Core.ClickThrough.Attach(_btnStop, () => StopRequested?.Invoke(this, EventArgs.Empty));
@@ -297,6 +305,13 @@ namespace Supervertaler.Trados.Controls
             _btnFiles.Click += (s, e) => ShowFileSelectionDialog();
             Core.ClickThrough.Attach(_btnFiles, () => ShowFileSelectionDialog());
             _searchPanel.Controls.Add(_btnFiles);
+
+            _btnTbs = CreateButton("TBs", bodyFont, 52, 26);
+            var ttTbs = new ToolTip();
+            ttTbs.SetToolTip(_btnTbs, "Select which termbases to include in the search");
+            _btnTbs.Click += (s, e) => ShowTermbaseSelectionDialog();
+            Core.ClickThrough.Attach(_btnTbs, () => ShowTermbaseSelectionDialog());
+            _searchPanel.Controls.Add(_btnTbs);
 
             _btnTms = CreateButton("TMs", bodyFont, 52, 26);
             var ttTms = new ToolTip();
@@ -446,7 +461,7 @@ namespace Supervertaler.Trados.Controls
             _grid.Columns.Add(new DataGridViewTextBoxColumn
             {
                 Name = "colFile",
-                HeaderText = "File/TM",
+                HeaderText = "Found in",
                 Width = 100,
                 MinimumWidth = 50
             });
@@ -638,7 +653,8 @@ namespace Supervertaler.Trados.Controls
 
             // Right-anchored controls first (right to left): ? , TMs, Files
             _btnHelp.Location = new Point(w - _btnHelp.Width - 4, btnY);
-            _btnTms.Location = new Point(_btnHelp.Left - _btnTms.Width - 4, btnY);
+            _btnTbs.Location = new Point(_btnHelp.Left - _btnTbs.Width - 4, btnY);
+            _btnTms.Location = new Point(_btnTbs.Left - _btnTms.Width - 4, btnY);
             _btnFiles.Location = new Point(_btnTms.Left - _btnFiles.Width - 4, btnY);
 
             // Fixed controls from the right after the search boxes
@@ -841,6 +857,119 @@ namespace Supervertaler.Trados.Controls
             _btnTms.Text = included == total
                 ? $"TMs ({total})"
                 : $"TMs ({included}/{total})";
+        }
+
+        /// <summary>
+        /// Updates the list of searchable termbases (called by the controller
+        /// after discovery). Labels are "Name (Kind)" so a Supervertaler and a
+        /// MultiTerm termbase of the same name remain distinguishable.
+        /// </summary>
+        public void SetProjectTermbases(List<string> termbases)
+        {
+            _allTermbases = termbases ?? new List<string>();
+            // Drop exclusions for termbases that are no longer available (e.g.
+            // the user unticked Read, or switched project).
+            _excludedTermbases.IntersectWith(_allTermbases);
+            UpdateTbsButton();
+        }
+
+        /// <summary>Termbases to search (all discovered minus the excluded).</summary>
+        public List<string> GetSelectedTermbases()
+        {
+            if (_excludedTermbases.Count == 0)
+                return _allTermbases;
+
+            return _allTermbases.Where(t => !_excludedTermbases.Contains(t)).ToList();
+        }
+
+        private void UpdateTbsButton()
+        {
+            int included = _allTermbases.Count - _excludedTermbases.Count;
+            int total = _allTermbases.Count;
+            _btnTbs.Text = included == total
+                ? $"TBs ({total})"
+                : $"TBs ({included}/{total})";
+        }
+
+        private void ShowTermbaseSelectionDialog()
+        {
+            if (_allTermbases.Count == 0)
+            {
+                MessageBox.Show(
+                    "No termbases available to search." + Environment.NewLine + Environment.NewLine +
+                    "SuperSearch searches the Supervertaler termbases whose Read tick is on, " +
+                    "plus the MultiTerm/.ttb termbases enabled in Trados Project Settings. " +
+                    "Run a search in Termbases or Everything mode first so they can be discovered.",
+                    "SuperSearch", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            using (var dlg = new Form())
+            {
+                dlg.Text = "SuperSearch — Select Termbases";
+                dlg.Size = new Size(600, 450);
+                dlg.MinimumSize = new Size(400, 250);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.FormBorderStyle = FormBorderStyle.Sizable;
+                dlg.ShowIcon = false;
+                dlg.ShowInTaskbar = false;
+                dlg.Font = new Font("Segoe UI", 9f);
+
+                var lblInfo = new Label
+                {
+                    Text = "Select which termbases to include in the search:",
+                    Dock = DockStyle.Top,
+                    AutoSize = true,
+                    Padding = new Padding(8, 8, 8, 4),
+                    ForeColor = TextColor
+                };
+                dlg.Controls.Add(lblInfo);
+
+                var clb = new CheckedListBox
+                {
+                    Dock = DockStyle.Fill,
+                    CheckOnClick = true,
+                    Font = new Font("Segoe UI", 8.5f),
+                    IntegralHeight = false,
+                    BorderStyle = BorderStyle.FixedSingle
+                };
+
+                foreach (var tb in _allTermbases)
+                    clb.Items.Add(tb, !_excludedTermbases.Contains(tb));
+                dlg.Controls.Add(clb);
+
+                var btnSelectAll = CreateButton("Select All", dlg.Font, 90, 28);
+                btnSelectAll.Click += (s, e) =>
+                {
+                    for (int i = 0; i < clb.Items.Count; i++)
+                        clb.SetItemChecked(i, true);
+                };
+
+                var btnSelectNone = CreateButton("Select None", dlg.Font, 100, 28);
+                btnSelectNone.Click += (s, e) =>
+                {
+                    for (int i = 0; i < clb.Items.Count; i++)
+                        clb.SetItemChecked(i, false);
+                };
+
+                var btnOk = CreateButton("OK", dlg.Font, 70, 28);
+                btnOk.Click += (s, e) =>
+                {
+                    _excludedTermbases.Clear();
+                    for (int i = 0; i < clb.Items.Count; i++)
+                    {
+                        if (!clb.GetItemChecked(i))
+                            _excludedTermbases.Add(_allTermbases[i]);
+                    }
+                    UpdateTbsButton();
+                    dlg.DialogResult = DialogResult.OK;
+                };
+
+                dlg.Controls.Add(BuildPickerBottomBar(btnSelectAll, btnSelectNone, btnOk, HeaderBg));
+                dlg.AcceptButton = btnOk;
+                clb.BringToFront();
+                dlg.ShowDialog(this);
+            }
         }
 
         private void ShowTmSelectionDialog()
@@ -1456,6 +1585,15 @@ namespace Supervertaler.Trados.Controls
                 BackColor = Color.FromArgb(245, 245, 245),
                 Cursor = Cursors.Hand
             };
+            // Treat the supplied size as a MINIMUM and let the button grow to
+            // fit its label. Fixed widths are only right at one font/DPI
+            // combination: at the user's scaling "Stop" was clipped to "Sto",
+            // the same way "Select None" once clipped to "Select" in the picker
+            // bar. Growing-only keeps the intended layout everywhere it already
+            // fits, and rescues it everywhere it doesn't.
+            btn.MinimumSize = new Size(width, height);
+            btn.AutoSize = true;
+            btn.AutoSizeMode = AutoSizeMode.GrowOnly;
             btn.FlatAppearance.BorderColor = Color.FromArgb(200, 200, 200);
             btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(230, 230, 230);
             return btn;

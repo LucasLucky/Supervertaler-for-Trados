@@ -14,7 +14,16 @@
 - **SuperSearch now searches terminology alongside files and TMs.** "Where does this phrase appear?" and "what have I called this term?" are the same question at different granularities, and answering them in two different panels meant searching twice. All three kinds of termbase are covered: your **Supervertaler** termbases, the project's **MultiTerm** (`.sdltb`) termbases, and Trados 2026's **`.ttb`** termbases – through the same reader the rest of the plugin uses, so nothing new has to be configured.
 - **The scope dropdown is now one entry per source**: **Everything** · **Project files** · **TMs** · **Termbases**. "Everything" replaces the old "Files + TMs" and now includes terminology; "TMs" is the old "TMs only". A scope you had already chosen is carried over, not reset.
 - Search options behave identically in every scope – case sensitivity, regular expressions and whole-word matching all run through the same matcher the file and TM searches use, as does the source + target box combination.
-- Termbase hits show the **termbase name in green** (echoing TermLens's MultiTerm chips) and the termbase **kind** in the Status column – `Supervertaler`, `MultiTerm` or `TTB`. Termbases that are switched off are searched but marked `(inactive)`, so a hit that exists only in a disabled termbase is visible rather than silently missing. Navigate and Replace don't apply to a term (it isn't a document location) and say so.
+- **Terminology comes from the index TermLens already holds in memory**, rather than a fresh read of the database — so a termbase search is effectively instant instead of taking tens of seconds on a large termbase collection, with no second copy of your terminology in memory. The database is read only as a fallback, when TermLens has not finished its initial load yet.
+- **Only the termbases you have switched on are searched** – Supervertaler termbases with their **Read** tick set, and MultiTerm/`.ttb` termbases enabled in Trados Project Settings. The Read column is your statement of which terminology is in play for a job; searching the rest would contradict it and make every search pay for termbases you deliberately turned off.
+- Termbases are discovered when the project opens, so the **TBs** button — beside **Files** and **TMs** — is populated before your first search. It works like the other two: click it to include or exclude individual termbases.
+- Termbase hits show the **termbase name in green** (echoing TermLens's MultiTerm chips) and the termbase **kind** in the Status column – `Supervertaler`, `MultiTerm` or `TTB`. Navigate and Replace don't apply to a term (it isn't a document location) and say so.
+- The results grid's first column is now headed **Found in** rather than *File/TM*, since it can hold a file, a TM or a termbase name.
+- Search terms are matched **in the project's direction**: a termbase declared the other way round (an EN→NL termbase in an NL→EN project) is oriented before matching, so the **Src** box always means "the language you translate from" rather than "whichever column that termbase happens to call source" — the same treatment TermLens gives terminology.
+
+### Fixed (SuperSearch · button labels clipped at some display scalings)
+
+- Buttons in the SuperSearch bar now grow to fit their labels instead of using fixed widths, which had truncated **Stop** to "Sto" at some font/DPI combinations.
 
 ## [18.20.154 / 19.20.154] – 2026-08-01
 

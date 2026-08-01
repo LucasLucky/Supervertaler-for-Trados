@@ -161,13 +161,37 @@ namespace Supervertaler.Trados.Core
                 var files = XliffSearcher.FindProjectXliffFiles(filePath);
                 var tms = TmSearcher.FindProjectTms(filePath);
 
+                // Termbases are discovered up front too, so the TBs picker is
+                // populated before the first search rather than only after one.
+                // DetectTermbases needs the Trados document, hence the UI-thread
+                // hop; the reading itself stays on this background thread.
+                var tbConfigs = SafeInvokeGet(() =>
+                {
+                    try
+                    {
+                        var doc = SdlTradosStudio.Application
+                            .GetController<EditorController>()?.ActiveDocument;
+                        return MultiTermProjectDetector.DetectTermbases(doc);
+                    }
+                    catch { return null; }
+                });
+                List<string> termbaseLabels;
+                try
+                {
+                    termbaseLabels = TermbaseSearcher.Discover(tbConfigs)
+                        .Select(TermbaseSearcher.Label).ToList();
+                }
+                catch { termbaseLabels = new List<string>(); }
+
                 SafeInvoke(() =>
                 {
                     _control.SetProjectFiles(files);
                     _control.SetProjectTms(tms);
+                    _control.SetProjectTermbases(termbaseLabels);
                     var tmNote = tms.Count > 0 ? $", {tms.Count} TM(s)" : "";
+                    var tbNote = termbaseLabels.Count > 0 ? $", {termbaseLabels.Count} termbase(s)" : "";
                     _control.SetStatus(
-                        $"Project: {Path.GetFileName(projectRoot)} — {files.Count} file(s){tmNote}");
+                        $"Project: {Path.GetFileName(projectRoot)} — {files.Count} file(s){tmNote}{tbNote}");
                 });
             }
             catch { /* discovery failure must not crash the plugin */ }
@@ -218,18 +242,25 @@ namespace Supervertaler.Trados.Core
             // thread; the reading itself happens on the background thread with
             // everything else.
             List<Models.MultiTermTermbaseConfig> projectTermbaseConfigs = null;
+            string projectSourceLang = null;
             if (needTermbases)
             {
-                projectTermbaseConfigs = SafeInvokeGet(() =>
+                var tbContext = SafeInvokeGet(() =>
                 {
                     try
                     {
                         var doc = SdlTradosStudio.Application
                             .GetController<EditorController>()?.ActiveDocument;
-                        return MultiTermProjectDetector.DetectTermbases(doc);
+                        // The project's source language decides how each
+                        // termbase is oriented before matching, so the Src box
+                        // always means "the language you translate from".
+                        var lang = doc?.ActiveFile?.SourceFile?.Language?.DisplayName;
+                        return Tuple.Create(MultiTermProjectDetector.DetectTermbases(doc), lang);
                     }
                     catch { return null; }
                 });
+                projectTermbaseConfigs = tbContext?.Item1;
+                projectSourceLang = tbContext?.Item2;
             }
 
             // Resolve the active file path on the UI thread (Trados document
@@ -281,6 +312,23 @@ namespace Supervertaler.Trados.Core
                     var termbases = needTermbases
                         ? TermbaseSearcher.Discover(projectTermbaseConfigs)
                         : new List<TermbaseSearcher.TermbaseSource>();
+                    if (termbases.Count > 0)
+                    {
+                        // Publish the discovered termbases to the TBs picker and
+                        // snapshot the user's selection, exactly as the Files and
+                        // TMs pickers do above.
+                        var labels = termbases.Select(TermbaseSearcher.Label).ToList();
+                        var keep = SafeInvokeGet(() =>
+                        {
+                            _control.SetProjectTermbases(labels);
+                            return new HashSet<string>(
+                                _control.GetSelectedTermbases(), StringComparer.OrdinalIgnoreCase);
+                        });
+                        if (keep != null)
+                            termbases = termbases
+                                .Where(t => keep.Contains(TermbaseSearcher.Label(t)))
+                                .ToList();
+                    }
                     searchedTermbases = termbases.Count;
 
                     if (files.Count == 0 && tms.Count == 0 && termbases.Count == 0)
@@ -322,6 +370,7 @@ namespace Supervertaler.Trados.Core
                         if (termbases.Count > 0)
                             m.AddRange(TermbaseSearcher.Search(
                                 termbases, q, scope, e.CaseSensitive, e.UseRegex, e.WholeWord,
+                                projectSourceLang,
                                 (done, total) => SafeInvoke(() =>
                                     _control.SetStatus($"Searching termbases ({label})... ({done}/{total})")),
                                 ct));
