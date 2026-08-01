@@ -154,6 +154,26 @@ namespace Supervertaler.Trados
             catch { return false; }
         }
 
+        /// <summary>
+        /// Escape support for the pane: when the pane owns the keyboard, hand
+        /// focus back to the Studio editor (an auto-hidden pane retracts as a
+        /// side effect). Called by the global Escape hook; returns false when
+        /// the pane is not focused so Escape passes through to Studio.
+        /// </summary>
+        public static bool TryEscapeDismiss()
+        {
+            var ctrl = _control;
+            if (ctrl == null || ctrl.IsDisposed || !ctrl.IsHandleCreated
+                || !ctrl.Visible || !ctrl.ContainsFocus)
+                return false;
+            try
+            {
+                SdlTradosStudio.Application.GetController<EditorController>()?.Activate();
+                return true;
+            }
+            catch { return false; }
+        }
+
         /// <summary>Persists the pane's column widths (called on shutdown).</summary>
         public static void SaveState()
         {

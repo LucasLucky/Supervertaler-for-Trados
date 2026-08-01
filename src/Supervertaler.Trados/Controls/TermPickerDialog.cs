@@ -22,6 +22,11 @@ namespace Supervertaler.Trados.Controls
         private readonly TermPickerControl _picker;
         private readonly TermLensSettings _settings;
 
+        /// <summary>The dialog currently on screen, if any - the global Escape
+        /// hook closes it through this, because (measured in Studio 2026) the
+        /// Escape key never reaches this form's ProcessCmdKey at all.</summary>
+        internal static TermPickerDialog OpenInstance { get; private set; }
+
         /// <summary>The target term the user chose, or null if cancelled.</summary>
         public string SelectedTargetTerm { get; private set; }
 
@@ -125,6 +130,7 @@ namespace Supervertaler.Trados.Controls
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
+            OpenInstance = this;
             _picker.FocusList();
         }
 
@@ -142,6 +148,7 @@ namespace Supervertaler.Trados.Controls
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
+            if (ReferenceEquals(OpenInstance, this)) OpenInstance = null;
             base.OnFormClosed(e);
             var edit = _pendingEdit;
             _pendingEdit = null;

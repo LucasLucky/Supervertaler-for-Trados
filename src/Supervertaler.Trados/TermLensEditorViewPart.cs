@@ -83,6 +83,8 @@ namespace Supervertaler.Trados
 
         // --- Ctrl-tap TermPicker (memoQ-style) ---
         private static CtrlTapFilter _ctrlTapFilter;
+        private static EscapeKeyHook _escapeHook;
+        private static EscapeKeyHookLL _escapeHookLL;
 
         // ───────────────────────────────────────────────────────────────
         // v4.19.113: Termbase DB file watcher (cross-process auto-refresh)
@@ -153,6 +155,14 @@ namespace Supervertaler.Trados
                     () => HandleTermLensPopup(),
                     onEscape: () => TryCloseTermLensPopup());
                 System.Windows.Forms.Application.AddMessageFilter(_ctrlTapFilter);
+
+                // Escape needs a GetMessage hook, NOT the filter above: Studio's
+                // editor preprocessing consumes dialog-navigation keys before
+                // the WinForms filter chain ever sees them (measured - Ctrl
+                // arrives there, Escape does not). Same mechanism the chat
+                // input uses to intercept Enter.
+                _escapeHook = new EscapeKeyHook(HandleGlobalEscape);
+                _escapeHookLL = new EscapeKeyHookLL(HandleGlobalEscape);
             }
 
             // License check – show/hide activation overlay based on tier.
@@ -2908,6 +2918,42 @@ namespace Supervertaler.Trados
         /// it never owns the keyboard, so its own Escape handler only ever
         /// fires in the rare case the user clicked into it first.
         /// </summary>
+        /// <summary>
+        /// One Escape dispatcher for every Supervertaler pop-up surface, called
+        /// from the EscapeKeyHook for each Escape key-down on the UI thread.
+        /// Returns true when something was dismissed (the hook then eats the
+        /// keypress); false lets Escape reach Studio untouched.
+        /// </summary>
+        private static bool HandleGlobalEscape()
+        {
+            // 1. The floating TermLens popup (Ctrl tap).
+            if (TryCloseTermLensPopup())
+            {
+                return true;
+            }
+
+            // 2. The Alt+P TermPicker dialog, whatever its focus state.
+            var dlg = Controls.TermPickerDialog.OpenInstance;
+            if (dlg != null && !dlg.IsDisposed && dlg.Visible)
+            {
+                try
+                {
+                    dlg.DialogResult = System.Windows.Forms.DialogResult.Cancel;
+                    dlg.Close();
+                }
+                catch { }
+                return true;
+            }
+
+            // 3. The docked/floating TermPicker pane, when it owns the keyboard.
+            if (TermPickerViewPart.TryEscapeDismiss())
+            {
+                return true;
+            }
+
+            return false;
+        }
+
         public static bool TryCloseTermLensPopup()
         {
             var popup = _currentPopup;
