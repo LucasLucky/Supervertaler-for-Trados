@@ -208,13 +208,8 @@ namespace Supervertaler.Trados.Controls
         /// </summary>
         internal Rectangle GetSelectionBandBounds(Graphics g)
         {
-            // A locally scoped font rather than the SourceFont property, which
-            // allocates a Font on every read and never disposes it.
-            using (var f = new Font(Font.FontFamily, Font.Size, FontStyle.Regular))
-            {
-                int h = (int)Math.Ceiling(g.MeasureString(_sourceText, f).Height) + 2;
-                return new Rectangle(Left, Top + 2, Width, h);
-            }
+            int h = (int)Math.Ceiling(g.MeasureString(_sourceText, SourceFont).Height) + 2;
+            return new Rectangle(Left, Top + 2, Width, h);
         }
 
         /// <summary>
@@ -381,15 +376,57 @@ namespace Supervertaler.Trados.Controls
             }
         }
 
-        private Font SourceFont => new Font(Font.FontFamily, Font.Size, FontStyle.Regular);
-        private Font TargetFont => new Font(Font.FontFamily, Font.Size, FontStyle.Regular);
-        private Font BadgeFont => new Font(Font.FontFamily, Font.Size - 1, FontStyle.Bold);
+        // Fonts derived from the control's own Font, cached.
+        //
+        // These were expression-bodied properties returning a fresh
+        // `new Font(...)` on every read, and nothing ever disposed them. They
+        // are read roughly eighteen times per OnPaint between them, there are
+        // dozens of TermBlocks per segment, and TermLens repaints on every
+        // editor selection change - a 120 ms debounce, so continuously while a
+        // selection is being dragged. That leaks GDI handles fast enough to
+        // matter over a working day, and handle exhaustion surfaces as
+        // controls silently failing to paint, which points nowhere near here.
+        //
+        // Created lazily, thrown away in OnFontChanged (they are derived from
+        // Font, so a font change makes them stale) and disposed with the
+        // control.
+        private Font _sourceFont;
+        private Font _targetFont;
+        private Font _badgeFont;
+
+        private Font SourceFont =>
+            _sourceFont ?? (_sourceFont = new Font(Font.FontFamily, Font.Size, FontStyle.Regular));
+
+        private Font TargetFont =>
+            _targetFont ?? (_targetFont = new Font(Font.FontFamily, Font.Size, FontStyle.Regular));
+
+        // Math.Max guards the badge against a control font of 1pt or smaller,
+        // where Size - 1 would be zero or negative and the Font constructor
+        // throws. TermLensControl clamps to 7pt today, so this is belt and
+        // braces rather than a live bug.
+        private Font BadgeFont =>
+            _badgeFont ?? (_badgeFont = new Font(
+                Font.FontFamily, Math.Max(1f, Font.Size - 1), FontStyle.Bold));
+
+        private void DisposeDerivedFonts()
+        {
+            if (_sourceFont != null) { _sourceFont.Dispose(); _sourceFont = null; }
+            if (_targetFont != null) { _targetFont.Dispose(); _targetFont = null; }
+            if (_badgeFont  != null) { _badgeFont.Dispose();  _badgeFont  = null; }
+        }
 
         protected override void OnFontChanged(EventArgs e)
         {
             base.OnFontChanged(e);
+            DisposeDerivedFonts();   // stale: they are derived from Font
             CalculateSize();
             Invalidate();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) DisposeDerivedFonts();
+            base.Dispose(disposing);
         }
 
         protected override void OnPaint(PaintEventArgs e)
