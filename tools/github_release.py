@@ -136,7 +136,7 @@ The plugins attached to this release are the **unsigned** builds. The version on
 1. Download the zip for your Trados version (table below).
 2. **Extract it** – inside is a single `.sdlplugin` file.
 3. Close Trados Studio, then double-click the `.sdlplugin` to run the Plugin Installer. **Do not rename the file** – Trados matches the filename against the plugin manifest.
-4. Trados will warn that the plugin is **not signed**; that is expected for the direct build – click through to continue.
+4. Trados will warn that the plugin is **not signed**. That is expected for the direct build and is **not an error** – click through to continue. Be aware that this dialog then reappears **every time Studio starts**, not just at install; the signed App Store build is the way to avoid it.
 
 | Download | Trados version |
 |---|---|
