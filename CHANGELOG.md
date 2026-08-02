@@ -7,6 +7,17 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.156 / 19.20.156] – 2026-08-02
+
+### Changed (Updates · "Not Now" now quietens updates for a week)
+
+- **The update dialog's "Skip This Version" button is now "Not Now", and it silences update prompts for seven days rather than for one version.** Skipping a version only ever silenced the exact build named in the dialog, so the next release asked again — fine at one release a week, but Supervertaler is moving to submitting each meaningful fix to the App Store as it lands, which would have turned a per-version skip into a near-daily dialog you could never quiet. A time window decouples the prompt from the release rate: the more often updates ship, the *less* often you are interrupted. Settings that already recorded a skipped version keep working.
+
+### Changed (Distribution · the App Store is now the only channel)
+
+- **The plugin is published through the [RWS App Store](https://appstore.rws.com/plugin/432) only.** GitHub releases keep the changelog, the tags and the MCP server files, but no longer carry the plugin. Three reasons, all of them things users actually hit: App Store builds are RWS-signed, so Studio stops asking you to confirm an "unsigned plug-in" at **every** start (a warning that is not an error, but reads like one); the plugin's update check reads the App Store catalogue, so anyone who installed from GitHub was running a build newer than the catalogue and was therefore never told about updates again; and an archive of old builds is a liability, since builds predating the trial anchor could be used to restart the trial indefinitely. All historical plugin downloads have been removed from GitHub.
+- If you need a fix before it clears App Store review, email support@supervertaler.com and the build can be sent directly.
+
 ## [18.20.155 / 19.20.155] – 2026-08-01
 
 ### Added (SuperSearch · your termbases are now searchable too)

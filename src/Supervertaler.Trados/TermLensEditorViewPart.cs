@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -3594,7 +3594,7 @@ namespace Supervertaler.Trados
 
                 var btnSkip = new Button
                 {
-                    Text = "Skip This Version",
+                    Text = "Not Now",
                     DialogResult = DialogResult.Ignore,
                     Location = new System.Drawing.Point(144, 172),
                     Width = 130,
@@ -3750,9 +3750,12 @@ namespace Supervertaler.Trados
 
                 if (result == DialogResult.Ignore)
                 {
-                    // Save "skip this version" to settings
+                    // "Not now" = quiet for a week, regardless of version.
+                    // Skipping a single version stopped working once releases
+                    // became frequent: the next build is a different version,
+                    // so the dialog came back the next day.
                     var settings = TermLensSettings.Load();
-                    settings.SkippedUpdateVersion = newVersion;
+                    settings.SnoozeUpdatePrompts();
                     settings.Save();
                 }
                 // Remind Me Later – do nothing, will check again next session

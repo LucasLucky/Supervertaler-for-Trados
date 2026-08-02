@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
@@ -85,6 +85,12 @@ namespace Supervertaler.Trados.Core
             if (CompareVersions(bestTag, currentVersion) <= 0) return null;
 
             if (string.Equals(settings.SkippedUpdateVersion, bestTag, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            // "Not now" silences every update prompt for a week, whatever the
+            // version. Checked after the version comparison so the snooze only
+            // suppresses a prompt that would otherwise have been shown.
+            if (settings.IsUpdateSnoozed())
                 return null;
 
             var releaseUrl = string.Format(ReleaseNotesUrlFormat, bestTag);

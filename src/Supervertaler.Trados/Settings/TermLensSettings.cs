@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.Serialization;
@@ -307,9 +307,54 @@ namespace Supervertaler.Trados.Settings
         /// <summary>
         /// Version string the user chose to skip (e.g. "4.2.0-beta").
         /// The update dialog will not show again for this version.
+        ///
+        /// Retained so settings written before the snooze below keep working,
+        /// and still honoured – but "Not now" sets
+        /// <see cref="UpdateSnoozedUntilUtc"/> instead.
         /// </summary>
         [DataMember(Name = "skippedUpdateVersion")]
         public string SkippedUpdateVersion { get; set; } = "";
+
+        /// <summary>
+        /// Suppress ALL update prompts until this UTC time. Empty = not snoozed.
+        ///
+        /// Why a time window rather than a version: "skip this version" only
+        /// silenced the exact build named in the dialog, so the next release
+        /// prompted again. That was fine at one release a week, but submitting
+        /// to the App Store after every meaningful fix would turn it into a
+        /// near-daily dialog the user cannot quiet, because each day's build is
+        /// a different version to skip. A window decouples the prompt from the
+        /// release rate: the more often we ship, the LESS often they are
+        /// interrupted.
+        ///
+        /// Stored as an ISO-8601 UTC string rather than a DateTime because
+        /// DataContractJsonSerializer round-trips DateTime with a local-time
+        /// bias, which has caused date bugs here before.
+        /// </summary>
+        [DataMember(Name = "updateSnoozedUntilUtc")]
+        public string UpdateSnoozedUntilUtc { get; set; } = "";
+
+        /// <summary>How long "Not now" silences update prompts.</summary>
+        public const int UpdateSnoozeDays = 7;
+
+        /// <summary>True while update prompts are snoozed.</summary>
+        public bool IsUpdateSnoozed()
+        {
+            if (string.IsNullOrWhiteSpace(UpdateSnoozedUntilUtc)) return false;
+            DateTime until;
+            if (!DateTime.TryParse(UpdateSnoozedUntilUtc,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind, out until))
+                return false;   // unparseable = treat as not snoozed
+            return until.ToUniversalTime() > DateTime.UtcNow;
+        }
+
+        /// <summary>Silences update prompts for <see cref="UpdateSnoozeDays"/> days.</summary>
+        public void SnoozeUpdatePrompts()
+        {
+            UpdateSnoozedUntilUtc = DateTime.UtcNow.AddDays(UpdateSnoozeDays)
+                .ToString("o", System.Globalization.CultureInfo.InvariantCulture);
+        }
 
         // ─── Usage statistics ──────────────────────────────────────
         /// <summary>
@@ -489,6 +534,8 @@ namespace Supervertaler.Trados.Settings
                     // Ensure update checker field is never null
                     if (s.SkippedUpdateVersion == null)
                         s.SkippedUpdateVersion = "";
+                    if (s.UpdateSnoozedUntilUtc == null)
+                        s.UpdateSnoozedUntilUtc = "";
 
                     // Suffix-tolerant matching missing from older settings → "auto"
                     if (string.IsNullOrWhiteSpace(s.SuffixTolerantMatching))

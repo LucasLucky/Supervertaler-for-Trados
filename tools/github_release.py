@@ -1,16 +1,25 @@
-"""Cut a GitHub release for Supervertaler for Trados, with both plugin zips attached.
+"""Cut a GitHub release for Supervertaler for Trados (release notes + MCP assets).
 
-GitHub releases carry the *unsigned* plugin builds so eager users can install a fix
-before the RWS App Store approves it. They are immutable build checkpoints, append-only
-and never deleted — independent of the App Store's rolling delete/re-upload cadence.
-(See CLAUDE.md → "Release channels" for the full model.)
+SINGLE-CHANNEL DISTRIBUTION (from 2026-08-02): the plugin binary is published
+ONLY through the RWS App Store. GitHub releases carry the notes, the tag, and the
+MCP server assets — but NOT the .sdlplugin.
 
-Why zips and not bare .sdlplugin files: GitHub Releases replaces spaces in asset
-filenames with periods, which would turn "Supervertaler for Trados.sdlplugin" into
-"Supervertaler.for.Trados.sdlplugin". Trados extracts a plugin to
-Unpacked/<sdlplugin-filename-without-extension>/ and matches it against the manifest
-PlugInName, so a dotted name reintroduces the duplicate-package / stale-DLL crash.
-Wrapping each plugin in a hyphenated zip preserves the exact inner filename.
+Why this changed:
+  * App Store builds are RWS-signed; GitHub builds were not, so every Studio start
+    nagged the user with an "unsigned plug-in" dialog they reasonably read as an error.
+  * The in-plugin update check queries the App Store catalogue, so anyone who had
+    installed from GitHub was running a build NEWER than the catalogue and was
+    therefore never told about updates again — silently stuck, sometimes for months.
+  * The archive accumulated risk: 67 releases predating the v4.20.34 trial anchor were
+    still downloadable, and any of them could be used to reset the 14-day trial
+    indefinitely. Those assets were deleted on 2026-08-02.
+
+For a user who needs a fix before it clears App Store review, share the build directly
+(e.g. a Google Drive link with an expiry) rather than publishing it. Keep that folder
+empty between hand-offs — a standing public link recreates exactly the problem above.
+
+The MCP assets MUST stay attached: the plugin's "Connect AI assistant" dialog points
+users at /releases/latest for the .mcpb.
 
 Changelog baseline: the *previous GitHub release tag* (auto-detected via `gh`), NOT the
 last App-Store-published version. A GitHub reader's "last seen" is the last GitHub
@@ -121,24 +130,19 @@ def build_body(version, version19, selected):
     span = (f"{selected[-1][0]} → {selected[0][0]}"
             if len(selected) > 1 else selected[0][0]) if selected else version
 
-    table = "\n".join(f"| `{zip_name}` | {label} |" for _sdl, zip_name, label in PLUGINS)
-    table += f"\n| `{MCPB_NAME}` | AI assistant extension for Claude Desktop (optional, see below) |"
+    table = f"| `{MCPB_NAME}` | AI assistant extension for Claude Desktop (optional, see below) |"
     table += f"\n| `{MCPB_EXE_ZIP}` | AI assistant server for other local MCP clients, e.g. Claude Code (optional, see below) |"
     changelog = "\n\n".join(content for _v, content in selected) if selected else "_See CHANGELOG.md._"
 
-    return f"""Supervertaler for Trados **v{version}** (Studio 2024) / **v{version19}** (Studio 2026) — unsigned builds are attached below. Covers {span}.
+    return f"""Supervertaler for Trados **v{version}** (Studio 2024) / **v{version19}** (Studio 2026). Covers {span}.
 
-## 📦 Installing from here (unsigned build – read first)
+## 📦 How to install
 
-The plugins attached to this release are the **unsigned** builds. The version on the **RWS App Store is signed and notarised** – that's the recommended channel for most users. These downloads are for trying the latest fixes **before App Store approval** (which can take a few days, especially over a weekend).
+**Supervertaler for Trados is published through the [RWS App Store](https://appstore.rws.com/plugin/432).** Install it from there, or from inside Studio via **Add-Ins → RWS App Store**. Those builds are signed by RWS, so Studio loads them without an "unsigned plug-in" prompt at every start, and the plugin's own update check keeps you current.
 
-**To install:**
-1. Download the zip for your Trados version (table below).
-2. **Extract it** – inside is a single `.sdlplugin` file.
-3. Close Trados Studio, then double-click the `.sdlplugin` to run the Plugin Installer. **Do not rename the file** – Trados matches the filename against the plugin manifest.
-4. Trados will warn that the plugin is **not signed**. That is expected for the direct build and is **not an error** – click through to continue. Be aware that this dialog then reappears **every time Studio starts**, not just at install; the signed App Store build is the way to avoid it.
+The plugin binary is **not attached to GitHub releases** – this page is the changelog and the record of what changed in each build. App Store updates go through RWS review, so a brand-new fix can take a day or two to appear; if you are waiting on something specific, email support@supervertaler.com and I will send you the build directly.
 
-| Download | Trados version |
+| Also attached | What it is |
 |---|---|
 {table}
 
@@ -230,15 +234,17 @@ def main():
     print(f"  Release body written to: {body_file}")
 
     if not create:
-        print("\n(dry run — pass --create to zip the plugins and run `gh release create`)")
+        print("\n(dry run — pass --create to run `gh release create`)")
         return
 
-    print("\nBuilding zips…")
-    zips = make_zips()
-    if not zips:
-        print("ERROR: no zips produced — aborting release")
-        sys.exit(1)
+    # The plugin zips are still BUILT (build.sh --zip-only relies on it, and they
+    # are what gets shared by hand for a pre-review fix) but they are NOT
+    # attached: the App Store is the only publication channel. See the module
+    # docstring for why.
+    print("\nBuilding zips… (local only — not attached to the release)")
+    make_zips()
 
+    zips = []
     print("\nBuilding Claude Desktop extension (.mcpb)…")
     mcpb = build_mcpb(version)
     if mcpb:
