@@ -12306,6 +12306,19 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 {
                     DetectParagraphLevelFormatting(pair.Source, parentParagraphUnit,
                         out pBold, out pItalic, out pUnderline);
+
+                    // The context says what the paragraph STYLE asks for. A cf
+                    // formatting tag wrapping the paragraph can override it -
+                    // and does, in documents where body text was styled as a
+                    // heading and then un-bolded run by run. Word's precedence
+                    // puts the run above the style, so an explicit value here
+                    // wins. Silence leaves the context's answer standing.
+                    bool? rBold, rItalic, rUnderline;
+                    DetectEnclosingRunFormatting(pair.Source,
+                        out rBold, out rItalic, out rUnderline);
+                    if (rBold.HasValue)      pBold      = rBold.Value;
+                    if (rItalic.HasValue)    pItalic    = rItalic.Value;
+                    if (rUnderline.HasValue) pUnderline = rUnderline.Value;
                 }
 
                 // Tag the segment with its source-file identity. Single-
@@ -12823,6 +12836,154 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     if (lc.Contains("bold")) isBold = true;
                     else if (lc.Contains("italic")) isItalic = true;
                     else if (lc.Contains("underline")) isUnderline = true;
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Reads the character formatting that actually applies to a segment,
+        /// as a tri-state: true = explicitly on, false = explicitly off,
+        /// null = not specified at this level.
+        ///
+        /// This exists because paragraph context alone is not enough to know
+        /// whether text is bold. A paragraph can carry a bold paragraph STYLE
+        /// while its runs individually switch bold back off — Word's own
+        /// precedence, where the run wins over the style. Trados records the
+        /// override as a &lt;cf bold=False&gt; formatting tag pair wrapping the
+        /// paragraph's content, with the style's bold living in the context.
+        ///
+        /// Real example, from a client's patent application: body paragraphs
+        /// were styled "Subtitle" (a bold style) and then un-bolded run by
+        /// run. Word and the Trados editor both render them as plain text and
+        /// the author never noticed. Their contexts are byte-identical to a
+        /// genuine bold heading in the same document, so reading the context
+        /// alone reported two dozen ordinary paragraphs as bold headings.
+        ///
+        /// The wrapping cf tag sits OUTSIDE the segment boundary, which is why
+        /// the caller's "segment has no inline tags" guard does not catch it.
+        /// Walks outward from the segment; the innermost value found wins,
+        /// matching how character formatting actually cascades.
+        /// </summary>
+        private static void DetectEnclosingRunFormatting(
+            object sourceSegment,
+            out bool? isBold, out bool? isItalic, out bool? isUnderline)
+        {
+            isBold = null; isItalic = null; isUnderline = null;
+
+            try
+            {
+                object node = sourceSegment;
+                // Bounded so a malformed parent chain cannot spin forever.
+                for (int depth = 0; node != null && depth < 32; depth++)
+                {
+                    var fmt = TryGetFormattingGroup(node);
+                    if (fmt != null)
+                    {
+                        bool? b = null, i = null, u = null;
+                        ExtractFormattingTriState(fmt, ref b, ref i, ref u);
+
+                        // Innermost wins: only fill what is still unknown.
+                        if (isBold      == null) isBold      = b;
+                        if (isItalic    == null) isItalic    = i;
+                        if (isUnderline == null) isUnderline = u;
+                    }
+
+                    if (isBold != null && isItalic != null && isUnderline != null) break;
+
+                    var parentProp = node.GetType().GetProperty("Parent");
+                    if (parentProp == null) break;
+                    node = parentProp.GetValue(node, null);
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>Finds the IFormattingGroup published by a markup node,
+        /// whichever way this SDK version exposes it. A cf tag pair carries
+        /// it on its start-tag properties; other nodes expose it directly.</summary>
+        private static object TryGetFormattingGroup(object node)
+        {
+            if (node == null) return null;
+            var type = node.GetType();
+
+            foreach (var direct in new[] { "Formatting" })
+            {
+                try
+                {
+                    var p = type.GetProperty(direct);
+                    var v = p != null ? p.GetValue(node, null) : null;
+                    if (v != null) return v;
+                }
+                catch { }
+            }
+
+            foreach (var via in new[] { "StartTagProperties", "TagProperties", "Properties" })
+            {
+                try
+                {
+                    var p = type.GetProperty(via);
+                    var holder = p != null ? p.GetValue(node, null) : null;
+                    if (holder == null) continue;
+                    var fp = holder.GetType().GetProperty("Formatting");
+                    var v = fp != null ? fp.GetValue(holder, null) : null;
+                    if (v != null) return v;
+                }
+                catch { }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Like <see cref="ExtractBoldItalicUnderline"/>, but preserves the
+        /// difference between "explicitly off" and "not mentioned".
+        ///
+        /// That distinction is the whole point. The original only ever set
+        /// flags ON — an explicit Bold=False was skipped by the same guard
+        /// that skipped unrelated keys — so a run that deliberately switched
+        /// bold off was indistinguishable from a run that said nothing about
+        /// bold, and the style's bold survived either way.
+        /// </summary>
+        private static void ExtractFormattingTriState(
+            object fmt, ref bool? isBold, ref bool? isItalic, ref bool? isUnderline)
+        {
+            if (fmt == null) return;
+            try
+            {
+                var type = fmt.GetType();
+                var keysProp = type.GetProperty("Keys");
+                if (keysProp == null) return;
+                var keys = keysProp.GetValue(fmt, null) as System.Collections.IEnumerable;
+                if (keys == null) return;
+
+                var indexer = type.GetMethod("get_Item", new[] { typeof(string) });
+                if (indexer == null) return;
+
+                foreach (var keyObj in keys)
+                {
+                    var lc = (keyObj == null ? "" : keyObj.ToString()).ToLowerInvariant();
+                    if (string.IsNullOrEmpty(lc)) continue;
+
+                    object valObj = null;
+                    try { valObj = indexer.Invoke(fmt, new object[] { keyObj.ToString() }); }
+                    catch { continue; }
+
+                    var val = (valObj == null ? "" : valObj.ToString()).ToLowerInvariant();
+                    if (val.Length == 0) continue;
+
+                    bool? state;
+                    if (val.IndexOf("false", StringComparison.Ordinal) >= 0 || val == "none")
+                        state = false;
+                    else if (val.IndexOf("true", StringComparison.Ordinal) >= 0
+                          || val.IndexOf("single", StringComparison.Ordinal) >= 0)
+                        state = true;
+                    else
+                        continue;   // a font name, a size, a colour - not ours
+
+                    if (lc.Contains("bold")           && isBold      == null) isBold      = state;
+                    else if (lc.Contains("italic")    && isItalic    == null) isItalic    = state;
+                    else if (lc.Contains("underline") && isUnderline == null) isUnderline = state;
                 }
             }
             catch { }
