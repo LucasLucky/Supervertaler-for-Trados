@@ -63,15 +63,10 @@ namespace Supervertaler.Trados.Controls
 
         private void BrowseButton_Click(object sender, EventArgs e)
         {
-            using (var dlg = new FolderBrowserDialog())
-            {
-                dlg.Description = "Choose the Supervertaler user-data folder";
-                dlg.SelectedPath = _pathBox.Text;
-                dlg.ShowNewFolderButton = true;
-
-                if (dlg.ShowDialog(this) == DialogResult.OK)
-                    _pathBox.Text = dlg.SelectedPath;
-            }
+            var chosen = FolderPicker.Show(
+                this, "Choose the Supervertaler user-data folder", _pathBox.Text);
+            if (!string.IsNullOrEmpty(chosen))
+                _pathBox.Text = chosen;
         }
 
         private void OkButton_Click(object sender, EventArgs e)

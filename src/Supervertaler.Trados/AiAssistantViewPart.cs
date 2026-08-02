@@ -11381,15 +11381,11 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     // Ask the user for a target FOLDER (not a file). We
                     // synthesise per-file file names from the project +
                     // source filename + layout.
-                    string targetDir;
-                    using (var dlg = new FolderBrowserDialog())
-                    {
-                        dlg.Description =
-                            "Pick a folder. One bilingual " + opts.Format +
-                            " will be created per source file inside it.";
-                        if (dlg.ShowDialog(_control.Value) != DialogResult.OK) return;
-                        targetDir = dlg.SelectedPath;
-                    }
+                    string targetDir = Controls.FolderPicker.Show(
+                        _control.Value,
+                        "Pick a folder. One bilingual " + opts.Format +
+                        " will be created per source file inside it.");
+                    if (string.IsNullOrEmpty(targetDir)) return;
 
                     ctrl.SetBusy(true);
                     int filesWritten = 0;
