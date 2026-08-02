@@ -66,6 +66,21 @@ namespace Supervertaler.Trados.Core
             // API returns 4-part versions (e.g. "18.20.86.0"); NormaliseVersion
             // trims to 3-part so the compare against SkippedUpdateVersion and the
             // assembly InformationalVersion (both 3-part) agree.
+            // Builds from before 2026-07-02 use the OLD single sequence (4.x,
+            // covering both Studio generations). Nothing in the catalogue carries
+            // major 4 any more, so matching on the running build's own major left
+            // every 4.x install permanently "up to date" — never offered an
+            // update, and, now that the plugin is App-Store-only, with no other
+            // way to hear about one. For those builds, target the generation of
+            // the Studio that is actually running.
+            int targetMajor = currentMajor;
+            if (currentMajor < FirstStudioAlignedMajor)
+            {
+                targetMajor = DetectRunningStudioMajor() ?? FirstStudioAlignedMajor;
+                DiagnosticLog.Log("UpdateChecker",
+                    $"Legacy build {currentVersion}: offering {targetMajor}.x updates.");
+            }
+
             string bestTag = null;
             string bestDownloadUrl = null;
             foreach (var cv in entry.Versions)
@@ -73,7 +88,7 @@ namespace Supervertaler.Trados.Core
                 var tag = NormaliseVersion(cv.Version);
                 if (string.IsNullOrEmpty(tag)) continue;
                 ParseVersion(tag, out int major, out _, out _, out _);
-                if (major != currentMajor) continue;
+                if (major != targetMajor) continue;
                 if (bestTag == null || CompareVersions(tag, bestTag) > 0)
                 {
                     bestTag = tag;
@@ -118,6 +133,33 @@ namespace Supervertaler.Trados.Core
         /// Returns positive if a &gt; b, negative if a &lt; b, zero if equal.
         /// Pre-release (beta) sorts lower than release: 4.1.0-beta &lt; 4.1.0.
         /// </summary>
+        /// <summary>
+        /// First plugin major that encodes its target Studio generation
+        /// (18 = Studio 2024, 19 = Studio 2026). Anything below this is from the
+        /// old single 4.x sequence, which covered both generations.
+        /// </summary>
+        private const int FirstStudioAlignedMajor = 18;
+
+        /// <summary>
+        /// Major version of the Trados Studio actually running (18 or 19), read
+        /// from the host executable, or null if it can't be determined.
+        ///
+        /// Needed only for legacy 4.x plugin builds: their own version says
+        /// nothing about which Studio they target, because the old numbering was
+        /// a single sequence shared by both.
+        /// </summary>
+        private static int? DetectRunningStudioMajor()
+        {
+            try
+            {
+                var v = System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version;
+                if (v != null && v.Major >= FirstStudioAlignedMajor)
+                    return v.Major;
+            }
+            catch { /* fall through to the caller's default */ }
+            return null;
+        }
+
         internal static int CompareVersions(string a, string b)
         {
             ParseVersion(a, out int aMajor, out int aMinor, out int aPatch, out string aPre);
