@@ -12850,143 +12850,88 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         /// whether text is bold. A paragraph can carry a bold paragraph STYLE
         /// while its runs individually switch bold back off — Word's own
         /// precedence, where the run wins over the style. Trados records the
-        /// override as a &lt;cf bold=False&gt; formatting tag pair wrapping the
-        /// paragraph's content, with the style's bold living in the context.
+        /// override as a &lt;cf bold=False&gt; formatting tag pair, and —
+        /// this is the part that makes it non-obvious — when that tag
+        /// encloses several whole segments, EACH of those segments becomes a
+        /// literal CHILD of the ITagPair in the document tree, rather than
+        /// containing the tag itself. So the paragraph context (style-level)
+        /// and the ancestor tag pair (run-level override) can disagree, and
+        /// only the tree walk here sees the override.
         ///
         /// Real example, from a client's patent application: body paragraphs
         /// were styled "Subtitle" (a bold style) and then un-bolded run by
         /// run. Word and the Trados editor both render them as plain text and
         /// the author never noticed. Their contexts are byte-identical to a
-        /// genuine bold heading in the same document, so reading the context
-        /// alone reported two dozen ordinary paragraphs as bold headings.
+        /// genuine bold heading in the same document, so context alone
+        /// reported two dozen ordinary paragraphs as bold headings.
         ///
-        /// The wrapping cf tag sits OUTSIDE the segment boundary, which is why
-        /// the caller's "segment has no inline tags" guard does not catch it.
-        /// Walks outward from the segment; the innermost value found wins,
-        /// matching how character formatting actually cascades.
+        /// ISegment implements IAbstractMarkupData (confirmed by reflecting
+        /// on Sdl.FileTypeSupport.Framework.Core.dll — Type.GetProperty on an
+        /// INTERFACE only returns members declared directly on it, so a naive
+        /// property probe on ISegment's own declared members misses this;
+        /// the concrete runtime type does implement Parent correctly), which
+        /// is what makes the walk below valid: Parent returns the enclosing
+        /// container, and when that container is itself an ITagPair — also
+        /// IAbstractMarkupData — the walk continues outward. It stops
+        /// naturally at IParagraph, which is a container but not markup data.
+        ///
+        /// Innermost formatting wins, matching how character formatting
+        /// actually cascades.
         /// </summary>
         private static void DetectEnclosingRunFormatting(
-            object sourceSegment,
+            ISegment sourceSegment,
             out bool? isBold, out bool? isItalic, out bool? isUnderline)
         {
             isBold = null; isItalic = null; isUnderline = null;
+            if (sourceSegment == null) return;
 
             try
             {
-                object node = sourceSegment;
-                // Bounded so a malformed parent chain cannot spin forever.
-                for (int depth = 0; node != null && depth < 32; depth++)
+                IAbstractMarkupData node = sourceSegment;
+                // Bounded so a malformed tree cannot spin forever.
+                for (int depth = 0; node != null && depth < 64; depth++)
                 {
-                    var fmt = TryGetFormattingGroup(node);
-                    if (fmt != null)
+                    if (node is ITagPair tagPair)
                     {
-                        bool? b = null, i = null, u = null;
-                        ExtractFormattingTriState(fmt, ref b, ref i, ref u);
-
-                        // Innermost wins: only fill what is still unknown.
-                        if (isBold      == null) isBold      = b;
-                        if (isItalic    == null) isItalic    = i;
-                        if (isUnderline == null) isUnderline = u;
+                        var fmt = tagPair.StartTagProperties?.Formatting;
+                        if (fmt != null)
+                        {
+                            if (isBold      == null) isBold      = ReadBoolFormatting(fmt, "Bold");
+                            if (isItalic    == null) isItalic    = ReadBoolFormatting(fmt, "Italic");
+                            if (isUnderline == null) isUnderline = ReadBoolFormatting(fmt, "Underline");
+                        }
                     }
 
                     if (isBold != null && isItalic != null && isUnderline != null) break;
 
-                    var parentProp = node.GetType().GetProperty("Parent");
-                    if (parentProp == null) break;
-                    node = parentProp.GetValue(node, null);
+                    // IAbstractMarkupData.Parent returns IAbstractMarkupDataContainer.
+                    // Continuing the walk requires that container to ALSO be
+                    // markup data (true for ITagPair, false for IParagraph),
+                    // which is exactly the SDK's own stopping point for "this
+                    // is the top of the formatting tree".
+                    node = node.Parent as IAbstractMarkupData;
                 }
             }
             catch { }
-        }
-
-        /// <summary>Finds the IFormattingGroup published by a markup node,
-        /// whichever way this SDK version exposes it. A cf tag pair carries
-        /// it on its start-tag properties; other nodes expose it directly.</summary>
-        private static object TryGetFormattingGroup(object node)
-        {
-            if (node == null) return null;
-            var type = node.GetType();
-
-            foreach (var direct in new[] { "Formatting" })
-            {
-                try
-                {
-                    var p = type.GetProperty(direct);
-                    var v = p != null ? p.GetValue(node, null) : null;
-                    if (v != null) return v;
-                }
-                catch { }
-            }
-
-            foreach (var via in new[] { "StartTagProperties", "TagProperties", "Properties" })
-            {
-                try
-                {
-                    var p = type.GetProperty(via);
-                    var holder = p != null ? p.GetValue(node, null) : null;
-                    if (holder == null) continue;
-                    var fp = holder.GetType().GetProperty("Formatting");
-                    var v = fp != null ? fp.GetValue(holder, null) : null;
-                    if (v != null) return v;
-                }
-                catch { }
-            }
-
-            return null;
         }
 
         /// <summary>
-        /// Like <see cref="ExtractBoldItalicUnderline"/>, but preserves the
-        /// difference between "explicitly off" and "not mentioned".
-        ///
-        /// That distinction is the whole point. The original only ever set
-        /// flags ON — an explicit Bold=False was skipped by the same guard
-        /// that skipped unrelated keys — so a run that deliberately switched
-        /// bold off was indistinguishable from a run that said nothing about
-        /// bold, and the style's bold survived either way.
+        /// Reads a boolean formatting value (Bold / Italic / Underline) from
+        /// an IFormattingGroup, distinguishing "explicitly false" from "not
+        /// present" — the distinction the whole fix depends on. An older
+        /// version of this reader used loose reflection to look for a "Keys"
+        /// property on IFormattingGroup and always came back empty: the SDK
+        /// implements IFormattingGroup as IDictionary&lt;string,
+        /// IFormattingItem&gt; with an EXPLICIT interface implementation, so
+        /// Keys is invisible to Type.GetProperty("Keys") on the concrete
+        /// class even though it works fine when called through the
+        /// documented Contains(string) / this[string] surface used here.
         /// </summary>
-        private static void ExtractFormattingTriState(
-            object fmt, ref bool? isBold, ref bool? isItalic, ref bool? isUnderline)
+        private static bool? ReadBoolFormatting(
+            Sdl.FileTypeSupport.Framework.Formatting.IFormattingGroup fmt, string name)
         {
-            if (fmt == null) return;
-            try
-            {
-                var type = fmt.GetType();
-                var keysProp = type.GetProperty("Keys");
-                if (keysProp == null) return;
-                var keys = keysProp.GetValue(fmt, null) as System.Collections.IEnumerable;
-                if (keys == null) return;
-
-                var indexer = type.GetMethod("get_Item", new[] { typeof(string) });
-                if (indexer == null) return;
-
-                foreach (var keyObj in keys)
-                {
-                    var lc = (keyObj == null ? "" : keyObj.ToString()).ToLowerInvariant();
-                    if (string.IsNullOrEmpty(lc)) continue;
-
-                    object valObj = null;
-                    try { valObj = indexer.Invoke(fmt, new object[] { keyObj.ToString() }); }
-                    catch { continue; }
-
-                    var val = (valObj == null ? "" : valObj.ToString()).ToLowerInvariant();
-                    if (val.Length == 0) continue;
-
-                    bool? state;
-                    if (val.IndexOf("false", StringComparison.Ordinal) >= 0 || val == "none")
-                        state = false;
-                    else if (val.IndexOf("true", StringComparison.Ordinal) >= 0
-                          || val.IndexOf("single", StringComparison.Ordinal) >= 0)
-                        state = true;
-                    else
-                        continue;   // a font name, a size, a colour - not ours
-
-                    if (lc.Contains("bold")           && isBold      == null) isBold      = state;
-                    else if (lc.Contains("italic")    && isItalic    == null) isItalic    = state;
-                    else if (lc.Contains("underline") && isUnderline == null) isUnderline = state;
-                }
-            }
-            catch { }
+            if (fmt == null || !fmt.Contains(name)) return null;
+            return (fmt[name] as Sdl.FileTypeSupport.Framework.Formatting.AbstractBooleanFormatting)?.Value;
         }
 
         /// <summary>Snapshot of (puId/segId) keys that should not be silently
