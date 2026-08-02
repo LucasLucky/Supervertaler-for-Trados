@@ -201,6 +201,23 @@ namespace Supervertaler.Trados.Controls
         }
 
         /// <summary>
+        /// The selection band's rectangle in the PARENT's coordinates, so the
+        /// panel can fill the margins between adjacent highlighted controls and
+        /// make the run continuous. Must stay in step with the fill drawn in
+        /// <see cref="OnPaint"/>.
+        /// </summary>
+        internal Rectangle GetSelectionBandBounds(Graphics g)
+        {
+            // A locally scoped font rather than the SourceFont property, which
+            // allocates a Font on every read and never disposes it.
+            using (var f = new Font(Font.FontFamily, Font.Size, FontStyle.Regular))
+            {
+                int h = (int)Math.Ceiling(g.MeasureString(_sourceText, f).Height) + 2;
+                return new Rectangle(Left, Top + 2, Width, h);
+            }
+        }
+
+        /// <summary>
         /// Number of extra translations to show in the +N badge.
         /// Includes: other entries - 1, plus the abbreviation pair if it exists
         /// and isn't already the primary display.
@@ -386,17 +403,25 @@ namespace Supervertaler.Trados.Controls
             var sourceHeight = g.MeasureString(_sourceText, SourceFont).Height;
             var sourceWidth = g.MeasureString(_sourceText, SourceFont).Width;
 
-            // Editor-selection highlight: plain fill behind the source word,
-            // drawn before the text. Skipped when the popup's IsCurrent ring
-            // is active so the two indicators never stack.
+            // Editor-selection highlight: a plain fill spanning the FULL control
+            // width, with square corners. Skipped when the popup's IsCurrent
+            // ring is active so the two indicators never stack.
+            //
+            // Deliberately unlike the IsCurrent ring, which hugs the source
+            // word. A selection covers a stretch of text and should read as one
+            // unbroken band across it. Hugging the source word left white
+            // inside every chip whose translation is wider than its source
+            // ("omvattende" sitting under "comprising +1"), and rounded corners
+            // would leave notches where the panel's gap-fill meets each chip.
+            // TermLensControl paints the margins between controls to complete
+            // the band - see FlowPanelPaintSelectionBand.
             if (_selectionHighlighted && !_isCurrent)
             {
-                float hlSourceWidth = Math.Min(sourceWidth, Width - 8);
-                var hlRect = new RectangleF(2, y - 1, hlSourceWidth + 4, sourceHeight + 2);
+                var hlRect = new Rectangle(
+                    0, (int)(y - 1), Width, (int)Math.Ceiling(sourceHeight) + 2);
                 using (var hlBrush = new SolidBrush(SelectionHighlightFill))
-                using (var hlPath = RoundedRect(Rectangle.Round(hlRect), 3))
                 {
-                    g.FillPath(hlBrush, hlPath);
+                    g.FillRectangle(hlBrush, hlRect);
                 }
             }
 

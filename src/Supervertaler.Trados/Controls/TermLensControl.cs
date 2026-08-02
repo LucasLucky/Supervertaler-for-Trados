@@ -304,6 +304,10 @@ namespace Supervertaler.Trados.Controls
                 FlowDirection = FlowDirection.LeftToRight
             };
 
+            // Joins adjacent highlighted words into one band; the gaps between
+            // controls are the panel's to paint, not any word's.
+            _flowPanel.Paint += FlowPanelPaintSelectionBand;
+
             Controls.Add(_flowPanel);
             Controls.Add(_headerPanel);
 
@@ -850,6 +854,8 @@ namespace Supervertaler.Trados.Controls
                 tb.SelectionHighlighted = selNorm.Length > 0
                     && TargetSelectionCoversChip(selNorm, tb.GetTargetMatchCandidates());
             }
+
+            _flowPanel.Invalidate();
         }
 
         private static bool TargetSelectionCoversChip(string selNorm, List<string> candidates)
@@ -930,7 +936,7 @@ namespace Supervertaler.Trados.Controls
             return sb.ToString();
         }
 
-        private static void ApplySelectionHighlight(List<Control> controls, int first, int last)
+        private void ApplySelectionHighlight(List<Control> controls, int first, int last)
         {
             for (int i = 0; i < controls.Count; i++)
             {
@@ -940,6 +946,86 @@ namespace Supervertaler.Trados.Controls
                 var wl = controls[i] as WordLabel;
                 if (wl != null) wl.SelectionHighlighted = on;
             }
+
+            // The band BETWEEN words lives on the panel, not on any control.
+            _flowPanel.Invalidate();
+        }
+
+        /// <summary>
+        /// Fills the gaps between adjacent highlighted words so a selection
+        /// reads as one continuous band instead of a row of separate blocks.
+        ///
+        /// Each word is its own control in a FlowLayoutPanel, and a control can
+        /// only paint inside its own bounds - the space between them belongs to
+        /// the panel. The panel paints before its children, so filling the gaps
+        /// here sits behind the words and joins them up.
+        ///
+        /// Only gaps between CONSECUTIVE highlighted controls on the same row
+        /// are filled. Painting from the first highlighted control to the last
+        /// would bridge over any unhighlighted word in between, putting yellow
+        /// around a word that is not selected.
+        /// </summary>
+        private void FlowPanelPaintSelectionBand(object sender, PaintEventArgs e)
+        {
+            Rectangle previous = Rectangle.Empty;
+            bool havePrevious = false;
+
+            using (var brush = new SolidBrush(TermBlock.SelectionHighlightFill))
+            {
+                foreach (Control c in _flowPanel.Controls)
+                {
+                    Rectangle band;
+                    if (!TryGetSelectionBand(c, e.Graphics, out band))
+                    {
+                        havePrevious = false;   // run broken by an unselected word
+                        continue;
+                    }
+
+                    // Vertical overlap rather than equal Top: a TermBlock and a
+                    // bare word are different heights and sit at different
+                    // offsets, so identical Tops cannot be assumed.
+                    bool sameRow = havePrevious
+                        && band.Top < previous.Bottom
+                        && band.Bottom > previous.Top
+                        && band.Left >= previous.Right;
+
+                    if (sameRow && band.Left > previous.Right)
+                    {
+                        int top    = Math.Min(previous.Top, band.Top);
+                        int bottom = Math.Max(previous.Bottom, band.Bottom);
+                        e.Graphics.FillRectangle(
+                            brush,
+                            previous.Right, top,
+                            band.Left - previous.Right, bottom - top);
+                    }
+
+                    previous = band;
+                    havePrevious = true;
+                }
+            }
+        }
+
+        private static bool TryGetSelectionBand(Control c, Graphics g, out Rectangle band)
+        {
+            band = Rectangle.Empty;
+
+            var wl = c as WordLabel;
+            if (wl != null)
+            {
+                if (!wl.SelectionHighlighted) return false;
+                band = wl.Bounds;           // the label fills its whole bounds
+                return true;
+            }
+
+            var tb = c as TermBlock;
+            if (tb != null)
+            {
+                if (!tb.SelectionHighlighted) return false;
+                band = tb.GetSelectionBandBounds(g);
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
