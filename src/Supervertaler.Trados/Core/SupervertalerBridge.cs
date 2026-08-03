@@ -960,6 +960,14 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "id", Order = 0)] public string Id { get; set; }
         [DataMember(Name = "ok", Order = 1)] public bool Ok { get; set; }
         [DataMember(Name = "error", Order = 2, EmitDefaultValue = false)] public string Error { get; set; }
+
+        /// <summary>Set when the write succeeded but the target's inline tags do
+        /// not carry the same underlying tag ids as the source. Studio's own Tag
+        /// Verifier will report this later as "Duplicated tag with id 'N'" /
+        /// "Missing tag with id 'N'"; surfacing it here lets the caller see it at
+        /// write time instead of at verification time. Not an error — the text
+        /// was written — but the segment needs attention.</summary>
+        [DataMember(Name = "warning", Order = 3, EmitDefaultValue = false)] public string Warning { get; set; }
     }
 
     [DataContract]

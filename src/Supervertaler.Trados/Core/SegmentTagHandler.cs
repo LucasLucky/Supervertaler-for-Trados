@@ -321,8 +321,19 @@ namespace Supervertaler.Trados.Core
                 // Clear the target segment
                 targetSegment.Clear();
 
+                // Each tag number may be materialised at most once. Cloning the
+                // same TagInfo twice produces two Trados tags carrying the SAME
+                // underlying tag id, which Studio's Tag Verifier reports as
+                // "Duplicated tag with id 'N'" — and which no tag *count* check
+                // will ever catch, because the count is right. A second <tN> is
+                // an authoring error (LLM repeated a marker); degrade by dropping
+                // the wrapper and keeping its content inline, which is what the
+                // unknown-tag-number branch already does.
+                var usedTagNumbers = new HashSet<int>();
+
                 // Add parsed elements to the target
-                AddElementsToContainer(targetSegment, elements, tagMap, textTemplate, sourceHasTextNewlines);
+                AddElementsToContainer(targetSegment, elements, tagMap, textTemplate,
+                    sourceHasTextNewlines, usedTagNumbers);
 
                 return true;
             }
@@ -479,12 +490,16 @@ namespace Supervertaler.Trados.Core
         /// Adds a list of parsed elements to a Trados markup data container (ISegment or ITagPair).
         /// Creates IText by cloning the template, and clones source tags from the tag map.
         /// </summary>
+        /// <param name="usedTagNumbers">Tag numbers already materialised in this
+        /// reconstruction. Null disables the guard (kept for callers that have not
+        /// been updated); ReconstructTarget always supplies one.</param>
         private static void AddElementsToContainer(
             IAbstractMarkupDataContainer container,
             List<ParsedElement> elements,
             Dictionary<int, TagInfo> tagMap,
             IText textTemplate,
-            bool sourceHasTextNewlines = false)
+            bool sourceHasTextNewlines = false,
+            HashSet<int> usedTagNumbers = null)
         {
             foreach (var element in elements)
             {
@@ -495,7 +510,8 @@ namespace Supervertaler.Trados.Core
                         // If the LLM emitted a literal newline instead of a <tN/> placeholder,
                         // split it and re-insert the appropriate line-break tag from the source.
                         if (pt.Text.IndexOf('\n') >= 0 || pt.Text.IndexOf('\r') >= 0)
-                            InsertTextWithLineBreaks(container, pt.Text, tagMap, textTemplate, sourceHasTextNewlines);
+                            InsertTextWithLineBreaks(container, pt.Text, tagMap, textTemplate,
+                                sourceHasTextNewlines);
                         else
                         {
                             var textClone = (IText)textTemplate.Clone();
@@ -507,19 +523,24 @@ namespace Supervertaler.Trados.Core
                 else if (element is ParsedStandaloneTag st)
                 {
                     TagInfo tagInfo;
+                    // usedTagNumbers.Add returns false when this number was already
+                    // materialised – see the note in ReconstructTarget.
                     if (tagMap.TryGetValue(st.TagNumber, out tagInfo) &&
-                        tagInfo.OriginalMarkup != null)
+                        tagInfo.OriginalMarkup != null &&
+                        (usedTagNumbers == null || usedTagNumbers.Add(st.TagNumber)))
                     {
                         var clone = (IAbstractMarkupData)tagInfo.OriginalMarkup.Clone();
                         container.Add(clone);
                     }
-                    // If tag not found in map (LLM invented a tag), skip silently
+                    // If tag not found in map (LLM invented a tag), or already used,
+                    // skip silently – a standalone tag has no content to preserve.
                 }
                 else if (element is ParsedOpenTag ot)
                 {
                     TagInfo tagInfo;
                     if (tagMap.TryGetValue(ot.TagNumber, out tagInfo) &&
-                        tagInfo.OriginalMarkup != null)
+                        tagInfo.OriginalMarkup != null &&
+                        (usedTagNumbers == null || usedTagNumbers.Add(ot.TagNumber)))
                     {
                         // Clone the tag pair and clear its content – we'll rebuild inside
                         var clone = (IAbstractMarkupData)tagInfo.OriginalMarkup.Clone();
@@ -528,15 +549,19 @@ namespace Supervertaler.Trados.Core
                         {
                             tagContainer.Clear();
                             // Add child elements inside the cloned tag pair
-                            AddElementsToContainer(tagContainer, ot.Children, tagMap, textTemplate, sourceHasTextNewlines);
+                            AddElementsToContainer(tagContainer, ot.Children, tagMap, textTemplate,
+                                sourceHasTextNewlines, usedTagNumbers);
                         }
 
                         container.Add(clone);
                     }
                     else
                     {
-                        // Unknown tag number – add children as plain content (skip the tag wrapper)
-                        AddElementsToContainer(container, ot.Children, tagMap, textTemplate, sourceHasTextNewlines);
+                        // Unknown or already-used tag number – add children as plain
+                        // content (skip the tag wrapper). Losing one bold run beats
+                        // writing a duplicate tag id, which fails verification.
+                        AddElementsToContainer(container, ot.Children, tagMap, textTemplate,
+                            sourceHasTextNewlines, usedTagNumbers);
                     }
                 }
             }

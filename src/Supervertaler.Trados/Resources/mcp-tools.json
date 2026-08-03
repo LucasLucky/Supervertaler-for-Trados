@@ -901,7 +901,7 @@
     },
     {
       "name": "update_segments",
-      "description": "Write translations and/or set confirmation statuses for segments in the document open in Trados Studio, addressed by the ids returned by get_segments. Target text may reuse the inline tag markers from the source (<t1>…</t1>, <b>…</b>) – preserve them. A target write without an explicit status is set to Draft automatically so the user can review your work in Studio. Locked segments are refused. Maximum 40 updates per call – page larger jobs. To write a non-breaking space (or any other character you cannot type reliably), set decodeEntities=true and write it as &nbsp;. Sending the character itself - or the JSON escape \\u00a0 - is unreliable: it sometimes arrives intact and sometimes as an ordinary space, and the write reports success either way. Only use when the user asked you to change segments, and afterwards tell them exactly what you changed. Changes land in the open document; the user still needs to save it in Studio.",
+      "description": "Write translations and/or set confirmation statuses for segments in the document open in Trados Studio, addressed by the ids returned by get_segments. INLINE TAGS: copy the tag markers (<t1>…</t1>, <t2/>, <b>…</b>) from the segment's SOURCE field, not from its existing target – the source is what Trados verifies the target's tags against. Use each marker at most once, and do not invent a number the source does not have; a repeated or unknown marker loses that tag's formatting rather than writing a tag Studio will reject. If a written segment's tags still end up not matching the source, the result item for that segment carries a 'warning' field saying so – re-send it with the source's markers to repair it, which also clears a tag defect an earlier bad write or a fuzzy match left behind. A target write without an explicit status is set to Draft automatically so the user can review your work in Studio. Locked segments are refused. Maximum 40 updates per call – page larger jobs. To write a non-breaking space (or any other character you cannot type reliably), set decodeEntities=true and write it as &nbsp;. Sending the character itself - or the JSON escape \\u00a0 - is unreliable: it sometimes arrives intact and sometimes as an ordinary space, and the write reports success either way. Only use when the user asked you to change segments, and afterwards tell them exactly what you changed. Changes land in the open document; the user still needs to save it in Studio.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -916,7 +916,7 @@
                   "type": "string"
                 },
                 "target": {
-                  "description": "New target text. Omit to change only the status. Preserve inline tag markers from the source.",
+                  "description": "New target text. Omit to change only the status. Reproduce the inline tag markers exactly as they appear in this segment's SOURCE field – each one at most once, none invented. Reposition them freely for the target language; just do not copy them from the segment's existing target, which may carry tags from an unrelated fuzzy match.",
                   "type": [
                     "string",
                     "null"

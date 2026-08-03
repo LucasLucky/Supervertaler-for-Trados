@@ -9,6 +9,27 @@
 
 ## [18.20.157 / 19.20.157] – 2026-08-03
 
+### Fixed (Supervertaler MCP Server · update_segments could corrupt a segment's inline tags, permanently)
+
+- **Writing a segment through `update_segments` could give its inline tags the wrong underlying ids, and rewriting the segment could not repair it.** Studio's Tag Verifier reported one tag pair removed and another added, plus a duplicated tag id alongside a missing one; in the editor two bold runs showed the *same* id where they should have shown two consecutive ones. Found on a real job, on segments of the shape "Set the **I/O** switch (11) to the **O** position" – two separate bold runs with ordinary text between them.
+- **The cause was which side of the segment was treated as authoritative.** The write path resolved tag markers against a map combining source and target, in which the target won any numbering collision. That rule is correct where it came from – the bilingual re-import path, where the markers really do come from the target – but wrong here, because the markers come from the *source* field of `get_segments`, and, decisively, because Studio verifies the target's tag ids **against the source**. A tag cloned from the target could only pass verification by luck.
+- **It was self-perpetuating, which is why a rewrite never healed it.** Once a segment had two tags carrying the same id, the next write re-read that same corrupt target and let it win again. The corrupt state was its own input. Deleting a tag by hand in Studio was the only way out, because that pulls a fresh tag from the source. The write path is now source-authoritative, so **re-sending an affected segment repairs it** – including segments damaged by the old behaviour.
+- Segments with a single tag pair mostly escaped, because with one pair the target's tag was often the right one anyway. Two pairs made a mismatch nearly certain, which is why this surfaced on a manual full of two-bold-run sentences.
+
+### Fixed (Supervertaler MCP Server · a repeated tag marker produced two tags with one id)
+
+- **Sending the same `<tN>` marker twice cloned that tag twice**, producing two tags sharing one underlying id – a second, independent route to "Duplicated tag with id 'N'", and one that no tag *count* check could ever catch, because the count was right. A tag number can now be used only once per segment; a repeat drops the wrapper and keeps its text, which loses one formatting run instead of writing a tag Studio rejects.
+
+### Added (Supervertaler MCP Server · update_segments now audits its own writes)
+
+- **After each write, the tag ids actually in the target are compared against the source's, and any difference is reported in a new `warning` field on that segment's result.** Previously a corrupt write reported plain success and the damage surfaced only later in `run_verification` – which reads the last *saved* state, so it might not surface at all in that session. Silent success on a corrupt write is what let this ship in the first place.
+- The comparison counts **how many times** each id appears rather than merely which ids are present, because the failure mode is precisely one id appearing twice while another goes missing – which a presence-only check would call clean.
+- The audit never fails a write: the text is written either way, and the warning tells you the segment needs attention.
+
+### Changed (Supervertaler MCP Server · clearer instructions to the AI)
+
+- `update_segments` now tells the caller to copy tag markers from the segment's **source** field rather than its existing target, to use each marker at most once, and that a `warning` on a result means re-sending that segment with the source's markers will repair it.
+
 ### Added (Terminology · the AI fills in a term and its abbreviation for you)
 
 - **A new "Add term with abbreviation" (Ctrl+Alt+A) reads the segment you are on, finds the term that carries an abbreviation, and opens the term entry dialog with all four fields already filled in.** The case it exists for is text like *"Deze verklaring wordt opgesteld conform de Sustainable Finance Disclosure Regulation (SFDR, Verordening (EU) 2019/2088)"*, where the term and its abbreviation are both sitting there on screen and were previously selected, then typed into the two Abbreviation fields by hand, every single time. Now the dialog opens with the term pair and both abbreviations in place, and you check them and press Add.
