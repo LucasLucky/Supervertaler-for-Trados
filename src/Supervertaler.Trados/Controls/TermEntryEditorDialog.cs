@@ -458,6 +458,17 @@ namespace Supervertaler.Trados.Controls
                 Font = new Font("Segoe UI", 9f)
             };
             _contentPanel.Controls.Add(_txtTargetAbbr);
+
+            // The two sides genuinely behave differently, so they say different
+            // things: every source spelling is indexed and matched, whereas only
+            // the first target spelling is ever produced.
+            _toolTip.SetToolTip(_txtSourceAbbr,
+                "Separate alternative spellings with a pipe: PCPs|PCP's\n" +
+                "Every spelling is matched when it appears in the source.");
+            _toolTip.SetToolTip(_txtTargetAbbr,
+                "Separate alternative spellings with a pipe: PCPs|PCP's\n" +
+                "The first spelling is the one inserted into the target.");
+
             y += 30;
 
             // Auto-fill target abbreviation when non-translatable
@@ -758,6 +769,11 @@ namespace Supervertaler.Trados.Controls
             // during the constructor breaks the WinForms parent-child handle chain)
             SetPlaceholder(_txtNewSourceSyn, "Type synonym, press Enter or +");
             SetPlaceholder(_txtNewTargetSyn, "Type synonym, press Enter or +");
+
+            // One field can hold several spellings, pipe-separated. Nothing on
+            // screen said so, so the feature was effectively invisible.
+            SetPlaceholder(_txtSourceAbbr, "e.g. PCPs|PCP's");
+            SetPlaceholder(_txtTargetAbbr, "e.g. PCPs|PCP's");
         }
 
         // ─── Key handling ─────────────────────────────────────────────

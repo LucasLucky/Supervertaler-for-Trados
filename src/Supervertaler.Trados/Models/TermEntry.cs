@@ -81,25 +81,57 @@ namespace Supervertaler.Trados.Models
         public string TargetAbbreviation { get; set; }
 
         /// <summary>
-        /// Returns the individual source abbreviation variants (split on pipe).
+        /// Returns the individual source abbreviation variants (split on pipe),
+        /// trimmed, with blank entries dropped.
         /// </summary>
         public string[] GetSourceAbbreviationVariants()
-        {
-            if (string.IsNullOrWhiteSpace(SourceAbbreviation)) return System.Array.Empty<string>();
-            return SourceAbbreviation.Split('|');
-        }
+            => SplitVariants(SourceAbbreviation);
+
+        /// <summary>
+        /// Returns the individual target abbreviation variants (split on pipe),
+        /// trimmed, with blank entries dropped. Use this when deciding whether
+        /// some text IS one of the target abbreviations; use
+        /// <see cref="PrimaryTargetAbbreviation"/> when producing one, so a single
+        /// canonical form gets inserted rather than a choice of spellings.
+        /// </summary>
+        public string[] GetTargetAbbreviationVariants()
+            => SplitVariants(TargetAbbreviation);
+
+        /// <summary>
+        /// Returns the primary (first) source abbreviation for display. Null when
+        /// there is none.
+        /// </summary>
+        public string PrimarySourceAbbreviation => FirstVariant(SourceAbbreviation);
 
         /// <summary>
         /// Returns the primary (first) target abbreviation for display/insertion.
+        /// Null when there is none.
         /// </summary>
-        public string PrimaryTargetAbbreviation
+        public string PrimaryTargetAbbreviation => FirstVariant(TargetAbbreviation);
+
+        /// <summary>
+        /// Splits a pipe-separated abbreviation field. Variants are trimmed and
+        /// blanks dropped: a user who types "PCPs | PCP's" means two spellings,
+        /// and an untrimmed " PCP's" could never match a segment token, while an
+        /// empty variant from a stray "PCPs||PCP's" would match everything.
+        /// </summary>
+        private static string[] SplitVariants(string raw)
         {
-            get
+            if (string.IsNullOrWhiteSpace(raw)) return System.Array.Empty<string>();
+            var parts = raw.Split('|');
+            var kept = new System.Collections.Generic.List<string>(parts.Length);
+            foreach (var p in parts)
             {
-                if (string.IsNullOrWhiteSpace(TargetAbbreviation)) return null;
-                var idx = TargetAbbreviation.IndexOf('|');
-                return idx >= 0 ? TargetAbbreviation.Substring(0, idx).Trim() : TargetAbbreviation.Trim();
+                var t = p.Trim();
+                if (t.Length > 0) kept.Add(t);
             }
+            return kept.ToArray();
+        }
+
+        private static string FirstVariant(string raw)
+        {
+            var variants = SplitVariants(raw);
+            return variants.Length > 0 ? variants[0] : null;
         }
 
         /// <summary>
