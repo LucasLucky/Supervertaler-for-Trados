@@ -9,6 +9,26 @@
 
 ## [18.20.157 / 19.20.157] – 2026-08-03
 
+### Added (Supervertaler MCP Server · coverage tracking – "was it looked at?" becomes checkable)
+
+- **Two new tools, `get_coverage` and `mark_reviewed`, track which segments have actually been read this session.** The worst QA miss on record – 84 defects delivered behind two clean QA passes – was not caused by any broken check. It was caused by nothing tracking which segments had been *looked at*: the AI fixed the defect categories it had found, re-ran the checks, saw green, and stopped, without ever reading about forty of the fuzzy-match segments. Every check can pass on a document nobody read.
+- `mark_reviewed` records segments the AI compared source-against-target and deliberately left unchanged; segments it *writes* are recorded automatically. `get_coverage` then reports, per TM match band, how many segments are neither – with the riskiest band first, since a 95–99% fuzzy match reads fluent and plausible while differing from the source in exactly the words that matter. An honest delivery note can now say "23 segments in the fuzzy band were never reviewed" instead of implying completeness.
+- Session-scoped by design: the record lives in the plugin's memory, is never written into your document, clears when Studio restarts, and cannot see edits you make by hand – it tracks the assistant's work only, and says so in every response.
+
+### Changed (Supervertaler MCP Server · check_terminology is now worth running)
+
+- **The terminology check was drowning in its own noise – 635 findings on a real job, of which roughly one was real – so in practice nobody ran it.** Worse, the one real finding was invisible: the termbase held both `valve → klep` and `safety valve → veiligheidsventiel`, and the check reported the generic entry on every occurrence while never surfacing the specific one – fifteen segments of a regulated pressure-vessel component name. Four changes:
+- **Longest match wins.** When entries match overlapping words, only the longest is checked – `safety valve` now owns its words and bare `valve` no longer fires inside it.
+- **Junk entries no longer fire.** Termbase entries shorter than three characters (`m`, `to`, `No`, `16`) matched ordinary prose far more often than terminology – 198 segments of noise from `to` alone – and are now skipped, as are grams with no letters.
+- **Findings are ranked by signal, not by count.** Multi-word terms and project-termbase entries come first, because somebody curated those. A term affecting a very large share of segments now ranks *lower* – that pattern almost always means the project consistently uses a different translation than the termbase, which is a decision for you, not a defect for the AI.
+- **A new `termbases` filter** restricts the check to named termbases, so a small curated client termbase can be checked without an 8,000-term general-domain one burying it. Inflected target forms (shared word stems) now count as found instead of being reported missing.
+
+### Changed (Supervertaler MCP Server · checks that state their own limits)
+
+- **`check_tags` now compares the underlying tag ids, not just the counts.** Two tags sharing one id – the corruption a stale fuzzy match leaves behind – has the right count, fails Studio's Tag Verifier, and was invisible to every count-based check. The finding names the ids and says how to repair the segment.
+- **A clean `compare_document_to_tm` result now says what it does and does not prove.** It reported "all segments match the TM" in a tone that read as a clean bill of health – on a job where the TM itself was the source of the defects, so the agreement was the *symptom*. The note now states plainly that agreement with a contaminated memory is circular and must not be cited as evidence of quality.
+- **`update_segments` now documents line breaks.** A literal `\n` in the target is a safe, ordinary JSON escape and writes correctly; a `<tN/>` placeholder should be sent as the tag. An AI had assumed the nearby non-breaking-space warning covered newlines too, and flagged two perfectly fixable segments as an unfixable server limitation.
+
 ### Fixed (Supervertaler MCP Server · update_segments could corrupt a segment's inline tags, permanently)
 
 - **Writing a segment through `update_segments` could give its inline tags the wrong underlying ids, and rewriting the segment could not repair it.** Studio's Tag Verifier reported one tag pair removed and another added, plus a duplicated tag id alongside a missing one; in the editor two bold runs showed the *same* id where they should have shown two consecutive ones. Found on a real job, on segments of the shape "Set the **I/O** switch (11) to the **O** position" – two separate bold runs with ordinary text between them.
