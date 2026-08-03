@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Windows.Forms;
@@ -15,15 +15,19 @@ using Supervertaler.Trados.Settings;
 namespace Supervertaler.Trados
 {
     /// <summary>
-    /// Editor context menu action: "Smart-add term (AI)".
+    /// Editor context menu action: "Add term with abbreviation (AI)".
     ///
-    /// The AI counterpart of <see cref="AddTermAction"/>. Instead of pre-filling
-    /// the term entry dialog with whatever the translator selected, it sends the
-    /// whole source and target segment to the model and asks it to identify the
-    /// term pair AND any abbreviation spelled out alongside it – the case this
-    /// exists for being text like "Sustainable Finance Disclosure Regulation
-    /// (SFDR, Verordening (EU) 2019/2088)", where the term and its abbreviation
-    /// are both on screen and were previously typed into the dialog by hand.
+    /// For the specific case where a concept is spelled out in the segment
+    /// alongside its abbreviation – "Sustainable Finance Disclosure Regulation
+    /// (SFDR, Verordening (EU) 2019/2088)" – and both the term and the
+    /// abbreviation would otherwise be typed into the dialog by hand.
+    ///
+    /// It does NOT extract ordinary term pairs, deliberately. See
+    /// <see cref="AbbreviationTermExtractor"/> for why: the abbreviation is the
+    /// anchor that says which span matters, and without one the model is merely
+    /// guessing which concept the translator cared about – while
+    /// <see cref="AddTermAction"/> (Ctrl+Alt+T) and QuickAddTermAction (Alt+Down)
+    /// already use the translator's own selection exactly.
     ///
     /// The dialog still opens and the translator still saves it. Nothing is
     /// written without confirmation: an extraction can pick the wrong span or
@@ -32,17 +36,17 @@ namespace Supervertaler.Trados
     ///
     /// Falls back to plain <see cref="AddTermAction"/> behaviour – the raw
     /// selection, no abbreviations – whenever the AI is unconfigured, fails,
-    /// or returns something that does not survive validation. The action never
-    /// leaves the translator with nothing.
+    /// finds no abbreviated term, or returns something that does not survive
+    /// validation. The action never leaves the translator with nothing.
     /// </summary>
-    [Action("TermLens_SmartAddTerm", typeof(EditorController),
-        Name = "Smart-add term (AI)",
-        Description = "Let the AI extract the term pair and its abbreviation from this segment, then confirm in the dialog")]
+    [Action("TermLens_AddTermWithAbbreviation", typeof(EditorController),
+        Name = "Add term with abbreviation (AI)",
+        Description = "Find the term in this segment that carries an abbreviation, and pre-fill the term entry dialog with both")]
     [ActionLayout(
         typeof(TranslationStudioDefaultContextMenus.EditorDocumentContextMenuLocation), 7,
         DisplayType.Default, "", true)]
     [Shortcut(Keys.Alt | Keys.Shift | Keys.Down)]
-    public class SmartAddTermAction : AbstractAction
+    public class AddTermWithAbbreviationAction : AbstractAction
     {
         protected override void Execute()
         {
@@ -71,7 +75,7 @@ namespace Supervertaler.Trados
                         "No write termbase is configured.\n\n" +
                         "Open TermLens settings (gear icon) and check the “Write” column " +
                         "for the termbases where new terms should be added.",
-                        "TermLens — Smart-Add Term",
+                        "TermLens — Add Term with Abbreviation",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
@@ -80,7 +84,7 @@ namespace Supervertaler.Trados
                 {
                     MessageBox.Show(
                         "Database file not found. Please check the TermLens settings.",
-                        "TermLens — Smart-Add Term",
+                        "TermLens — Add Term with Abbreviation",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
@@ -98,14 +102,16 @@ namespace Supervertaler.Trados
                     MessageBox.Show(
                         "Both source and target text are required.\n\n" +
                         "Make sure the active segment has text on both sides.",
-                        "TermLens — Smart-Add Term",
+                        "TermLens — Add Term with Abbreviation",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
 
-                // Any selection is passed to the model as a hint only – it steers
-                // which term is picked, it does not bound it, so selecting half a
-                // term still yields the whole term.
+                // A selection is the translator's statement of WHICH concept they
+                // mean, so it binds: the extracted term must overlap it, enforced
+                // in Parse rather than merely requested in the prompt. Selecting
+                // half a term still yields the whole term - the model completes
+                // the boundaries, it just may not switch to a different term.
                 string srcSelection = null, tgtSelection = null;
                 try
                 {
@@ -140,7 +146,7 @@ namespace Supervertaler.Trados
                     MessageBox.Show(
                         "The configured write termbases were not found in the database.\n" +
                         "Please check the TermLens settings.",
-                        "TermLens — Smart-Add Term",
+                        "TermLens — Add Term with Abbreviation",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
@@ -201,7 +207,7 @@ namespace Supervertaler.Trados
         /// or unverifiable reply – so the caller falls back to the plain selection.
         /// A failure here must never block adding a term by hand.
         /// </summary>
-        private static SmartTermExtractor.Result TryExtract(
+        private static AbbreviationTermExtractor.Result TryExtract(
             TermLensSettings settings,
             string fullSource, string fullTarget,
             string sourceLang, string targetLang,
@@ -237,7 +243,7 @@ namespace Supervertaler.Trados
 
                 if (string.IsNullOrEmpty(apiKey)) return null;
 
-                var userPrompt = SmartTermExtractor.BuildUserPrompt(
+                var userPrompt = AbbreviationTermExtractor.BuildUserPrompt(
                     fullSource, fullTarget, sourceLang, targetLang, srcSelection, tgtSelection);
 
                 string reply;
@@ -245,7 +251,7 @@ namespace Supervertaler.Trados
                 using (var busy = new AutoPromptBusyForm(
                     () => client.SendPromptAsync(
                         userPrompt,
-                        SmartTermExtractor.SystemPrompt,
+                        AbbreviationTermExtractor.SystemPrompt,
                         maxTokens: 400,
                         suppressLog: true)))
                 {
@@ -253,17 +259,20 @@ namespace Supervertaler.Trados
                     reply = busy.Result;
                 }
 
-                var result = SmartTermExtractor.Parse(reply, fullSource, fullTarget);
+                // The selections go to Parse as well as to the prompt: the model
+                // is asked to respect them, and then checked on it.
+                var result = AbbreviationTermExtractor.Parse(
+                    reply, fullSource, fullTarget, srcSelection, tgtSelection);
                 if (!result.Found && !string.IsNullOrEmpty(result.Note))
-                    DiagnosticLog.Log("SmartAddTerm", "Extraction not used: " + result.Note);
+                    DiagnosticLog.Log("AddTermWithAbbreviation", "Extraction not used: " + result.Note);
                 else if (!string.IsNullOrEmpty(result.Note))
-                    DiagnosticLog.Log("SmartAddTerm", result.Note);
+                    DiagnosticLog.Log("AddTermWithAbbreviation", result.Note);
 
                 return result;
             }
             catch (Exception ex)
             {
-                DiagnosticLog.Log("SmartAddTerm", "Extraction failed: " + ex.Message);
+                DiagnosticLog.Log("AddTermWithAbbreviation", "Extraction failed: " + ex.Message);
                 return null;
             }
         }
