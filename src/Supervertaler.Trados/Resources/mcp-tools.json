@@ -242,6 +242,51 @@
       "fixedBody": {}
     },
     {
+      "name": "get_coverage",
+      "description": "Report which segments of the open document have been neither WRITTEN (via update_segments / find_and_replace) nor explicitly MARKED REVIEWED (via mark_reviewed) in this session, grouped per TM match band (95-99, 85-94, 100, 70-84, 1-69, no-match - riskiest first: a 95-99% fuzzy match reads fluent and plausible while differing from the source in exactly the load-bearing words). Call this BEFORE reporting a document as reviewed or finished: a QA suite coming back clean says nothing about segments nobody looked at, and the worst misses on record happened when an agent fixed the defect categories it had found, saw green checks, and stopped without reading the rest of the fuzzy band. If uncoveredTotal is not zero, the honest delivery note says so. Session-scoped and held in the plugin's memory: cleared when Studio restarts, and blind to edits the user made by hand in Studio - it tracks this assistant's work only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "method": "GET",
+      "path": "/v1/coverage",
+      "paramMap": {},
+      "fixedQuery": {},
+      "fixedBody": {}
+    },
+    {
+      "name": "mark_reviewed",
+      "description": "Mark segments as deliberately reviewed-and-left-unchanged for this session, so get_coverage can distinguish 'read and judged fine' from 'never looked at'. Use it while working through pre-filled segments (fuzzy matches, MT) that you compared source-against-target and decided not to touch - segments you WRITE are tracked automatically and do not need marking. Only mark what you actually read: marking segments you merely scrolled past recreates exactly the false assurance coverage tracking exists to end. Ids are validated against the open document; unknown ids are reported back and not marked. Session-scoped, never written to the file.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "description": "Segment ids (\"<paragraphUnitId>:<segmentId>\" from get_segments) you have read source-against-target and deliberately left unchanged.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "description": "Optional short note on what this review pass covered (e.g. \"fuzzy band 85-99, checked referents and polarity\").",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "ids"
+        ]
+      },
+      "method": "POST",
+      "path": "/v1/mark-reviewed",
+      "paramMap": {},
+      "fixedQuery": {},
+      "fixedBody": {}
+    },
+    {
       "name": "check_nbsp",
       "description": "QA check: find translated segments that have fewer non-breaking spaces (U+00A0) than their source. Non-breaking spaces are invisible in Studio and in every tool response, so a lost one is normally only caught by the client rejecting the file – this is the only way to see them. Relevant whenever a style guide requires a non-breaking space between a value and its unit (230 V, 3,5 mm, 50 %) or before a figure reference. Fewer in the target is not always wrong, so review each hit against the source. IMPORTANT when writing one back with update_segments or find_and_replace: set decodeEntities=true and write the character as &nbsp;. Sending the character itself, or the JSON escape \\u00a0, is unreliable - it sometimes arrives intact and sometimes as an ordinary space, with success reported either way, so a 'fix' may silently change nothing. Re-run this check afterwards to confirm.",
       "inputSchema": {

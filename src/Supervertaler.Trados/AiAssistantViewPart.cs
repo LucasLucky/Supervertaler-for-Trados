@@ -1019,7 +1019,9 @@ namespace Supervertaler.Trados
                     saveDocument: BridgeSaveDocument,
                     getSuperMemoryContext: BridgeGetSuperMemoryContext,
                     searchSuperMemory: BridgeSearchSuperMemory,
-                    listSuperMemoryBanks: BridgeListSuperMemoryBanks);
+                    listSuperMemoryBanks: BridgeListSuperMemoryBanks,
+                    markReviewed: BridgeMarkReviewed,
+                    getCoverage: BridgeGetCoverage);
                 _supervertalerBridge.Start();
             }
             catch (Exception ex)
@@ -1685,6 +1687,7 @@ namespace Supervertaler.Trados
                     }
 
                     item.Ok = true;
+                    BridgeRecordWrite(u.Id); // coverage: this segment was written this session
                     if (!string.IsNullOrEmpty(tagWarning))
                     {
                         item.Warning = tagWarning;
@@ -1943,6 +1946,10 @@ namespace Supervertaler.Trados
             public string Status;
             public int SourceTagCount;
             public int TargetTagCount;
+            // TM match percentage and locked flag, captured for get_coverage's
+            // match-band bookkeeping (null = no TM/MT origin).
+            public int? MatchPercent;
+            public bool IsLocked;
             // Underlying Trados tag ids, in document order, duplicates included.
             // Captured at snapshot time (UI thread) so the tags check can compare
             // IDS off-thread, not just counts – a target whose two tags carry the
@@ -2019,6 +2026,8 @@ namespace Supervertaler.Trados
                         TargetTagCount = targetSer?.TagMap?.Count ?? 0,
                         SourceTagIds = CollectTagIds(pair.Source),
                         TargetTagIds = pair.Target != null ? CollectTagIds(pair.Target) : null,
+                        MatchPercent = BridgeReadMatchPercent(pair),
+                        IsLocked = pair.Properties?.IsLocked == true,
                         FileName = fileName
                     });
                 }
@@ -2335,6 +2344,159 @@ namespace Supervertaler.Trados
         private static string TruncateForBridge(string s, int max)
         {
             return string.IsNullOrEmpty(s) || s.Length <= max ? s : s.Substring(0, max) + "\u2026";
+        }
+
+        /// <summary>TM match percentage of a segment pair, or null when it has
+        /// no TM/MT origin. Same reading as the get_segments matchMin/matchMax
+        /// filter uses. Must be called on the UI thread (SDK access).</summary>
+        private static int? BridgeReadMatchPercent(ISegmentPair pair)
+        {
+            try
+            {
+                var origin = pair.Properties?.TranslationOrigin;
+                if (origin == null) return null;
+                var originType = string.IsNullOrEmpty(origin.OriginType) ? null : origin.OriginType;
+                if (originType == null || originType == "not-translated") return null;
+                return origin.MatchPercent;
+            }
+            catch { return null; }
+        }
+
+        // ── Coverage tracking (session-scoped) ─────────────────────────────
+        //
+        // The root cause of the worst QA miss on record (84 defects behind two
+        // "clean" QA passes, PO414646) was not any single broken check - it was
+        // that nothing tracked which segments had actually been LOOKED AT, so
+        // an agent could fix three defect categories, re-run the suite, see
+        // green, and stop without ever reading ~40 of the 220 fuzzy segments.
+        // These sets make "have I been through the fuzzy band?" a queryable
+        // fact instead of a memory. Held in the plugin, never written to the
+        // document: no file pollution, cleared when Studio restarts, and the
+        // response notes say so.
+        private readonly object _bridgeCoverageLock = new object();
+        private readonly HashSet<string> _bridgeWrittenIds = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _bridgeReviewedIds = new HashSet<string>(StringComparer.Ordinal);
+
+        private void BridgeRecordWrite(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return;
+            lock (_bridgeCoverageLock) _bridgeWrittenIds.Add(id);
+        }
+
+        /// <summary>Bridge delegate for POST /v1/mark-reviewed (MCP mark_reviewed).</summary>
+        private BridgeMarkReviewedResponse BridgeMarkReviewed(BridgeMarkReviewedRequest req)
+        {
+            var raw = BridgeCollectRawSegments();
+            if (raw == null)
+                return new BridgeMarkReviewedResponse { Ok = false, Note = "No document is open in the Trados editor." };
+
+            // Validate against the real document so a typo'd id cannot create
+            // phantom coverage - a review claim that silently marks nothing is
+            // exactly the false assurance this feature exists to end.
+            var known = new HashSet<string>(raw.Select(s => s.Id), StringComparer.Ordinal);
+            var unknown = new List<string>();
+            int marked = 0, reviewedTotal;
+            lock (_bridgeCoverageLock)
+            {
+                foreach (var id in req.Ids)
+                {
+                    if (string.IsNullOrWhiteSpace(id)) continue;
+                    var trimmed = id.Trim();
+                    if (!known.Contains(trimmed)) { unknown.Add(trimmed); continue; }
+                    if (_bridgeReviewedIds.Add(trimmed)) marked++;
+                    else marked++; // idempotent re-mark still counts as handled
+                }
+                reviewedTotal = _bridgeReviewedIds.Count;
+            }
+
+            return new BridgeMarkReviewedResponse
+            {
+                Ok = unknown.Count == 0,
+                Marked = marked,
+                UnknownIds = unknown.Count > 0 ? unknown : null,
+                ReviewedThisSession = reviewedTotal,
+                Note = unknown.Count > 0
+                    ? unknown.Count + " id(s) do not exist in the open document and were NOT marked - check them against get_segments."
+                    : "Marked as reviewed for this session. Only mark segments you have actually read source-against-target; " +
+                      "marking what you merely scrolled past recreates the false assurance this tracking exists to end."
+            };
+        }
+
+        /// <summary>Bridge delegate for GET /v1/coverage (MCP get_coverage).</summary>
+        private BridgeCoverageResponse BridgeGetCoverage()
+        {
+            var raw = BridgeCollectRawSegments();
+            if (raw == null)
+                return new BridgeCoverageResponse { Available = false, Note = "No document is open in the Trados editor." };
+
+            HashSet<string> written, reviewed;
+            lock (_bridgeCoverageLock)
+            {
+                written = new HashSet<string>(_bridgeWrittenIds, StringComparer.Ordinal);
+                reviewed = new HashSet<string>(_bridgeReviewedIds, StringComparer.Ordinal);
+            }
+
+            // Risk-first band order: the 85-99 band is where a stale fuzzy
+            // match reads fluent and plausible, so it leads.
+            var bandOrder = new[] { "95-99", "85-94", "100", "70-84", "1-69", "no-match" };
+            string BandOf(int? m)
+            {
+                int v = m ?? 0;
+                if (v >= 100) return "100";
+                if (v >= 95) return "95-99";
+                if (v >= 85) return "85-94";
+                if (v >= 70) return "70-84";
+                if (v >= 1) return "1-69";
+                return "no-match";
+            }
+
+            var bands = bandOrder.ToDictionary(b => b, b => new BridgeCoverageBand
+            {
+                Band = b,
+                UncoveredIds = new List<string>()
+            });
+
+            const int maxIdsPerBand = 40;
+            int locked = 0, uncoveredTotal = 0;
+            foreach (var s in raw)
+            {
+                if (s.IsLocked) { locked++; continue; }
+                var band = bands[BandOf(s.MatchPercent)];
+                band.Total++;
+                if (written.Contains(s.Id)) band.Written++;
+                else if (reviewed.Contains(s.Id)) band.Reviewed++;
+                else
+                {
+                    band.Uncovered++;
+                    uncoveredTotal++;
+                    if (band.UncoveredIds.Count < maxIdsPerBand) band.UncoveredIds.Add(s.Id);
+                    else band.UncoveredIdsTruncated = true;
+                }
+            }
+            foreach (var b in bands.Values)
+                if (b.UncoveredIds.Count == 0) b.UncoveredIds = null;
+
+            var response = new BridgeCoverageResponse
+            {
+                Available = true,
+                TotalSegments = raw.Count,
+                LockedExcluded = locked,
+                WrittenThisSession = written.Count,
+                ReviewedThisSession = reviewed.Count,
+                UncoveredTotal = uncoveredTotal,
+                Bands = bandOrder.Select(b => bands[b]).ToList()
+            };
+
+            response.Note = (uncoveredTotal > 0
+                    ? uncoveredTotal + " non-locked segment(s) have been neither written nor explicitly marked " +
+                      "reviewed in this session - no delivery note may claim they were looked at. The fuzzy bands " +
+                      "(85-99 especially) are where stale matches read fluent and plausible; read those " +
+                      "source-against-target and mark_reviewed what you deliberately leave unchanged. "
+                    : "Every non-locked segment has been written or explicitly marked reviewed this session. ")
+                + "Session-scoped: this tracking lives in the plugin's memory, clears when Studio restarts, and " +
+                  "cannot see edits or reviews the user made by hand in Studio - it tracks THIS assistant's work only.";
+
+            return response;
         }
 
         /// <summary>
@@ -4618,6 +4780,7 @@ namespace Supervertaler.Trados
                                         t.Properties.Text = newVal;
                                 }
                             });
+                        BridgeRecordWrite(id); // coverage: this segment was written this session
 
                         pendingStatus.Add(
                             new KeyValuePair<ISegmentPair, Sdl.Core.Globalization.ConfirmationLevel>(

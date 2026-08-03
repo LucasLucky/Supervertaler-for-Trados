@@ -486,6 +486,50 @@ namespace Supervertaler.Trados.Core
         public List<string> Termbases;
     }
 
+    /// <summary>Body of POST /v1/mark-reviewed (MCP mark_reviewed).</summary>
+    [DataContract]
+    public class BridgeMarkReviewedRequest
+    {
+        [DataMember(Name = "ids")] public List<string> Ids { get; set; }
+        [DataMember(Name = "note")] public string Note { get; set; }
+    }
+
+    [DataContract]
+    public class BridgeMarkReviewedResponse
+    {
+        [DataMember(Name = "ok", Order = 0)] public bool Ok { get; set; }
+        [DataMember(Name = "marked", Order = 1)] public int Marked { get; set; }
+        [DataMember(Name = "unknownIds", Order = 2, EmitDefaultValue = false)] public List<string> UnknownIds { get; set; }
+        [DataMember(Name = "reviewedThisSession", Order = 3)] public int ReviewedThisSession { get; set; }
+        [DataMember(Name = "note", Order = 4, EmitDefaultValue = false)] public string Note { get; set; }
+    }
+
+    /// <summary>One match band of GET /v1/coverage (MCP get_coverage).</summary>
+    [DataContract]
+    public class BridgeCoverageBand
+    {
+        [DataMember(Name = "band", Order = 0)] public string Band { get; set; }
+        [DataMember(Name = "total", Order = 1)] public int Total { get; set; }
+        [DataMember(Name = "written", Order = 2)] public int Written { get; set; }
+        [DataMember(Name = "reviewed", Order = 3)] public int Reviewed { get; set; }
+        [DataMember(Name = "uncovered", Order = 4)] public int Uncovered { get; set; }
+        [DataMember(Name = "uncoveredIds", Order = 5, EmitDefaultValue = false)] public List<string> UncoveredIds { get; set; }
+        [DataMember(Name = "uncoveredIdsTruncated", Order = 6, EmitDefaultValue = false)] public bool UncoveredIdsTruncated { get; set; }
+    }
+
+    [DataContract]
+    public class BridgeCoverageResponse
+    {
+        [DataMember(Name = "available", Order = 0)] public bool Available { get; set; }
+        [DataMember(Name = "totalSegments", Order = 1)] public int TotalSegments { get; set; }
+        [DataMember(Name = "lockedExcluded", Order = 2)] public int LockedExcluded { get; set; }
+        [DataMember(Name = "writtenThisSession", Order = 3)] public int WrittenThisSession { get; set; }
+        [DataMember(Name = "reviewedThisSession", Order = 4)] public int ReviewedThisSession { get; set; }
+        [DataMember(Name = "uncoveredTotal", Order = 5)] public int UncoveredTotal { get; set; }
+        [DataMember(Name = "bands", Order = 6)] public List<BridgeCoverageBand> Bands { get; set; }
+        [DataMember(Name = "note", Order = 7, EmitDefaultValue = false)] public string Note { get; set; }
+    }
+
     [DataContract]
     public class BridgeQaIssue
     {
@@ -1107,6 +1151,8 @@ namespace Supervertaler.Trados.Core
         private readonly Func<BridgeSuperMemoryQuery, BridgeSuperMemoryContextResponse> _getSuperMemoryContext;
         private readonly Func<BridgeSuperMemorySearchQuery, BridgeSuperMemorySearchResponse> _searchSuperMemory;
         private readonly Func<BridgeSuperMemoryBanksResponse> _listSuperMemoryBanks;
+        private readonly Func<BridgeMarkReviewedRequest, BridgeMarkReviewedResponse> _markReviewed;
+        private readonly Func<BridgeCoverageResponse> _getCoverage;
 
         /// <summary>Max segment updates per /v1/update-segments call – keeps a
         /// single request from freezing the editor thread for minutes on huge
@@ -1190,7 +1236,9 @@ namespace Supervertaler.Trados.Core
             Func<BridgeResultResponse> saveDocument = null,
             Func<BridgeSuperMemoryQuery, BridgeSuperMemoryContextResponse> getSuperMemoryContext = null,
             Func<BridgeSuperMemorySearchQuery, BridgeSuperMemorySearchResponse> searchSuperMemory = null,
-            Func<BridgeSuperMemoryBanksResponse> listSuperMemoryBanks = null)
+            Func<BridgeSuperMemoryBanksResponse> listSuperMemoryBanks = null,
+            Func<BridgeMarkReviewedRequest, BridgeMarkReviewedResponse> markReviewed = null,
+            Func<BridgeCoverageResponse> getCoverage = null)
         {
             _getContext = getContext ?? throw new ArgumentNullException(nameof(getContext));
             _insertText = insertText ?? throw new ArgumentNullException(nameof(insertText));
@@ -1221,6 +1269,8 @@ namespace Supervertaler.Trados.Core
             _getSuperMemoryContext = getSuperMemoryContext;
             _searchSuperMemory = searchSuperMemory;
             _listSuperMemoryBanks = listSuperMemoryBanks;
+            _markReviewed = markReviewed;
+            _getCoverage = getCoverage;
         }
 
         public bool IsRunning => _listener != null && _listener.IsListening;
@@ -1496,6 +1546,18 @@ namespace Supervertaler.Trados.Core
             if (method == "GET" && path == "/v1/qa-check")
             {
                 HandleQaCheck(context);
+                return;
+            }
+
+            if (method == "GET" && path == "/v1/coverage")
+            {
+                HandleCoverage(context);
+                return;
+            }
+
+            if (method == "POST" && path == "/v1/mark-reviewed")
+            {
+                HandleMarkReviewed(context);
                 return;
             }
 
@@ -2312,6 +2374,76 @@ namespace Supervertaler.Trados.Core
             return false;
         }
 
+        private void HandleCoverage(HttpListenerContext context)
+        {
+            if (_getCoverage == null)
+            {
+                TryWriteError(context, 501, "coverage endpoint not wired");
+                return;
+            }
+
+            BridgeCoverageResponse response;
+            try
+            {
+                response = _getCoverage() ?? new BridgeCoverageResponse { Available = false };
+            }
+            catch (Exception ex)
+            {
+                BridgeLog.Write($"[SupervertalerBridge] coverage threw: {ex.Message}");
+                response = new BridgeCoverageResponse { Available = false, Note = "coverage failed: " + ex.Message };
+            }
+            WriteJson(context, 200, response);
+        }
+
+        private void HandleMarkReviewed(HttpListenerContext context)
+        {
+            if (_markReviewed == null)
+            {
+                TryWriteError(context, 501, "mark-reviewed endpoint not wired");
+                return;
+            }
+
+            BridgeMarkReviewedRequest req;
+            try
+            {
+                using (var reader = new StreamReader(context.Request.InputStream, Encoding.UTF8))
+                {
+                    req = DeserializeJson<BridgeMarkReviewedRequest>(reader.ReadToEnd());
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteJson(context, 400, new BridgeMarkReviewedResponse
+                {
+                    Ok = false,
+                    Note = "malformed body: " + ex.Message
+                });
+                return;
+            }
+
+            if (req?.Ids == null || req.Ids.Count == 0)
+            {
+                WriteJson(context, 400, new BridgeMarkReviewedResponse
+                {
+                    Ok = false,
+                    Note = "missing 'ids' array"
+                });
+                return;
+            }
+
+            BridgeMarkReviewedResponse response;
+            try
+            {
+                response = _markReviewed(req) ?? new BridgeMarkReviewedResponse { Ok = false };
+            }
+            catch (Exception ex)
+            {
+                BridgeLog.Write($"[SupervertalerBridge] mark-reviewed threw: {ex.Message}");
+                response = new BridgeMarkReviewedResponse { Ok = false, Note = "mark-reviewed failed: " + ex.Message };
+            }
+            WriteJson(context, 200, response);
+        }
+
         private void HandleUpdateSegments(HttpListenerContext context)
         {
             if (_updateSegments == null)
@@ -2857,15 +2989,22 @@ namespace Supervertaler.Trados.Core
             if (int.TryParse(QueryUtf8(context.Request)["limit"], out limit) && limit > 0)
                 q.Limit = Math.Min(limit, 200);
 
-            // Terminology only: comma-separated termbase names or ids. A name
-            // containing a comma cannot be expressed here - use the numeric id
-            // from list_resources for those.
+            // Terminology only: termbase names or ids. The MCP exe passes an
+            // array argument to a GET tool as its RAW JSON text (Program.cs
+            // ScalarToString falls through to GetRawText for arrays), so the
+            // value here may be either a plain comma list (hand-written call)
+            // or ["A","B"] - accept both. A name containing a comma cannot be
+            // expressed either way; use the numeric id from list_resources.
             var termbases = QueryUtf8(context.Request)["termbases"];
             if (!string.IsNullOrWhiteSpace(termbases))
-                q.Termbases = termbases.Split(',')
-                    .Select(x => x.Trim())
+            {
+                var cleaned = termbases.Trim();
+                if (cleaned.StartsWith("[")) cleaned = cleaned.Trim('[', ']');
+                q.Termbases = cleaned.Split(',')
+                    .Select(x => x.Trim().Trim('"', '\'').Trim())
                     .Where(x => x.Length > 0)
                     .ToList();
+            }
 
             BridgeQaResponse response;
             try
