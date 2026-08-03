@@ -49,6 +49,10 @@
 - **Variants are trimmed**, so `PCPs | PCP's` written with spaces means the two spellings you intended rather than one that could never match anything.
 - **The Abbreviation fields now tell you the convention exists.** They show a greyed `PCPs|PCP's` hint, and hovering explains that every *source* spelling is matched wherever it appears, while the *first* target spelling is the one inserted into your translation. The feature has been there for a long time and was documented, but nothing in the dialog itself ever said so.
 
+### Fixed (About dialog · the Privacy Policy link had fallen off the bottom)
+
+- **The About dialog's height was a fixed number that nobody recalculated as its contents grew.** Every keyboard shortcut and link added to it over the years pushed the last entry nearer the bottom edge, and adding Ctrl+Alt+A this release finally pushed **Privacy Policy** off the dialog entirely. The height is now worked out from where the content actually ends, so adding another line cannot do this again.
+
 ## [18.20.156 / 19.20.156] – 2026-08-02
 
 ### Changed (Updates · "Not Now" now quietens updates for a week)
