@@ -45,7 +45,12 @@ namespace Supervertaler.Trados
     [ActionLayout(
         typeof(TranslationStudioDefaultContextMenus.EditorDocumentContextMenuLocation), 7,
         DisplayType.Default, "", true)]
-    [Shortcut(Keys.Alt | Keys.Shift | Keys.Down)]
+    // Ctrl+Alt+A ("A" for abbreviation), sitting beside Ctrl+Alt+T for the plain
+    // add-term dialog and Ctrl+Alt+N for non-translatables.
+    //
+    // NOT Alt+Shift+Down, which was the first choice: that is Trados's own
+    // factory binding for "Select Next Row", so the two fired together.
+    [Shortcut(Keys.Control | Keys.Alt | Keys.A)]
     public class AddTermWithAbbreviationAction : AbstractAction
     {
         protected override void Execute()
