@@ -9,11 +9,20 @@ using Supervertaler.Trados.VoiceControl;
 namespace Supervertaler.Trados
 {
     /// <summary>
-    /// The one-button face of voice commands: Ctrl+Alt+V (also in the editor
+    /// The one-button face of voice commands: Ctrl+Alt+D (also in the editor
     /// context menu) toggles listening. First activation downloads the voice
     /// runtime automatically; after that the default command set is ready
     /// with zero configuration. Everything deeper lives behind the gear on
     /// the status strip (VoiceSettingsDialog).
+    ///
+    /// NOT Ctrl+Alt+V, which it used until 20.157. Supervertaler Workbench
+    /// binds Ctrl+Alt+V to its own voice-command push-to-talk as an OS-level
+    /// GLOBAL hotkey, so it fires whichever application is in front - including
+    /// Trados. One press started both listeners, and because Workbench's is a
+    /// hold and this one is a toggle, releasing the key stopped only Workbench's:
+    /// this listener stayed latched on with nothing visible having switched it on.
+    /// The Trados side moved because it is the newer binding with far fewer
+    /// users' fingers trained on it.
     /// </summary>
     [Action("Supervertaler_VoiceControl", typeof(EditorController),
         Name = "Supervertaler: Toggle voice commands",
@@ -21,7 +30,7 @@ namespace Supervertaler.Trados
     [ActionLayout(
         typeof(TranslationStudioDefaultContextMenus.EditorDocumentContextMenuLocation), 6,
         DisplayType.Default, "", false)]
-    [Shortcut(Keys.Control | Keys.Alt | Keys.V)]
+    [Shortcut(Keys.Control | Keys.Alt | Keys.D)]
     public class VoiceControlAction : AbstractAction
     {
         protected override void Execute()

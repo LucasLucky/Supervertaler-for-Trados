@@ -210,7 +210,7 @@ namespace Supervertaler.Trados.Controls
                 ("Ctrl+Alt+G",     "AutoTagger (place inline tags)"),
                 ("Ctrl (tap)",     "Show TermLens popup"),
                 ("Alt+P",          "Show TermPicker (list of matches)"),
-                ("Ctrl+Alt+V",     "Toggle voice commands"),
+                ("Ctrl+Alt+D",     "Toggle voice commands"),
                 ("Alt+1\u20269",  "Insert term from TermLens panel"),
                 ("F1",            "Context-sensitive help"),
             };

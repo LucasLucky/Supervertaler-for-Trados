@@ -285,7 +285,7 @@ namespace Supervertaler.Trados.Controls
             voiceMenu.Items.Add(advancedItem);
             _btnVoice.ContextMenuStrip = voiceMenu;
             fontButtonTip.SetToolTip(_btnVoice,
-                "Voice commands (Ctrl+Alt+V)\n" +
+                "Voice commands (Ctrl+Alt+D)\n" +
                 "\n" +
                 "Click to start/stop hands-free voice commands:\n" +
                 "“confirm”, “next segment”, “term one”…“term nine”,\n" +

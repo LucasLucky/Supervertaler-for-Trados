@@ -18,6 +18,10 @@
 - **The AI cannot invent an abbreviation.** It is only permitted to copy text that already appears in the segment, and every string it returns is then checked against the segment before it reaches the dialog – anything that is not genuinely there is discarded. This matters more than it sounds: source and target abbreviations are frequently identical (SFDR, radar, PAI), so a plausible invention is not something you could reliably catch by eye while confirming a pre-filled dialog.
 - Uses the provider and model from your AI settings, and works with any of them.
 
+### Changed (Voice · the toggle moves to Ctrl+Alt+D)
+
+- **"Toggle voice commands" is now Ctrl+Alt+D instead of Ctrl+Alt+V.** Supervertaler Workbench uses Ctrl+Alt+V for its own voice-command push-to-talk, and registers it as an OS-level **global** hotkey – meaning it fires whichever application is in front, Trados included. If you run both, and many people do, one press started two listeners. Worse than that sounds: Workbench's is a *hold* and this one is a *toggle*, so letting the key go stopped only Workbench's, leaving this one latched on with nothing visible having switched it on. The Trados side moved because it is the newer binding, with far fewer fingers trained on it.
+
 ### Fixed (Terminology · abbreviation variants leaked their pipe into AI prompts)
 
 - **An abbreviation field holding several spellings – `PCPs|PCP's` – passed the pipe straight to the AI.** The glossary in every translation and proofreading prompt was telling the model that the target abbreviation literally *was* `PCP's|PCPs`, pipe included, which a model following its glossary closely could reproduce in your translation. Prompts now list each source spelling separately, so all of them are recognised, and name a single target form, so one canonical abbreviation comes back. The same raw text also reached the TermLens hover popup, which now shows the primary form.
