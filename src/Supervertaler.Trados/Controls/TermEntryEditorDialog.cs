@@ -146,7 +146,8 @@ namespace Supervertaler.Trados.Controls
         /// fields and are written to the correct DB columns on save.
         /// </summary>
         public TermEntryEditorDialog(string sourceTerm, string targetTerm,
-            string dbPath, TermbaseInfo termbase, string projectSourceLang = null)
+            string dbPath, TermbaseInfo termbase, string projectSourceLang = null,
+            string sourceAbbreviation = null, string targetAbbreviation = null)
         {
             _dbPath = dbPath;
             _termbase = termbase;
@@ -159,11 +160,24 @@ namespace Supervertaler.Trados.Controls
                 var tmp = sourceTerm;
                 sourceTerm = targetTerm;
                 targetTerm = tmp;
+
+                // The abbreviations belong to their terms and must travel with
+                // them – swapping the terms alone would file SFDR against the
+                // wrong language on an inverted termbase.
+                var tmpAbbr = sourceAbbreviation;
+                sourceAbbreviation = targetAbbreviation;
+                targetAbbreviation = tmpAbbr;
             }
 
             BuildUI(termbase);
             _txtSource.Text = sourceTerm ?? "";
             _txtTarget.Text = targetTerm ?? "";
+
+            // Source first, then target: the source abbreviation's TextChanged
+            // handler mirrors into the target field while "non-translatable" is
+            // ticked, so the explicit target assignment must come last to win.
+            _txtSourceAbbr.Text = sourceAbbreviation ?? "";
+            _txtTargetAbbr.Text = targetAbbreviation ?? "";
         }
 
         /// <summary>
