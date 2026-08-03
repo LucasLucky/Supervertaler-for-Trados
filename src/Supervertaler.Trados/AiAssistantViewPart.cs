@@ -1764,51 +1764,65 @@ namespace Supervertaler.Trados
         {
             try
             {
-                var src = CollectTagIds(source);
-                var tgt = CollectTagIds(target);
-                if (src == null || tgt == null) return null;
-
-                var srcCounts = new Dictionary<string, int>(StringComparer.Ordinal);
-                foreach (var id in src)
-                    srcCounts[id] = (srcCounts.TryGetValue(id, out var c) ? c : 0) + 1;
-
-                var tgtCounts = new Dictionary<string, int>(StringComparer.Ordinal);
-                foreach (var id in tgt)
-                    tgtCounts[id] = (tgtCounts.TryGetValue(id, out var c) ? c : 0) + 1;
-
-                var duplicated = new List<string>();
-                var missing = new List<string>();
-
-                foreach (var kv in tgtCounts)
-                {
-                    srcCounts.TryGetValue(kv.Key, out var inSource);
-                    if (kv.Value > inSource)
-                        duplicated.Add(kv.Key + (kv.Value > 1 ? $" (×{kv.Value})" : ""));
-                }
-                foreach (var kv in srcCounts)
-                {
-                    tgtCounts.TryGetValue(kv.Key, out var inTarget);
-                    if (inTarget < kv.Value)
-                        missing.Add(kv.Key);
-                }
-
-                if (duplicated.Count == 0 && missing.Count == 0) return null;
-
-                var parts = new List<string>();
-                if (duplicated.Count > 0)
-                    parts.Add("tag id(s) in the target that the source does not have (or has fewer of): "
-                              + string.Join(", ", duplicated));
-                if (missing.Count > 0)
-                    parts.Add("source tag id(s) missing from the target: " + string.Join(", ", missing));
-
-                return "tag-id mismatch — " + string.Join("; ", parts)
-                     + ". The text was written, but Studio's Tag Verifier will flag this segment.";
+                var mismatch = DescribeTagIdListMismatch(CollectTagIds(source), CollectTagIds(target));
+                return mismatch == null
+                    ? null
+                    : mismatch + ". The text was written, but Studio's Tag Verifier will flag this segment.";
             }
             catch
             {
                 // An audit that throws must never fail the write it is auditing.
                 return null;
             }
+        }
+
+        /// <summary>
+        /// The multiset comparison behind the write audit and the document-wide
+        /// check_tags pass: compares how many times each underlying tag id occurs,
+        /// not merely which ids occur, because the canonical failure is one id
+        /// appearing twice while another goes missing – which a set comparison
+        /// calls clean. Returns null when the multisets agree (or either list is
+        /// unavailable), otherwise a description without trailing punctuation so
+        /// callers can append their own context.
+        /// </summary>
+        private static string DescribeTagIdListMismatch(List<string> src, List<string> tgt)
+        {
+            if (src == null || tgt == null) return null;
+
+            var srcCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var id in src)
+                srcCounts[id] = (srcCounts.TryGetValue(id, out var c) ? c : 0) + 1;
+
+            var tgtCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var id in tgt)
+                tgtCounts[id] = (tgtCounts.TryGetValue(id, out var c) ? c : 0) + 1;
+
+            var duplicated = new List<string>();
+            var missing = new List<string>();
+
+            foreach (var kv in tgtCounts)
+            {
+                srcCounts.TryGetValue(kv.Key, out var inSource);
+                if (kv.Value > inSource)
+                    duplicated.Add(kv.Key + (kv.Value > 1 ? $" (×{kv.Value})" : ""));
+            }
+            foreach (var kv in srcCounts)
+            {
+                tgtCounts.TryGetValue(kv.Key, out var inTarget);
+                if (inTarget < kv.Value)
+                    missing.Add(kv.Key);
+            }
+
+            if (duplicated.Count == 0 && missing.Count == 0) return null;
+
+            var parts = new List<string>();
+            if (duplicated.Count > 0)
+                parts.Add("tag id(s) in the target that the source does not have (or has fewer of): "
+                          + string.Join(", ", duplicated));
+            if (missing.Count > 0)
+                parts.Add("source tag id(s) missing from the target: " + string.Join(", ", missing));
+
+            return "tag-id mismatch — " + string.Join("; ", parts);
         }
 
         /// <summary>Depth-first list of the underlying Trados tag ids in a segment,
@@ -1929,6 +1943,12 @@ namespace Supervertaler.Trados
             public string Status;
             public int SourceTagCount;
             public int TargetTagCount;
+            // Underlying Trados tag ids, in document order, duplicates included.
+            // Captured at snapshot time (UI thread) so the tags check can compare
+            // IDS off-thread, not just counts – a target whose two tags carry the
+            // same id has the right count and still fails Studio's verifier.
+            public List<string> SourceTagIds;
+            public List<string> TargetTagIds;
             public string FileName;      // null unless multi-file attribution worked
         }
 
@@ -1997,6 +2017,8 @@ namespace Supervertaler.Trados
                             ?? Sdl.Core.Globalization.ConfirmationLevel.Unspecified).ToString(),
                         SourceTagCount = sourceSer.TagMap?.Count ?? 0,
                         TargetTagCount = targetSer?.TagMap?.Count ?? 0,
+                        SourceTagIds = CollectTagIds(pair.Source),
+                        TargetTagIds = pair.Target != null ? CollectTagIds(pair.Target) : null,
                         FileName = fileName
                     });
                 }
@@ -2254,7 +2276,12 @@ namespace Supervertaler.Trados
                     + "translation agrees with the TM.";
             else if (response.Deviations == 0)
                 response.Note = "All " + response.ExactSourceHits + " segment(s) whose source appears in the "
-                    + "TM match what the TM holds.";
+                    + "TM match what the TM holds. IMPORTANT: this proves agreement with the memory, not "
+                    + "correctness. If the memory itself is contaminated (pooled boilerplate from unrelated "
+                    + "products, stale fuzzy matches), the document agreeing with it is the SYMPTOM, and this "
+                    + "result is circular. On one real job this check reported 0 deviations across 600 hits on "
+                    + "a memory that was itself the source of ~40 defects. Do not cite this result as evidence "
+                    + "the translation is right - only that it does not diverge from the TM.";
             else
                 response.Note = response.Deviations + " of " + response.ExactSourceHits + " segment(s) with an "
                     + "exact source match are translated differently from the TM. A difference is NOT "
@@ -2268,6 +2295,40 @@ namespace Supervertaler.Trados
                     + "segments may not have been compared at all. Treat this as a partial answer.";
 
             return response;
+        }
+
+        /// <summary>
+        /// Whether an expected termbase target rendering is present in the
+        /// target text, tolerating inflection. Exact (case-insensitive)
+        /// substring first; failing that, for single-word terms of 4+
+        /// characters, a target word counts as a hit when it shares a
+        /// word-initial stem with the term - "gereedschap" satisfies an
+        /// expected "gereedschappen", which the plain substring check reported
+        /// as missing and thereby flooded the terminology check with false
+        /// positives. The stem rule: the shared prefix must cover all but the
+        /// last two characters of the shorter of the two words, and always at
+        /// least four characters, so short unrelated words do not collide.
+        /// Multi-word terms stay exact-substring: their false-positive rate was
+        /// never the problem, and stemming each word would over-match.
+        /// </summary>
+        private static bool TermFoundInTarget(string target, string term)
+        {
+            if (string.IsNullOrEmpty(target) || string.IsNullOrEmpty(term)) return false;
+            if (target.IndexOf(term, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (term.IndexOf(' ') >= 0 || term.Length < 4) return false;
+
+            foreach (var word in System.Text.RegularExpressions.Regex
+                     .Split(target, @"[^\p{L}\p{Nd}\-']+"))
+            {
+                if (word.Length < 4) continue;
+                int max = Math.Min(word.Length, term.Length);
+                int shared = 0;
+                while (shared < max && char.ToLowerInvariant(word[shared]) == char.ToLowerInvariant(term[shared]))
+                    shared++;
+                int needed = Math.Max(4, max - 2);
+                if (shared >= needed) return true;
+            }
+            return false;
         }
 
         /// <summary>Shortens a value for a bridge response, marking that it was shortened.</summary>
@@ -2334,13 +2395,31 @@ namespace Supervertaler.Trados
                 foreach (var s in translated)
                 {
                     if (s.SourceTagCount != s.TargetTagCount)
+                    {
                         AddIssue(s, $"source has {s.SourceTagCount} inline tag(s), target has {s.TargetTagCount}");
+                        continue;
+                    }
+
+                    // Counts agree – now compare the underlying tag IDS as a
+                    // multiset. Equal counts with unequal ids is precisely the
+                    // corruption shape a stale fuzzy match leaves behind (two
+                    // tags sharing one id), it fails Studio's Tag Verifier, and
+                    // no count check can ever see it. Until 20.157 this check
+                    // stopped at counts, which is how a whole band of corrupt
+                    // segments on a real job passed check_tags while failing
+                    // verification.
+                    var idMismatch = DescribeTagIdListMismatch(s.SourceTagIds, s.TargetTagIds);
+                    if (idMismatch != null)
+                        AddIssue(s, idMismatch +
+                            ". Re-send this segment with update_segments, copying the tag markers from its SOURCE field, to repair it");
                 }
                 if (response.IssuesFound == 0)
-                    response.Note = "Inline tag counts match in every translated segment.";
+                    response.Note = "Inline tag counts and underlying tag ids match in every translated segment.";
                 else
                     response.Note = (response.Note ?? "") +
-                        "A count difference is not always an error (formatting may legitimately differ) – review each case.";
+                        "A count difference is not always an error (formatting may legitimately differ) – review each case. " +
+                        "A tag-ID mismatch with matching counts, however, is always a defect: Studio's Tag Verifier will " +
+                        "reject it, and re-writing the segment with the source's markers repairs it.";
             }
             else if (q.Type == "nbsp")
             {
@@ -2426,6 +2505,20 @@ namespace Supervertaler.Trados
                 // floods the result with hundreds of identical findings.
                 var groups = new Dictionary<string, BridgeQaTermGroup>(StringComparer.OrdinalIgnoreCase);
                 var groupOrder = new List<string>();
+                // Ranking metadata kept beside the groups rather than on the
+                // DataContract - it steers the sort below and is not part of the
+                // wire format.
+                var groupIsProjectTb = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+                // Optional restriction to named termbases (name or numeric id).
+                // On a job pairing a small curated client termbase with a large
+                // general-domain one, this is the difference between signal and
+                // hundreds of findings of noise.
+                HashSet<string> tbFilter = null;
+                if (q.Termbases != null && q.Termbases.Count > 0)
+                    tbFilter = new HashSet<string>(
+                        q.Termbases.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()),
+                        StringComparer.OrdinalIgnoreCase);
 
                 foreach (var s in translated)
                 {
@@ -2435,74 +2528,136 @@ namespace Supervertaler.Trados
                         .Where(w => w.Length > 0).ToArray();
                     var reported = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+                    // Pass 1 - collect every span that matches a termbase entry.
+                    // Junk grams are dropped here: entries of 1-2 characters ("m",
+                    // "to", "No", "16") matched ordinary prose far more often than
+                    // terminology (198 segments of "to" on one real job), and a
+                    // gram with no letter at all is a number, not a term.
+                    var candidates = new List<Tuple<int, int, List<Models.TermEntry>>>();
                     for (int i = 0; i < words.Length; i++)
                     {
                         for (int n = 1; n <= 5 && i + n <= words.Length; n++)
                         {
                             var gram = string.Join(" ", words, i, n);
+                            if (gram.Length < 3 || !gram.Any(char.IsLetter)) continue;
                             List<Models.TermEntry> entries;
-                            if (!index.TryGetValue(gram, out entries)) continue;
+                            if (index.TryGetValue(gram, out entries))
+                                candidates.Add(Tuple.Create(i, n, entries));
+                        }
+                    }
 
-                            foreach (var entry in entries)
+                    // Pass 2 - longest match wins. When "safety valve" and
+                    // "valve" both match overlapping words, only "safety valve"
+                    // is checked: the longest entry the termbase knows OWNS
+                    // those words. Without this the generic single-word entry
+                    // fired on every occurrence while the specific multi-word
+                    // entry - the one that actually mattered, 15 segments of a
+                    // regulated pressure-vessel component name on a real job -
+                    // was never surfaced at all.
+                    candidates.Sort((a, b) => b.Item2 != a.Item2 ? b.Item2 - a.Item2 : a.Item1 - b.Item1);
+                    var consumed = new bool[words.Length];
+                    foreach (var cand in candidates)
+                    {
+                        bool overlaps = false;
+                        for (int w = cand.Item1; w < cand.Item1 + cand.Item2; w++)
+                            if (consumed[w]) { overlaps = true; break; }
+                        if (overlaps) continue;
+                        for (int w = cand.Item1; w < cand.Item1 + cand.Item2; w++)
+                            consumed[w] = true;
+
+                        foreach (var entry in cand.Item3)
+                        {
+                            if (entry.Forbidden) continue;
+                            if (string.IsNullOrWhiteSpace(entry.TargetTerm)) continue;
+                            if (reported.Contains(entry.SourceTerm)) continue;
+                            if (tbFilter != null
+                                && !tbFilter.Contains(entry.TermbaseName ?? "")
+                                && !tbFilter.Contains(entry.TermbaseId.ToString()))
+                                continue;
+
+                            var expected = new List<string> { entry.TargetTerm };
+                            if (entry.TargetSynonyms != null) expected.AddRange(entry.TargetSynonyms);
+                            expected = expected.Where(x => !string.IsNullOrWhiteSpace(x))
+                                               .Select(x => x.Trim()).ToList();
+
+                            bool found = expected.Any(x => TermFoundInTarget(s.Target, x));
+                            if (!found)
                             {
-                                if (entry.Forbidden) continue;
-                                if (string.IsNullOrWhiteSpace(entry.TargetTerm)) continue;
-                                if (reported.Contains(entry.SourceTerm)) continue;
+                                reported.Add(entry.SourceTerm);
+                                response.IssuesFound++;
 
-                                var expected = new List<string> { entry.TargetTerm };
-                                if (entry.TargetSynonyms != null) expected.AddRange(entry.TargetSynonyms);
-                                expected = expected.Where(t => !string.IsNullOrWhiteSpace(t))
-                                                   .Select(t => t.Trim()).ToList();
-
-                                bool found = expected.Any(t =>
-                                    s.Target.IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0);
-                                if (!found)
+                                var key = entry.SourceTerm + "" + (entry.TermbaseName ?? "");
+                                BridgeQaTermGroup g;
+                                if (!groups.TryGetValue(key, out g))
                                 {
-                                    reported.Add(entry.SourceTerm);
-                                    response.IssuesFound++;
-
-                                    var key = entry.SourceTerm + "" + (entry.TermbaseName ?? "");
-                                    BridgeQaTermGroup g;
-                                    if (!groups.TryGetValue(key, out g))
+                                    g = new BridgeQaTermGroup
                                     {
-                                        g = new BridgeQaTermGroup
-                                        {
-                                            Term = entry.SourceTerm,
-                                            Termbase = entry.TermbaseName,
-                                            Expected = expected,
-                                            SegmentsAffected = 0,
-                                            SampleSegmentIds = new List<string>(),
-                                            ExampleTarget = s.Target.Length > 120
-                                                ? s.Target.Substring(0, 120) + "…" : s.Target
-                                        };
-                                        groups[key] = g;
-                                        groupOrder.Add(key);
-                                    }
-                                    g.SegmentsAffected++;
-                                    if (g.SampleSegmentIds.Count < 5)
-                                        g.SampleSegmentIds.Add(s.Id);
+                                        Term = entry.SourceTerm,
+                                        Termbase = entry.TermbaseName,
+                                        Expected = expected,
+                                        SegmentsAffected = 0,
+                                        SampleSegmentIds = new List<string>(),
+                                        ExampleTarget = s.Target.Length > 120
+                                            ? s.Target.Substring(0, 120) + "…" : s.Target
+                                    };
+                                    groups[key] = g;
+                                    groupOrder.Add(key);
+                                    groupIsProjectTb[key] = entry.IsProjectTermbase;
                                 }
+                                g.SegmentsAffected++;
+                                if (g.SampleSegmentIds.Count < 5)
+                                    g.SampleSegmentIds.Add(s.Id);
                             }
                         }
                     }
                 }
 
+                // Rank by SIGNAL, not by raw segment count. The old
+                // most-affected-first sort put the noisiest general-domain
+                // entries on top - yet the response note itself said that a
+                // term affecting very many segments usually means the project
+                // consistently uses a different translation, i.e. a decision,
+                // not a defect. That is an argument for sorting such groups
+                // DOWN, not up. What predicts a real finding: a multi-word term
+                // (someone curated a phrase), a project/client termbase over a
+                // general-domain one, and a moderate segment count over a huge
+                // one.
+                Func<string, int> signalScore = key =>
+                {
+                    var g = groups[key];
+                    int score = 0;
+                    if (g.Term != null && g.Term.IndexOf(' ') >= 0) score += 2000;
+                    bool isProj;
+                    if (groupIsProjectTb.TryGetValue(key, out isProj) && isProj) score += 1000;
+                    score += Math.Min(g.SegmentsAffected, 30) * 10;
+                    if (g.SegmentsAffected > 60) score -= 500;
+                    return score;
+                };
+
                 response.TermsAffected = groups.Count;
                 response.TermGroups = groupOrder
+                    .OrderByDescending(signalScore)
+                    .ThenByDescending(k => groups[k].SegmentsAffected)
                     .Select(k => groups[k])
-                    .OrderByDescending(g => g.SegmentsAffected)
                     .Take(q.Limit)
                     .ToList();
                 if (groups.Count > q.Limit) response.Truncated = true;
 
                 if (response.IssuesFound == 0)
-                    response.Note = "Every termbase term found in a source segment has its expected translation in the target.";
+                    response.Note = "Every termbase term found in a source segment has its expected translation " +
+                        "in the target. (Longest-match-wins span matching; entries shorter than 3 characters " +
+                        "are not checked.)";
                 else
                     response.Note = $"{response.IssuesFound} segment-level finding(s) across " +
-                        $"{groups.Count} distinct term(s), grouped per term (most-affected first). " +
-                        "A term affecting many segments usually means the project consistently uses a " +
-                        "different translation than the termbase – decide which is right before fixing " +
-                        "anything. Substring check: inflected target forms can be false positives.";
+                        $"{groups.Count} distinct term(s), grouped per term and ranked by SIGNAL rather " +
+                        "than raw count: multi-word and project-termbase entries first, because those are " +
+                        "curated. A term affecting a very large share of segments ranks LOWER - that " +
+                        "pattern usually means the project consistently uses a different translation than " +
+                        "the termbase, which is a decision to put to the user, not a defect to fix. " +
+                        "Matching tolerates inflected target forms via shared word-start stems, so " +
+                        "residual false positives are rarer but still possible. Pass termbases=[...] " +
+                        "(names or ids from list_resources) to restrict the check to a curated client " +
+                        "termbase.";
             }
 
             response.Returned = q.Type == "terminology"

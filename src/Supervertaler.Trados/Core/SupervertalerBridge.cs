@@ -480,6 +480,10 @@ namespace Supervertaler.Trados.Core
         /// <summary>"numbers", "tags", "terminology", or "nbsp".</summary>
         public string Type;
         public int Limit = 50;
+        /// <summary>Terminology check only: restrict to these termbases, by
+        /// name or numeric id (comma-separated in the query string).
+        /// Null/empty = all read-enabled termbases.</summary>
+        public List<string> Termbases;
     }
 
     [DataContract]
@@ -2852,6 +2856,16 @@ namespace Supervertaler.Trados.Core
             int limit;
             if (int.TryParse(QueryUtf8(context.Request)["limit"], out limit) && limit > 0)
                 q.Limit = Math.Min(limit, 200);
+
+            // Terminology only: comma-separated termbase names or ids. A name
+            // containing a comma cannot be expressed here - use the numeric id
+            // from list_resources for those.
+            var termbases = QueryUtf8(context.Request)["termbases"];
+            if (!string.IsNullOrWhiteSpace(termbases))
+                q.Termbases = termbases.Split(',')
+                    .Select(x => x.Trim())
+                    .Where(x => x.Length > 0)
+                    .ToList();
 
             BridgeQaResponse response;
             try
