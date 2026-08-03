@@ -781,13 +781,17 @@ namespace Supervertaler.Trados.Controls
 
             // Set placeholder text AFTER handles are created (accessing .Handle
             // during the constructor breaks the WinForms parent-child handle chain)
-            SetPlaceholder(_txtNewSourceSyn, "Type synonym, press Enter or +");
-            SetPlaceholder(_txtNewTargetSyn, "Type synonym, press Enter or +");
+            // All four use the drawn placeholder rather than the native cue
+            // banner, so they share one grey. Mixing the two mechanisms in one
+            // dialog would leave the synonym hints visibly darker than the
+            // abbreviation ones.
+            SetLightPlaceholder(_txtNewSourceSyn, "Type synonym, press Enter or +");
+            SetLightPlaceholder(_txtNewTargetSyn, "Type synonym, press Enter or +");
 
             // One field can hold several spellings, pipe-separated. Nothing on
             // screen said so, so the feature was effectively invisible.
-            SetPlaceholder(_txtSourceAbbr, "e.g. PCPs|PCP's");
-            SetPlaceholder(_txtTargetAbbr, "e.g. PCPs|PCP's");
+            SetLightPlaceholder(_txtSourceAbbr, "PCPs|PCP's");
+            SetLightPlaceholder(_txtTargetAbbr, "PCPs|PCP's");
         }
 
         // ─── Key handling ─────────────────────────────────────────────
@@ -1427,6 +1431,47 @@ namespace Supervertaler.Trados.Controls
         private static void SetPlaceholder(TextBox textBox, string placeholder)
         {
             SendMessage(textBox.Handle, EM_SETCUEBANNER, (IntPtr)1, placeholder);
+        }
+
+        /// <summary>The grey used for placeholder hints - deliberately lighter
+        /// than the system's cue-banner grey, which reads as content rather than
+        /// as a hint.</summary>
+        private static readonly Color PlaceholderGrey = Color.FromArgb(160, 160, 160);
+
+        /// <summary>
+        /// Placeholder text drawn by us rather than by Windows.
+        ///
+        /// The native cue banner (<see cref="SetPlaceholder"/>) renders in a
+        /// system grey that cannot be changed - there is no message to set its
+        /// colour - and it comes out heavy enough to compete with real content.
+        /// This overlays a label inside the textbox instead, so the colour is
+        /// ours. The textbox's own Text is never touched, so nothing that reads
+        /// the field has to know a placeholder exists.
+        /// </summary>
+        private static void SetLightPlaceholder(TextBox textBox, string placeholder)
+        {
+            var hint = new Label
+            {
+                Text = placeholder,
+                AutoSize = false,
+                Dock = DockStyle.Fill,
+                ForeColor = PlaceholderGrey,
+                BackColor = textBox.BackColor,
+                Font = textBox.Font,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(1, 0, 0, 0),
+                Cursor = Cursors.IBeam
+            };
+
+            // Clicking the hint must feel like clicking the field beneath it.
+            hint.Click += (s, e) => textBox.Focus();
+            // Follow the field if it is later greyed out (e.g. the target
+            // abbreviation while "non-translatable" is ticked).
+            textBox.BackColorChanged += (s, e) => hint.BackColor = textBox.BackColor;
+
+            hint.Visible = textBox.Text.Length == 0;
+            textBox.TextChanged += (s, e) => hint.Visible = textBox.Text.Length == 0;
+            textBox.Controls.Add(hint);
         }
 
         private static Button MakeSmallButton(string text, Point location, Action onClick)
