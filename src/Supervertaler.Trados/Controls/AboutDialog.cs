@@ -202,6 +202,7 @@ namespace Supervertaler.Trados.Controls
                 ("Alt+Down",      "Quick-add term to write termbases"),
                 ("Alt+Up",        "Quick-add term to project termbase"),
                 ("Ctrl+Alt+T",    "Add term (dialog)"),
+                ("Ctrl+Alt+A",    "Add term with abbreviation (AI)"),
                 ("Ctrl+Alt+N",    "Quick-add non-translatable"),
                 // Alt+T, not Ctrl+T: the default moved in 18/19.20.119 because
                 // Ctrl+T collides with Trados's own "Apply Translation Result".

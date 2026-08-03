@@ -7,6 +7,23 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.157 / 19.20.157] – 2026-08-03
+
+### Added (Terminology · the AI fills in a term and its abbreviation for you)
+
+- **A new "Add term with abbreviation" (Ctrl+Alt+A) reads the segment you are on, finds the term that carries an abbreviation, and opens the term entry dialog with all four fields already filled in.** The case it exists for is text like *"Deze verklaring wordt opgesteld conform de Sustainable Finance Disclosure Regulation (SFDR, Verordening (EU) 2019/2088)"*, where the term and its abbreviation are both sitting there on screen and were previously selected, then typed into the two Abbreviation fields by hand, every single time. Now the dialog opens with the term pair and both abbreviations in place, and you check them and press Add.
+- **It only ever handles terms that actually carry an abbreviation**, deliberately. An abbreviation is a reliable signal about which words matter – somebody thought the term important enough to abbreviate. Without one there is no such signal, and asking an AI which term in a segment is "interesting" produces a confident guess that is often not the term you had in mind. Alt+↓ and Ctrl+Alt+T already add exactly what you selected, so a guess could only be worse. When there is no abbreviation in the segment, this simply falls back to the ordinary dialog with your selection in it.
+- **Your selection decides which term**, when you have one. Select any part of a term – or a whole phrase containing it – and that is the term you get, completed to its full extent. The AI settles where the term starts and ends and hunts down the abbreviation; it does not get to substitute a different term it finds more interesting.
+- **Nothing is written to a termbase without you.** The dialog opens, you confirm, you press Add – exactly as with Ctrl+Alt+T. Saving straight to every Write termbase would have been faster and is precisely the shape of the mishap behind 20.153.
+- **The AI cannot invent an abbreviation.** It is only permitted to copy text that already appears in the segment, and every string it returns is then checked against the segment before it reaches the dialog – anything that is not genuinely there is discarded. This matters more than it sounds: source and target abbreviations are frequently identical (SFDR, radar, PAI), so a plausible invention is not something you could reliably catch by eye while confirming a pre-filled dialog.
+- Uses the provider and model from your AI settings, and works with any of them.
+
+### Fixed (Terminology · abbreviation variants leaked their pipe into AI prompts)
+
+- **An abbreviation field holding several spellings – `PCPs|PCP's` – passed the pipe straight to the AI.** The glossary in every translation and proofreading prompt was telling the model that the target abbreviation literally *was* `PCP's|PCPs`, pipe included, which a model following its glossary closely could reproduce in your translation. Prompts now list each source spelling separately, so all of them are recognised, and name a single target form, so one canonical abbreviation comes back. The same raw text also reached the TermLens hover popup, which now shows the primary form.
+- **Variants are trimmed**, so `PCPs | PCP's` written with spaces means the two spellings you intended rather than one that could never match anything.
+- **The Abbreviation fields now tell you the convention exists.** They show a greyed `PCPs|PCP's` hint, and hovering explains that every *source* spelling is matched wherever it appears, while the *first* target spelling is the one inserted into your translation. The feature has been there for a long time and was documented, but nothing in the dialog itself ever said so.
+
 ## [18.20.156 / 19.20.156] – 2026-08-02
 
 ### Changed (Updates · "Not Now" now quietens updates for a week)
