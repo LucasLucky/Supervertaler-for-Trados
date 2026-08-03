@@ -1524,6 +1524,7 @@ namespace Supervertaler.Trados
 
             var pairIndex = BuildSegmentPairIndex(null);
             int processed = 0;
+            int tagMismatches = 0;
 
             foreach (var u in req.Updates)
             {
@@ -1600,6 +1601,8 @@ namespace Supervertaler.Trados
                 if (req.DecodeEntities && targetText != null)
                     targetText = Core.EntityEscapes.Decode(targetText);
 
+                string tagWarning = null;
+
                 try
                 {
                     if (targetText != null)
@@ -1607,24 +1610,40 @@ namespace Supervertaler.Trados
                         _activeDocument.ProcessSegmentPair(pair, "Supervertaler MCP",
                             (sp, cancel) =>
                             {
-                                // Same tag-aware write as bilingual re-import: try
-                                // ReconstructTarget against a combined source+target
-                                // TagMap (semantic markers resolved first), fall back
-                                // to a plain-text IText clone with markers stripped.
+                                // Tag-aware write. NOTE the difference from bilingual
+                                // re-import: that path uses BuildCombinedTagMap, where
+                                // the TARGET wins numbering collisions, because the
+                                // proofreader's <b>/<tN> markers came from the target
+                                // rendering of the exported table.
+                                //
+                                // Here the markers came from get_segments' *source*
+                                // field, and — decisively — Studio's Tag Verifier
+                                // compares the target's underlying tag ids against the
+                                // SOURCE. Letting a stale fuzzy-match target tag win
+                                // therefore cloned a tag carrying the wrong id into the
+                                // target: the verifier reported "Duplicated tag with id
+                                // 'N'" plus "Missing tag with id 'N-1'". Worse, it was
+                                // self-perpetuating — the next write re-serialised that
+                                // same corrupt target and let it win again, so
+                                // rewriting the segment could never heal it.
+                                // Field report: job PO414646, segments 498/500/552/559,
+                                // all of the shape "<b>I/O</b> switch … <b>O</b> position".
+                                //
+                                // So: source-authoritative, always.
                                 bool reconstructed = false;
                                 var sourceSer = Core.SegmentTagHandler.Serialize(sp.Source);
-                                var targetSer = Core.SegmentTagHandler.Serialize(sp.Target);
-                                var combinedMap = BuildCombinedTagMap(sourceSer.TagMap, targetSer.TagMap);
+                                var tagMap = sourceSer.TagMap
+                                    ?? new Dictionary<int, Core.TagInfo>();
 
                                 var resolved = Core.Export.BilingualTagNamer.ResolveSemanticNames(
-                                    targetText, combinedMap);
+                                    targetText, tagMap);
 
-                                bool hasAnyMarker = combinedMap.Count > 0
+                                bool hasAnyMarker = tagMap.Count > 0
                                     || resolved.IndexOf("<t", StringComparison.Ordinal) >= 0;
                                 if (hasAnyMarker)
                                 {
                                     reconstructed = Core.SegmentTagHandler.ReconstructTarget(
-                                        sp.Target, sp.Source, resolved, combinedMap);
+                                        sp.Target, sp.Source, resolved, tagMap);
                                 }
 
                                 if (!reconstructed)
@@ -1643,6 +1662,19 @@ namespace Supervertaler.Trados
                                         sp.Target.Add(clone);
                                     }
                                 }
+
+                                // Post-write audit. Whatever we just built, check that
+                                // the tag ids actually in the target match the source's,
+                                // and report a mismatch in the tool result rather than
+                                // leaving the caller to find it via run_verification.
+                                //
+                                // Audited after BOTH branches, not just after a successful
+                                // reconstruction. The fallback above strips every tag and
+                                // writes plain text, so a source carrying tags ends up with
+                                // a target carrying none - which Studio reports as N missing
+                                // tags. That is exactly the silent lossy write this audit
+                                // exists to stop being silent.
+                                tagWarning = DescribeTagIdMismatch(sp.Source, sp.Target);
                             });
                     }
 
@@ -1653,6 +1685,11 @@ namespace Supervertaler.Trados
                     }
 
                     item.Ok = true;
+                    if (!string.IsNullOrEmpty(tagWarning))
+                    {
+                        item.Warning = tagWarning;
+                        tagMismatches++;
+                    }
                     response.Applied++;
                 }
                 catch (Exception ex)
@@ -1698,9 +1735,127 @@ namespace Supervertaler.Trados
                     response.Note += " WARNING: at least one target contained &nbsp; but decodeEntities was not set, " +
                         "so it was written as those six literal characters. Re-send with decodeEntities=true if you " +
                         "meant a non-breaking space.";
+                if (tagMismatches > 0)
+                    response.Note += $" WARNING: {tagMismatches} segment(s) were written with inline tags whose " +
+                        "underlying tag ids do not match the source — see the per-item 'warning' field. Studio's Tag " +
+                        "Verifier will flag these. Usually the target text used a <tN> number the source does not " +
+                        "have, or repeated the same <tN> twice; re-send that segment using exactly the tag markers " +
+                        "shown in the segment's SOURCE field.";
                 _bridgeUnsavedWritesDoc = _activeDocument;
             }
             return response;
+        }
+
+        /// <summary>
+        /// Compare the multiset of underlying Trados tag ids in a written target
+        /// against the source's, and describe the difference — or return null when
+        /// they agree. This is the same comparison Studio's Tag Verifier makes, run
+        /// immediately after the write so update_segments can report it.
+        ///
+        /// Deliberately a multiset (list) comparison, not a set comparison: the
+        /// failure mode this exists to catch is the SAME id appearing twice while
+        /// another goes missing, which a set comparison would hide.
+        ///
+        /// Extra ids in the target that the source lacks are reported; the reverse
+        /// (source tags the translation legitimately dropped) is reported too, since
+        /// Studio treats a missing tag as an error as well.
+        /// </summary>
+        private static string DescribeTagIdMismatch(ISegment source, ISegment target)
+        {
+            try
+            {
+                var src = CollectTagIds(source);
+                var tgt = CollectTagIds(target);
+                if (src == null || tgt == null) return null;
+
+                var srcCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+                foreach (var id in src)
+                    srcCounts[id] = (srcCounts.TryGetValue(id, out var c) ? c : 0) + 1;
+
+                var tgtCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+                foreach (var id in tgt)
+                    tgtCounts[id] = (tgtCounts.TryGetValue(id, out var c) ? c : 0) + 1;
+
+                var duplicated = new List<string>();
+                var missing = new List<string>();
+
+                foreach (var kv in tgtCounts)
+                {
+                    srcCounts.TryGetValue(kv.Key, out var inSource);
+                    if (kv.Value > inSource)
+                        duplicated.Add(kv.Key + (kv.Value > 1 ? $" (×{kv.Value})" : ""));
+                }
+                foreach (var kv in srcCounts)
+                {
+                    tgtCounts.TryGetValue(kv.Key, out var inTarget);
+                    if (inTarget < kv.Value)
+                        missing.Add(kv.Key);
+                }
+
+                if (duplicated.Count == 0 && missing.Count == 0) return null;
+
+                var parts = new List<string>();
+                if (duplicated.Count > 0)
+                    parts.Add("tag id(s) in the target that the source does not have (or has fewer of): "
+                              + string.Join(", ", duplicated));
+                if (missing.Count > 0)
+                    parts.Add("source tag id(s) missing from the target: " + string.Join(", ", missing));
+
+                return "tag-id mismatch — " + string.Join("; ", parts)
+                     + ". The text was written, but Studio's Tag Verifier will flag this segment.";
+            }
+            catch
+            {
+                // An audit that throws must never fail the write it is auditing.
+                return null;
+            }
+        }
+
+        /// <summary>Depth-first list of the underlying Trados tag ids in a segment,
+        /// in document order, including duplicates. Tags whose id cannot be read are
+        /// skipped rather than guessed at.</summary>
+        private static List<string> CollectTagIds(IAbstractMarkupDataContainer container)
+        {
+            if (container == null) return null;
+            var ids = new List<string>();
+            CollectTagIdsInto(container, ids);
+            return ids;
+        }
+
+        private static void CollectTagIdsInto(IAbstractMarkupDataContainer container, List<string> ids)
+        {
+            foreach (var item in container)
+            {
+                if (item is ITagPair pair)
+                {
+                    var id = SafeTagId(pair.StartTagProperties);
+                    if (id != null) ids.Add(id);
+                    CollectTagIdsInto(pair, ids);
+                }
+                else if (item is IPlaceholderTag ph)
+                {
+                    var id = SafeTagId(ph.Properties);
+                    if (id != null) ids.Add(id);
+                }
+                else if (item is IAbstractMarkupDataContainer nested)
+                {
+                    CollectTagIdsInto(nested, ids);
+                }
+            }
+        }
+
+        /// <summary>The underlying Trados tag id, or null when it is blank.</summary>
+        /// <remarks>
+        /// Typed rather than reflective on purpose. Reflection here would degrade to
+        /// "no audit" if the SDK ever moved TagId — that is, the check would go quiet
+        /// and keep reporting success, which is the one failure mode a checker must
+        /// not have. A compile error is the loud, cheap alternative.
+        /// </remarks>
+        private static string SafeTagId(
+            Sdl.FileTypeSupport.Framework.NativeApi.IAbstractTagProperties tagProperties)
+        {
+            var id = tagProperties?.TagId.Id;
+            return string.IsNullOrEmpty(id) ? null : id;
         }
 
         /// <summary>Document the pu→file map was last built for. The map itself
