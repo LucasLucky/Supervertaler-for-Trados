@@ -225,7 +225,7 @@ namespace Supervertaler.Trados.Controls
                 // If the primary entry has an abbreviation pair that isn't the
                 // primary display, count it as an extra
                 if (PrimaryEntry != null &&
-                    !string.IsNullOrEmpty(PrimaryEntry.SourceAbbreviation) &&
+                    !string.IsNullOrEmpty(PrimaryEntry.PrimarySourceAbbreviation) &&
                     !string.IsNullOrEmpty(PrimaryEntry.PrimaryTargetAbbreviation))
                 {
                     // If matched via abbreviation, the "extra" is the full term pair
@@ -719,8 +719,11 @@ namespace Supervertaler.Trados.Controls
 
                 bool isAbbrMatch = _abbreviationMatchIds.Contains(entry.Id);
                 string heading;
-                if (isAbbrMatch && !string.IsNullOrEmpty(entry.TargetAbbreviation))
-                    heading = $"{entry.SourceAbbreviation} \u2192 {entry.TargetAbbreviation}";
+                // Primary forms only: these fields may hold several pipe-separated
+                // variants ("PCPs|PCP's"), and the raw string would put the pipe
+                // on screen.
+                if (isAbbrMatch && !string.IsNullOrEmpty(entry.PrimaryTargetAbbreviation))
+                    heading = $"{entry.PrimarySourceAbbreviation} \u2192 {entry.PrimaryTargetAbbreviation}";
                 else
                     heading = $"{entry.SourceTerm} \u2192 {entry.TargetTerm}";
                 if (!string.IsNullOrEmpty(entry.TermbaseName))
@@ -729,13 +732,13 @@ namespace Supervertaler.Trados.Controls
                 lines.Add(new PopupLine(heading, PopupLineType.Heading));
 
                 // Show the complementary form (abbreviation or full term)
-                if (!string.IsNullOrEmpty(entry.SourceAbbreviation) &&
-                    !string.IsNullOrEmpty(entry.TargetAbbreviation))
+                if (!string.IsNullOrEmpty(entry.PrimarySourceAbbreviation) &&
+                    !string.IsNullOrEmpty(entry.PrimaryTargetAbbreviation))
                 {
                     if (isAbbrMatch)
                         lines.Add(new PopupLine($"  Full: {entry.SourceTerm} \u2192 {entry.TargetTerm}", PopupLineType.Synonym));
                     else
-                        lines.Add(new PopupLine($"  Abbr: {entry.SourceAbbreviation} \u2192 {entry.TargetAbbreviation}", PopupLineType.Synonym));
+                        lines.Add(new PopupLine($"  Abbr: {entry.PrimarySourceAbbreviation} \u2192 {entry.PrimaryTargetAbbreviation}", PopupLineType.Synonym));
                 }
 
                 // Source synonyms (alternative source forms that match this entry)

@@ -164,9 +164,19 @@ namespace Supervertaler.Trados.Core
                             sb.Append("  Notes: ").AppendLine(term.Notes);
                     }
 
-                    // Include abbreviation pair if available
-                    if (!string.IsNullOrEmpty(term.SourceAbbreviation) && !string.IsNullOrEmpty(term.TargetAbbreviation))
-                        sb.AppendLine("- " + term.SourceAbbreviation + " \u2192 " + term.TargetAbbreviation + " (abbreviation of: " + term.SourceTerm + ")");
+                    // Include abbreviation pair if available. Every source spelling
+                    // is listed so the model recognises them all, but only the
+                    // primary target form is offered, so it produces one canonical
+                    // abbreviation instead of picking between spellings.
+                    //
+                    // These fields may hold several pipe-separated variants
+                    // ("PCPs|PCP's"). Emitting them raw told the model the
+                    // abbreviation literally contains a pipe, which it could then
+                    // copy straight into the translation.
+                    var srcAbbrVariants = term.GetSourceAbbreviationVariants();
+                    var primaryTgtAbbr = term.PrimaryTargetAbbreviation;
+                    if (srcAbbrVariants.Length > 0 && !string.IsNullOrEmpty(primaryTgtAbbr))
+                        sb.AppendLine("- " + string.Join(", ", srcAbbrVariants) + " \u2192 " + primaryTgtAbbr + " (abbreviation of: " + term.SourceTerm + ")");
                 }
             }
 

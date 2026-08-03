@@ -99,8 +99,14 @@ namespace Supervertaler.Trados.Core
                             sb.Append("  Notes: ").AppendLine(term.Notes);
                     }
 
-                    if (!string.IsNullOrEmpty(term.SourceAbbreviation) && !string.IsNullOrEmpty(term.TargetAbbreviation))
-                        sb.AppendLine("- " + term.SourceAbbreviation + " \u2192 " + term.TargetAbbreviation + " (abbreviation of: " + term.SourceTerm + ")");
+                    // Pipe-separated variants are expanded rather than emitted raw \u2013
+                    // see the matching block in TranslationPrompt for the rationale.
+                    // All source spellings are listed so the proofreader recognises
+                    // each of them; one canonical target form is named as correct.
+                    var srcAbbrVariants = term.GetSourceAbbreviationVariants();
+                    var primaryTgtAbbr = term.PrimaryTargetAbbreviation;
+                    if (srcAbbrVariants.Length > 0 && !string.IsNullOrEmpty(primaryTgtAbbr))
+                        sb.AppendLine("- " + string.Join(", ", srcAbbrVariants) + " \u2192 " + primaryTgtAbbr + " (abbreviation of: " + term.SourceTerm + ")");
                 }
             }
 
