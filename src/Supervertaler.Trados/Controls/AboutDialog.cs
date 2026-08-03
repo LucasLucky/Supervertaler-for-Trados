@@ -73,7 +73,11 @@ namespace Supervertaler.Trados.Controls
                 AutoSize = true,
                 ForeColor = Color.FromArgb(80, 80, 80)
             });
-            y += 20;
+            // 22, not 20: an AutoSize label at this font renders 21px tall, so a
+            // 20px step left the email link below overlapping it by a pixel.
+            // Invisible on screen, but the layout probe measures it. Matches the
+            // step used after the version label above.
+            y += 22;
 
             // Email
             var emailLink = new NoFocusCuesLinkLabel
@@ -306,6 +310,17 @@ namespace Supervertaler.Trados.Controls
             };
             Controls.Add(securityLink);
             y += 20;
+
+            // Grow the dialog to fit whatever the layout above actually produced,
+            // instead of trusting the constant ClientSize set at the top.
+            //
+            // That constant was a running total that nobody recomputed: every
+            // shortcut row and link added over the years pushed the last link
+            // closer to the bottom edge, and adding Ctrl+Alt+A in 20.157 finally
+            // pushed "Privacy Policy" off the dialog altogether. Deriving the
+            // height from y means the next row added cannot do that again.
+            const int closeButtonArea = 56;   // room for the button plus margins
+            ClientSize = new Size(ClientSize.Width, y + closeButtonArea);
 
             // Close button
             var btnClose = new Button

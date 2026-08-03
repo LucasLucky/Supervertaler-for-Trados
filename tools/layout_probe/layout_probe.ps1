@@ -36,6 +36,26 @@ if (-not (Test-Path $dll)) {
 
 $asm = [System.Reflection.Assembly]::LoadFrom($dll)
 
+# Some dialogs touch the Trados plugin framework (licence state, help links),
+# so constructing them needs the SDL assemblies. They are not beside our DLL,
+# they are in the Studio installation - resolve them from there on demand.
+# Without this, AboutDialog throws in its constructor.
+$script:probeDirs = @(
+    (Split-Path -Parent $dll),
+    "C:\Program Files (x86)\Trados\Trados Studio\Studio$StudioVersion"
+)
+[System.AppDomain]::CurrentDomain.add_AssemblyResolve({
+    param($sender, $e)
+    $shortName = (New-Object System.Reflection.AssemblyName($e.Name)).Name
+    foreach ($dir in $script:probeDirs) {
+        $candidate = Join-Path $dir "$shortName.dll"
+        if (Test-Path $candidate) {
+            return [System.Reflection.Assembly]::LoadFrom($candidate)
+        }
+    }
+    return $null
+})
+
 # Each case supplies the LONGEST realistic text, since that is what breaks a
 # layout. Survey text is typed into the admin dashboard per question, so its
 # length is genuinely unknown at build time - test accordingly.
@@ -55,6 +75,16 @@ $cases = @(
         Args = @(
             "Which parts of Supervertaler do you actually use day to day, and is there anything you expected to be there that isn't? Any detail helps, however small.",
             "Yes", "No", "open")
+    },
+    @{
+        # Grows every time a keyboard shortcut or a link is added. Its height
+        # used to be a constant that nobody recomputed, so in 20.157 the new
+        # Ctrl+Alt+A row pushed the "Privacy Policy" link off the bottom edge -
+        # exactly the kind of spill this probe exists to catch, on a dialog it
+        # was not yet watching. Takes no constructor arguments.
+        Type = "Supervertaler.Trados.Controls.AboutDialog"
+        Name = "AboutDialog"
+        Args = @()
     },
     @{
         Type = "Supervertaler.Trados.Controls.AnnouncementDialog"
@@ -123,7 +153,20 @@ foreach ($case in $cases) {
         [System.Reflection.BindingFlags]::Public -bor
         [System.Reflection.BindingFlags]::NonPublic)[0]
 
-    $dlg = $ctor.Invoke($case.Args)
+    # A dialog that cannot be constructed is a FAILURE, not a pass. This used
+    # to fall through: the exception was printed, then the empty object was
+    # measured, reported as "OK - 0 controls" and counted as passing. A checker
+    # that goes quiet when it cannot do its job is worse than no checker.
+    try {
+        $dlg = $ctor.Invoke($case.Args)
+    } catch {
+        $msg = $_.Exception.Message
+        if ($_.Exception.InnerException) { $msg = $_.Exception.InnerException.Message }
+        Write-Output "  CONSTRUCTION FAILED: $msg"
+        $failed++
+        continue
+    }
+
     $dlg.StartPosition = 'Manual'
     $dlg.Location = New-Object System.Drawing.Point(-4000, -4000)
     $dlg.Show()
