@@ -89,16 +89,26 @@ def read_current_version_19():
     return _read_manifest_three(MANIFEST_19)
 
 
-def last_github_tag():
-    """The most recent GitHub release tag, e.g. 'v4.20.44' -> '4.20.44'. None if no releases."""
+def last_github_tag(exclude=None):
+    """The most recent GitHub release tag, e.g. 'v4.20.44' -> '4.20.44'. None if no releases.
+
+    `exclude` (the version being released) is skipped, so re-running this AFTER
+    the release exists still reports the release *before* it. Without that, the
+    tag just published becomes its own baseline, the delta comes out empty, and
+    the body file is silently overwritten with a changelog-less release note.
+    """
     try:
         out = subprocess.run(
-            ["gh", "release", "list", "--limit", "1", "--json", "tagName", "-q", ".[0].tagName"],
+            ["gh", "release", "list", "--limit", "10", "--json", "tagName", "-q", ".[].tagName"],
             cwd=BASE_DIR, capture_output=True, text=True, check=True,
         ).stdout.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
-    return out.lstrip("v") or None
+    for line in out.splitlines():
+        tag = line.strip().lstrip("v")
+        if tag and tag != (exclude or "").lstrip("v"):
+            return tag
+    return None
 
 
 def parse_changelog():
@@ -218,12 +228,18 @@ def main():
         sys.exit(1)
 
     if since is None:
-        since = last_github_tag()
+        since = last_github_tag(exclude=version)
     entries = parse_changelog()
     selected, all_versions = select_entries(entries, since)
 
     if since and since not in all_versions:
         print(f"WARNING: baseline {since} not found in changelog — including all entries")
+    if not selected:
+        print(f"ERROR: no changelog entries after baseline {since or '(none)'} — refusing to "
+              f"write an empty release body over release-body-v{version}.md.\n"
+              f"       If you are regenerating notes for an already-published release, pass "
+              f"--since <the version before {version}>.")
+        sys.exit(1)
     print(f"v{version}: baseline = {since or '(none)'}, "
           f"{len(selected)} changelog version(s): {', '.join(v for v, _ in selected) or '—'}")
 
