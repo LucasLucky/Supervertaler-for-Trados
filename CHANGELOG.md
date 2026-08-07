@@ -20,7 +20,10 @@
 - **`add_term` warns when a Write-enabled *project* termbase's name doesn't match the open project** – a one-line `note` in the response, so a termbase left Write-ticked from a previous job doesn't silently receive new terms without the user noticing.
 - **New `scope: "project" | "background" | "both"` parameter on `add_term`**, resolved from each Write-enabled termbase's Trados "Project" flag (visible via `list_resources`). Use `scope: "project"` to keep a job-specific decision out of a shared background termbase (e.g. a large personal glossary) without having to name it explicitly; `termbases` still wins if both are given. Every per-termbase result now echoes its resolved `role` ("project"/"background").
 - **`add_term`'s `duplicate` results now echo the matched existing entry** (id, source, target) instead of a bare "already exists" – and `lookup_term` hits now report `isProjectTermbase` so project-termbase matches can be weighted above background ones, mirroring TermLens's pink-vs-blue chip distinction.
-- Fixed a normalisation gap where `lookup_term`'s exact-match stage compared the *query* trimmed against the *stored* term untrimmed, while `add_term`'s duplicate check trimmed both sides – a term with incidental leading/trailing whitespace could report "duplicate" on write while `lookup_term` found nothing for the same text. Both paths now trim consistently.
+
+### Fixed (Supervertaler MCP Server · lookup_term and add_term could disagree about whether an entry exists)
+
+- **A term could be refused as a "duplicate" on write while `lookup_term` insisted the termbase held nothing for it.** Both statements looked authoritative and only one could be true, which left the only recourse a manual look in the termbase view. The cause was a normalisation gap: `lookup_term`'s exact-match stage compared the *query* trimmed against the *stored* term untrimmed, while `add_term`'s duplicate check trimmed both sides – so an entry carrying incidental leading or trailing whitespace was findable by one path and invisible to the other. Both now trim consistently. Paired with the duplicate echo above, a `duplicate` result can be verified instead of taken on trust.
 
 ## [18.20.158 / 19.20.158] – 2026-08-06
 
