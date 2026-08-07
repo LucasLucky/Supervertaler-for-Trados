@@ -32,6 +32,23 @@ namespace Supervertaler.Trados.Core
             @"(?<!\w)[\w.,%&'*+/\u2080-\u2089\u2070\u00B9\u00B2\u00B3\u2074-\u2079\-]+(?!\w)",
             RegexOptions.Compiled);
 
+        // The complement of WordPattern's character class (plus whitespace).
+        // Characters outside the class \u2013 brackets, quotes, semicolons \u2013 never
+        // appear in a rendered token, so an editor selection containing one
+        // could never be found in the panel's text. Selection tracking filters
+        // the selection through this before matching; keep it in sync with
+        // WordPattern above.
+        private static readonly Regex NonRenderableChars = new Regex(
+            @"[^\w.,%&'*+/\u2080-\u2089\u2070\u00B9\u00B2\u00B3\u2074-\u2079\-]+",
+            RegexOptions.Compiled);
+
+        /// <summary>Reduces text to the characters that can appear in a
+        /// rendered panel token \u2013 drops whitespace, brackets, quotes and any
+        /// other punctuation the tokenizer never emits. The result is directly
+        /// comparable against a concatenation of rendered token texts.</summary>
+        public static string SquashToRenderable(string text)
+            => string.IsNullOrEmpty(text) ? "" : NonRenderableChars.Replace(text, "");
+
         // Tags from various CAT tools to strip before display
         private static readonly Regex TagPattern = new Regex(
             @"</?(?:b|i|u|bi|sub|sup|li-[ob]|\d+)/?>|[\[{]\d+[}\]]|\{\d{5}\}|\[[^\[\]]*\}|\{[^\{\}]*\]",

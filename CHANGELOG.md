@@ -9,6 +9,10 @@
 
 ## [18.20.159 / 19.20.159] – 2026-08-07
 
+### Fixed (TermLens · selection tracking survives brackets)
+
+- **Selecting source text that includes brackets no longer breaks TermLens's selection tracking.** The panel renders "(101, 201)" as "101, 201" – its tokenizer deliberately drops brackets (so "verkoper(s)" can match the term "verkoper") – but the yellow follow-the-selection highlight matched the editor's selection *verbatim* against that rendering, so one selected "(" made the whole match fail and the highlight silently vanish. Typical patent selections ("waarbij het omsluitend deel (101, 201)") hit this constantly. The selection is now reduced to the same character set the panel renders before matching, so brackets, quotes and other dropped punctuation in the selection can no longer kill the anchor.
+
 ### Added (Supervertaler MCP Server · termbase editing, stale-termbase warning, project vs background scoping)
 
 - **`update_term` can now edit `newNotes`, `newDefinition`, `newDomain`** alongside `newSource`/`newTarget` – only the fields you pass change, everything else (including flags) is preserved, and the response lists exactly what changed. Notes carry most of a termbase's actual terminological knowledge (usage warnings, spelling variants, context); previously changing one meant delete+re-add, which lost the entry's id and needed two orientation-sensitive calls.

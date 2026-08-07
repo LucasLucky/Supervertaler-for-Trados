@@ -750,9 +750,13 @@ namespace Supervertaler.Trados.Controls
         /// The editor selects over the raw segment text while this panel shows
         /// a tokenised rendering (tags stripped, whitespace normalised), so
         /// the two sides are matched on a whitespace-free "squashed" form of
-        /// the text — immune to tokenisation spacing differences. Partial-word
-        /// selections highlight the whole covered token, which is the right
-        /// visual grain for an eye anchor.
+        /// the text — immune to tokenisation spacing differences. The selection
+        /// is additionally reduced to the tokenizer's renderable character set
+        /// (TermMatcher.SquashToRenderable): the editor text keeps brackets and
+        /// other punctuation the tokenizer drops — "(101, 201)" renders as
+        /// "101, 201" — and one such character would otherwise kill the whole
+        /// match. Partial-word selections highlight the whole covered token,
+        /// which is the right visual grain for an eye anchor.
         /// </summary>
         /// <param name="selectedText">The selection as reported by
         /// DocumentSelection.Source.ToString().</param>
@@ -767,7 +771,7 @@ namespace Supervertaler.Trados.Controls
                 if (c is TermBlock || c is WordLabel) controls.Add(c);
             if (controls.Count == 0) return;
 
-            var squashedSel = SquashWhitespace(selectedText);
+            var squashedSel = Core.TermMatcher.SquashToRenderable(selectedText);
             if (squashedSel.Length == 0)
             {
                 ApplySelectionHighlight(controls, -1, -1);
