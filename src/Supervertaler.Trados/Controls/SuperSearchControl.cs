@@ -121,11 +121,19 @@ namespace Supervertaler.Trados.Controls
 
         private void BuildUI()
         {
-            // Let WinForms scale this dialog by system DPI so it doesn't squish
-            // at >100% Windows display scaling. Cheap fallback; for surfaces
-            // with their own UiScale-driven layout, set AutoScaleMode = None
-            // instead and let UiScale own scaling.
-            AutoScaleMode = AutoScaleMode.Dpi;
+            // NOT AutoScaleMode.Dpi. This panel lays its own toolbar out by hand
+            // (see LayoutSearchBar) and is hosted inside a Trados ViewPart pane
+            // that has already applied the system DPI factor, so making it a
+            // second scaling boundary buys nothing and risks double-scaling.
+            // The blanket "AutoScaleMode = Dpi on every dialog and panel" sweep
+            // (1b80d8e, 2026-05-07) set Dpi here; None is the setting that sweep
+            // itself prescribed for surfaces that own their layout.
+            //
+            // This is NOT a fix for the 2026-08-06 report of the search bar and
+            // grid headers going missing. That turned out to be Trados docking
+            // geometry, not ours: the pane's own caption bar was clipped too, so
+            // the whole pane was sitting too high. A restart cleared it.
+            AutoScaleMode = AutoScaleMode.None;
             SuspendLayout();
             BackColor = Color.White;
             Font = new Font("Segoe UI", 9f);
