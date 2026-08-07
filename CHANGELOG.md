@@ -7,6 +7,25 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.159 / 19.20.159] – 2026-08-07
+
+### Added (Supervertaler MCP Server · termbase editing, stale-termbase warning, project vs background scoping)
+
+- **`update_term` can now edit `newNotes`, `newDefinition`, `newDomain`** alongside `newSource`/`newTarget` – only the fields you pass change, everything else (including flags) is preserved, and the response lists exactly what changed. Notes carry most of a termbase's actual terminological knowledge (usage warnings, spelling variants, context); previously changing one meant delete+re-add, which lost the entry's id and needed two orientation-sensitive calls.
+- **`update_comment` can now change `severity` independently of `text`** – provide either, both, or neither is now a clear error instead of a forced text rewrite.
+- **`add_term` warns when a Write-enabled *project* termbase's name doesn't match the open project** – a one-line `note` in the response, so a termbase left Write-ticked from a previous job doesn't silently receive new terms without the user noticing.
+- **New `scope: "project" | "background" | "both"` parameter on `add_term`**, resolved from each Write-enabled termbase's Trados "Project" flag (visible via `list_resources`). Use `scope: "project"` to keep a job-specific decision out of a shared background termbase (e.g. a large personal glossary) without having to name it explicitly; `termbases` still wins if both are given. Every per-termbase result now echoes its resolved `role` ("project"/"background").
+- **`add_term`'s `duplicate` results now echo the matched existing entry** (id, source, target) instead of a bare "already exists" – and `lookup_term` hits now report `isProjectTermbase` so project-termbase matches can be weighted above background ones, mirroring TermLens's pink-vs-blue chip distinction.
+- Fixed a normalisation gap where `lookup_term`'s exact-match stage compared the *query* trimmed against the *stored* term untrimmed, while `add_term`'s duplicate check trimmed both sides – a term with incidental leading/trailing whitespace could report "duplicate" on write while `lookup_term` found nothing for the same text. Both paths now trim consistently.
+
+## [18.20.158 / 19.20.158] – 2026-08-06
+
+### Added (Supervertaler MCP Server · get_tracked_changes – your corrections become reusable knowledge)
+
+- **New tool `get_tracked_changes` extracts the document's tracked changes as (before, after) pairs per segment** – the target as it was offered (an AI draft, a fuzzy match) versus the reviewed final. When you translate with the batch translator or the MCP server and then review with Track Changes on, every tracked change is a record of how you correct machine output for this client. That record used to evaporate when the project shipped; now it can be harvested.
+- **Pass `save=true` to write the full harvest into the active SuperMemory bank's `00_INBOX`** as a Markdown note (project, language pair, and per segment: source, before, after, who edited and when). One harvest file per project, stored in the client's bank – so the next project for that client can draw on it, and Process Inbox can distill it into style rules (`04_STYLE`) and terminology (`02_TERMINOLOGY`). Check the right bank is active before saving; the response names the bank it wrote to.
+- Target-side revisions only, and only segments whose text actually changed – formatting-only edits, reverted edits, and wholly inserted/deleted targets are skipped and counted in the response note. This is the first slice of a planned feedback loop: harvest now; distillation into style rules, prompt improvement, and "previously corrected" QA checks build on these files later.
+
 ## [18.20.157 / 19.20.157] – 2026-08-03
 
 ### Added (Supervertaler MCP Server · coverage tracking – "was it looked at?" becomes checkable)

@@ -153,12 +153,12 @@ namespace Supervertaler.Trados.Core
                        {urlCol}
                 FROM termbase_terms t
                 LEFT JOIN termbases tb ON CAST(t.termbase_id AS INTEGER) = tb.id
-                WHERE (LOWER(t.source_term) = LOWER(@term)
-                    OR LOWER(RTRIM(t.source_term, '.!?,;:')) = LOWER(@term)
-                    OR LOWER(@term) = LOWER(RTRIM(t.source_term, '.!?,;:'))
-                    OR LOWER(t.target_term) = LOWER(@term)
-                    OR LOWER(RTRIM(t.target_term, '.!?,;:')) = LOWER(@term)
-                    OR LOWER(@term) = LOWER(RTRIM(t.target_term, '.!?,;:')))
+                WHERE (LOWER(TRIM(t.source_term)) = LOWER(@term)
+                    OR LOWER(RTRIM(TRIM(t.source_term), '.!?,;:')) = LOWER(@term)
+                    OR LOWER(@term) = LOWER(RTRIM(TRIM(t.source_term), '.!?,;:'))
+                    OR LOWER(TRIM(t.target_term)) = LOWER(@term)
+                    OR LOWER(RTRIM(TRIM(t.target_term), '.!?,;:')) = LOWER(@term)
+                    OR LOWER(@term) = LOWER(RTRIM(TRIM(t.target_term), '.!?,;:')))
                 ORDER BY ranking ASC, t.source_term ASC";
 
             using (var cmd = new SqliteCommand(sql, _connection))
@@ -1269,6 +1269,12 @@ namespace Supervertaler.Trados.Core
             public bool Swapped;
             /// <summary>Human-readable reason for duplicate / cannot-orient.</summary>
             public string Detail;
+            /// <summary>Duplicate only: the id and stored form of the entry that
+            /// already matched, so the caller can see what it hit instead of
+            /// taking "duplicate" on faith.</summary>
+            public long ExistingId = -1;
+            public string ExistingSource;
+            public string ExistingTarget;
         }
 
         /// <summary>
@@ -1414,7 +1420,7 @@ namespace Supervertaler.Trados.Core
                     // in the reverse direction (e.g. from an older buggy insert)
                     // counts as a duplicate and must not be added a second time.
                     const string checkSql = @"
-                        SELECT id FROM termbase_terms
+                        SELECT id, source_term, target_term FROM termbase_terms
                         WHERE CAST(termbase_id AS INTEGER) = @tbId
                           AND (
                             (LOWER(TRIM(source_term)) = LOWER(@source)
@@ -1464,11 +1470,18 @@ namespace Supervertaler.Trados.Core
                             check.Parameters.AddWithValue("@source", termForSourceColumn.Trim());
                             check.Parameters.AddWithValue("@target", termForTargetColumn.Trim());
 
-                            if (check.ExecuteScalar() != null)
+                            using (var existing = check.ExecuteReader())
                             {
-                                outcome.Status = TermInsertOutcome.StatusDuplicate;
-                                outcome.Detail = "an entry for this pair already exists in this termbase";
-                                continue;
+                                if (existing.Read())
+                                {
+                                    outcome.Status = TermInsertOutcome.StatusDuplicate;
+                                    outcome.ExistingId = existing.GetInt64(0);
+                                    outcome.ExistingSource = existing.IsDBNull(1) ? "" : existing.GetString(1);
+                                    outcome.ExistingTarget = existing.IsDBNull(2) ? "" : existing.GetString(2);
+                                    outcome.Detail = $"an entry for this pair already exists in this termbase " +
+                                        $"(id {outcome.ExistingId}: “{outcome.ExistingSource} → {outcome.ExistingTarget}”)";
+                                    continue;
+                                }
                             }
                         }
 

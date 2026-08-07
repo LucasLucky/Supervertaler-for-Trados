@@ -168,6 +168,10 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "matchedField", Order = 8, EmitDefaultValue = false)] public string MatchedField { get; set; }
         [DataMember(Name = "sourceLang", Order = 9, EmitDefaultValue = false)] public string SourceLang { get; set; }
         [DataMember(Name = "targetLang", Order = 10, EmitDefaultValue = false)] public string TargetLang { get; set; }
+        /// <summary>True when this hit's termbase carries the Trados "Project"
+        /// flag – a job-specific decision, as opposed to a shared background
+        /// termbase. Mirrors TermLens's pink-vs-blue chip distinction.</summary>
+        [DataMember(Name = "isProjectTermbase", Order = 11, EmitDefaultValue = false)] public bool IsProjectTermbase { get; set; }
     }
 
     [DataContract]
@@ -204,6 +208,9 @@ namespace Supervertaler.Trados.Core
         // update_term only:
         [DataMember(Name = "newSource")] public string NewSource { get; set; }
         [DataMember(Name = "newTarget")] public string NewTarget { get; set; }
+        [DataMember(Name = "newNotes")] public string NewNotes { get; set; }
+        [DataMember(Name = "newDefinition")] public string NewDefinition { get; set; }
+        [DataMember(Name = "newDomain")] public string NewDomain { get; set; }
     }
 
     [DataContract]
@@ -530,6 +537,40 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "note", Order = 7, EmitDefaultValue = false)] public string Note { get; set; }
     }
 
+    public class BridgeTrackedChangesQuery
+    {
+        /// <summary>Write the full harvest (all changes, not just the returned
+        /// page) as a Markdown file into the active SuperMemory bank's 00_INBOX.</summary>
+        public bool Save;
+        public int Limit = 200;
+    }
+
+    [DataContract]
+    public class BridgeTrackedChangeRecord
+    {
+        [DataMember(Name = "id", Order = 0)] public string Id { get; set; }
+        [DataMember(Name = "fileName", Order = 1, EmitDefaultValue = false)] public string FileName { get; set; }
+        [DataMember(Name = "source", Order = 2)] public string Source { get; set; }
+        [DataMember(Name = "before", Order = 3)] public string Before { get; set; }
+        [DataMember(Name = "after", Order = 4)] public string After { get; set; }
+        [DataMember(Name = "authors", Order = 5, EmitDefaultValue = false)] public List<string> Authors { get; set; }
+        [DataMember(Name = "lastDate", Order = 6, EmitDefaultValue = false)] public string LastDate { get; set; }
+        [DataMember(Name = "status", Order = 7, EmitDefaultValue = false)] public string Status { get; set; }
+    }
+
+    [DataContract]
+    public class BridgeTrackedChangesResponse
+    {
+        [DataMember(Name = "available", Order = 0)] public bool Available { get; set; }
+        [DataMember(Name = "segmentsScanned", Order = 1)] public int SegmentsScanned { get; set; }
+        [DataMember(Name = "segmentsWithChanges", Order = 2)] public int SegmentsWithChanges { get; set; }
+        [DataMember(Name = "changes", Order = 3, EmitDefaultValue = false)] public List<BridgeTrackedChangeRecord> Changes { get; set; }
+        [DataMember(Name = "truncated", Order = 4, EmitDefaultValue = false)] public bool Truncated { get; set; }
+        [DataMember(Name = "savedTo", Order = 5, EmitDefaultValue = false)] public string SavedTo { get; set; }
+        [DataMember(Name = "savedToBank", Order = 6, EmitDefaultValue = false)] public string SavedToBank { get; set; }
+        [DataMember(Name = "note", Order = 8, EmitDefaultValue = false)] public string Note { get; set; }
+    }
+
     [DataContract]
     public class BridgeQaIssue
     {
@@ -645,6 +686,41 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "termbases", Order = 2, EmitDefaultValue = false)]
         public List<BridgeTermbaseResource> Termbases { get; set; }
         [DataMember(Name = "note", Order = 3, EmitDefaultValue = false)] public string Note { get; set; }
+    }
+
+    // ── Session payload report (cost instrumentation) ─────────────────
+
+    [DataContract]
+    public class BridgeSessionReportEntry
+    {
+        /// <summary>Bridge path, plus "?type=x" where several tools share one
+        /// endpoint. Not the MCP tool name – one endpoint can back several.</summary>
+        [DataMember(Name = "endpoint", Order = 0)] public string Endpoint { get; set; }
+        [DataMember(Name = "calls", Order = 1)] public int Calls { get; set; }
+        [DataMember(Name = "responseBytes", Order = 2)] public long ResponseBytes { get; set; }
+        [DataMember(Name = "avgResponseBytes", Order = 3)] public long AvgResponseBytes { get; set; }
+        /// <summary>Largest single response – an average hides the one call that flooded the chat.</summary>
+        [DataMember(Name = "maxResponseBytes", Order = 4)] public long MaxResponseBytes { get; set; }
+        [DataMember(Name = "requestBytes", Order = 5, EmitDefaultValue = false)] public long RequestBytes { get; set; }
+        /// <summary>Rough proxy only: (request + response) / 4.</summary>
+        [DataMember(Name = "estTokens", Order = 6)] public long EstTokens { get; set; }
+    }
+
+    [DataContract]
+    public class BridgeSessionReportResponse
+    {
+        [DataMember(Name = "available", Order = 0)] public bool Available { get; set; }
+        /// <summary>ISO-8601 UTC – bridge start, or the last reset.</summary>
+        [DataMember(Name = "since", Order = 1)] public string Since { get; set; }
+        [DataMember(Name = "totalCalls", Order = 2)] public int TotalCalls { get; set; }
+        [DataMember(Name = "totalResponseBytes", Order = 3)] public long TotalResponseBytes { get; set; }
+        [DataMember(Name = "totalRequestBytes", Order = 4)] public long TotalRequestBytes { get; set; }
+        [DataMember(Name = "estTotalTokens", Order = 5)] public long EstTotalTokens { get; set; }
+        /// <summary>True when this call zeroed the counters after reporting.</summary>
+        [DataMember(Name = "wasReset", Order = 6, EmitDefaultValue = false)] public bool WasReset { get; set; }
+        [DataMember(Name = "endpoints", Order = 7, EmitDefaultValue = false)]
+        public List<BridgeSessionReportEntry> Endpoints { get; set; }
+        [DataMember(Name = "note", Order = 8, EmitDefaultValue = false)] public string Note { get; set; }
     }
 
     // ── SuperMemory (memory banks) ────────────────────────────────────
@@ -778,7 +854,10 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "id", IsRequired = true)] public string Id { get; set; }
         /// <summary>Comment index as returned by /v1/comments for this segment.</summary>
         [DataMember(Name = "commentIndex", IsRequired = true)] public int CommentIndex { get; set; }
-        [DataMember(Name = "text", IsRequired = true)] public string Text { get; set; }
+        /// <summary>New comment text. Omit to change only 'severity'.</summary>
+        [DataMember(Name = "text", EmitDefaultValue = false)] public string Text { get; set; }
+        /// <summary>"Low", "Medium", or "High". Omit to leave the severity unchanged.</summary>
+        [DataMember(Name = "severity", EmitDefaultValue = false)] public string Severity { get; set; }
     }
 
     [DataContract]
@@ -1046,6 +1125,11 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "definition", EmitDefaultValue = false)] public string Definition { get; set; }
         [DataMember(Name = "domain", EmitDefaultValue = false)] public string Domain { get; set; }
         [DataMember(Name = "notes", EmitDefaultValue = false)] public string Notes { get; set; }
+        /// <summary>Optional: "project" (Project-flagged Write termbases only),
+        /// "background" (Write termbases without the Project flag), or "both"
+        /// (default – current behaviour). Ignored when 'termbases' is given –
+        /// an explicit list always wins.</summary>
+        [DataMember(Name = "scope", EmitDefaultValue = false)] public string Scope { get; set; }
     }
 
     /// <summary>Exactly what one termbase stored, echoed so the caller can
@@ -1065,6 +1149,17 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "reoriented", Order = 7, EmitDefaultValue = false)] public bool Reoriented { get; set; }
     }
 
+    /// <summary>Duplicate-only: the existing entry an add_term call matched,
+    /// so the caller can see what it hit instead of taking "duplicate" on
+    /// faith.</summary>
+    [DataContract]
+    public class BridgeExistingTerm
+    {
+        [DataMember(Name = "id", Order = 0)] public long Id { get; set; }
+        [DataMember(Name = "source", Order = 1)] public string Source { get; set; }
+        [DataMember(Name = "target", Order = 2)] public string Target { get; set; }
+    }
+
     [DataContract]
     public class BridgeAddTermResult
     {
@@ -1073,6 +1168,11 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "status", Order = 1)] public string Status { get; set; }
         [DataMember(Name = "detail", Order = 2, EmitDefaultValue = false)] public string Detail { get; set; }
         [DataMember(Name = "stored", Order = 3, EmitDefaultValue = false)] public BridgeStoredTerm Stored { get; set; }
+        /// <summary>"project" or "background", resolved from the termbase's
+        /// Project flag. Null when the termbase couldn't be resolved (e.g. an
+        /// unknown name passed via 'termbases').</summary>
+        [DataMember(Name = "role", Order = 4, EmitDefaultValue = false)] public string Role { get; set; }
+        [DataMember(Name = "existing", Order = 5, EmitDefaultValue = false)] public BridgeExistingTerm Existing { get; set; }
     }
 
     [DataContract]
@@ -1153,6 +1253,7 @@ namespace Supervertaler.Trados.Core
         private readonly Func<BridgeSuperMemoryBanksResponse> _listSuperMemoryBanks;
         private readonly Func<BridgeMarkReviewedRequest, BridgeMarkReviewedResponse> _markReviewed;
         private readonly Func<BridgeCoverageResponse> _getCoverage;
+        private readonly Func<BridgeTrackedChangesQuery, BridgeTrackedChangesResponse> _getTrackedChanges;
 
         /// <summary>Max segment updates per /v1/update-segments call – keeps a
         /// single request from freezing the editor thread for minutes on huge
@@ -1238,7 +1339,8 @@ namespace Supervertaler.Trados.Core
             Func<BridgeSuperMemorySearchQuery, BridgeSuperMemorySearchResponse> searchSuperMemory = null,
             Func<BridgeSuperMemoryBanksResponse> listSuperMemoryBanks = null,
             Func<BridgeMarkReviewedRequest, BridgeMarkReviewedResponse> markReviewed = null,
-            Func<BridgeCoverageResponse> getCoverage = null)
+            Func<BridgeCoverageResponse> getCoverage = null,
+            Func<BridgeTrackedChangesQuery, BridgeTrackedChangesResponse> getTrackedChanges = null)
         {
             _getContext = getContext ?? throw new ArgumentNullException(nameof(getContext));
             _insertText = insertText ?? throw new ArgumentNullException(nameof(insertText));
@@ -1271,6 +1373,7 @@ namespace Supervertaler.Trados.Core
             _listSuperMemoryBanks = listSuperMemoryBanks;
             _markReviewed = markReviewed;
             _getCoverage = getCoverage;
+            _getTrackedChanges = getTrackedChanges;
         }
 
         public bool IsRunning => _listener != null && _listener.IsListening;
@@ -1465,6 +1568,16 @@ namespace Supervertaler.Trados.Core
             var path = request.Url.AbsolutePath;
             var method = request.HttpMethod;
 
+            // Cost instrumentation: tally what this call carries in. The
+            // response side is tallied in WriteJson/WriteRawJson.
+            RecordRequestPayload(context);
+
+            if (method == "GET" && path == SessionReportPath)
+            {
+                HandleSessionReport(context);
+                return;
+            }
+
             if (method == "GET" && path == "/v1/active-context")
             {
                 HandleGetActiveContext(context);
@@ -1552,6 +1665,12 @@ namespace Supervertaler.Trados.Core
             if (method == "GET" && path == "/v1/coverage")
             {
                 HandleCoverage(context);
+                return;
+            }
+
+            if (method == "GET" && path == "/v1/tracked-changes")
+            {
+                HandleTrackedChanges(context);
                 return;
             }
 
@@ -2259,10 +2378,15 @@ namespace Supervertaler.Trados.Core
                     bool activeOnly = string.Equals(
                         QueryUtf8(context.Request)["activeOnly"], "true", StringComparison.OrdinalIgnoreCase);
                     HashSet<long> disabledTbs;
+                    // The settings' Project tick is the authoritative project flag
+                    // (drives TermLens's pink chips) – the DB column is often stale.
+                    long projectTbId = -1;
                     try
                     {
+                        var tlSettings = TermLensSettings.Load();
                         disabledTbs = new HashSet<long>(
-                            TermLensSettings.Load()?.DisabledTermbaseIds ?? new List<long>());
+                            tlSettings?.DisabledTermbaseIds ?? new List<long>());
+                        projectTbId = tlSettings?.ProjectTermbaseId ?? -1;
                     }
                     catch { disabledTbs = new HashSet<long>(); }
 
@@ -2283,7 +2407,8 @@ namespace Supervertaler.Trados.Core
                             Inactive = inactive,
                             MatchedField = ComputeMatchedField(q, entry.SourceTerm, entry.TargetTerm),
                             SourceLang = entry.SourceLang,
-                            TargetLang = entry.TargetLang
+                            TargetLang = entry.TargetLang,
+                            IsProjectTermbase = entry.TermbaseId == projectTbId
                         });
                     }
                     if (excludedInactive > 0)
@@ -2308,7 +2433,8 @@ namespace Supervertaler.Trados.Core
                             NonTranslatable = entry.IsNonTranslatable,
                             MatchedField = ComputeMatchedField(q, entry.SourceTerm, entry.TargetTerm),
                             SourceLang = entry.SourceLang,
-                            TargetLang = entry.TargetLang
+                            TargetLang = entry.TargetLang,
+                            IsProjectTermbase = true
                         });
                     }
 
@@ -2391,6 +2517,40 @@ namespace Supervertaler.Trados.Core
             {
                 BridgeLog.Write($"[SupervertalerBridge] coverage threw: {ex.Message}");
                 response = new BridgeCoverageResponse { Available = false, Note = "coverage failed: " + ex.Message };
+            }
+            WriteJson(context, 200, response);
+        }
+
+        private void HandleTrackedChanges(HttpListenerContext context)
+        {
+            if (_getTrackedChanges == null)
+            {
+                TryWriteError(context, 501, "tracked-changes endpoint not wired");
+                return;
+            }
+
+            var qs = QueryUtf8(context.Request);
+            var query = new BridgeTrackedChangesQuery();
+            bool save;
+            if (bool.TryParse(qs["save"], out save))
+                query.Save = save;
+            int limit;
+            if (int.TryParse(qs["limit"], out limit) && limit > 0)
+                query.Limit = Math.Min(limit, 500);
+
+            BridgeTrackedChangesResponse response;
+            try
+            {
+                response = _getTrackedChanges(query) ?? new BridgeTrackedChangesResponse { Available = false };
+            }
+            catch (Exception ex)
+            {
+                BridgeLog.Write($"[SupervertalerBridge] tracked-changes threw: {ex.Message}");
+                response = new BridgeTrackedChangesResponse
+                {
+                    Available = false,
+                    Note = "tracked-changes failed: " + ex.Message
+                };
             }
             WriteJson(context, 200, response);
         }
@@ -3132,6 +3292,7 @@ namespace Supervertaler.Trados.Core
             try
             {
                 var bytes = Encoding.UTF8.GetBytes(json);
+                RecordResponsePayload(context, bytes.Length);
                 context.Response.StatusCode = statusCode;
                 context.Response.ContentType = "application/json; charset=utf-8";
                 context.Response.ContentLength64 = bytes.Length;
@@ -3408,6 +3569,110 @@ namespace Supervertaler.Trados.Core
             File.WriteAllBytes(UserDataPath.SupervertalerBridgeFile, bytes);
         }
 
+        // ── Cost instrumentation ─────────────────────────────────────────
+        //
+        // Every byte a tool returns lands in the AI's transcript, and a chat
+        // client re-sends its whole transcript on every turn – so a single fat
+        // result is billed again on every subsequent turn for the rest of the
+        // conversation. We cannot see the AI's token counts, but we can measure
+        // exactly what we emit, which is the half we control. session_report
+        // turns "get_segments is probably the expensive one" into a number.
+
+        private const string SessionReportPath = "/v1/session-report";
+
+        /// <summary>Ledger key for a request: the bridge path, plus the "type"
+        /// query value where one endpoint backs several tools (/v1/qa-check
+        /// serves check_numbers, check_tags, check_nbsp and
+        /// check_terminology).</summary>
+        private static string LedgerKey(HttpListenerContext context)
+        {
+            try
+            {
+                var p = context.Request.Url.AbsolutePath;
+                var type = QueryUtf8(context.Request)["type"];
+                return string.IsNullOrEmpty(type) ? p : p + "?type=" + type;
+            }
+            catch { return "(unknown)"; }
+        }
+
+        /// <summary>Instrumentation must never break a request – all failures swallowed.</summary>
+        private static void RecordRequestPayload(HttpListenerContext context)
+        {
+            try
+            {
+                var key = LedgerKey(context);
+                // Polling the report must not pollute the report.
+                if (key == SessionReportPath) return;
+                var len = context.Request.ContentLength64;
+                if (len > 0) BridgePayloadLedger.RecordRequest(key, len);
+            }
+            catch { }
+        }
+
+        private static void RecordResponsePayload(HttpListenerContext context, int byteCount)
+        {
+            try
+            {
+                var key = LedgerKey(context);
+                if (key == SessionReportPath) return;
+                BridgePayloadLedger.RecordResponse(key, byteCount);
+            }
+            catch { }
+        }
+
+        /// <summary>GET /v1/session-report – what the bridge has emitted this
+        /// session, per endpoint, heaviest first. <c>reset=true</c> reports and
+        /// then zeroes, so one conversation can be measured in isolation.</summary>
+        private void HandleSessionReport(HttpListenerContext context)
+        {
+            bool reset = string.Equals(
+                QueryUtf8(context.Request)["reset"], "true", StringComparison.OrdinalIgnoreCase);
+
+            var snapshot = BridgePayloadLedger.Snapshot();
+
+            var resp = new BridgeSessionReportResponse
+            {
+                Available = true,
+                Since = BridgePayloadLedger.SinceUtc.ToString("o"),
+                WasReset = reset,
+                Endpoints = new List<BridgeSessionReportEntry>()
+            };
+
+            foreach (var e in snapshot)
+            {
+                resp.TotalCalls += e.Calls;
+                resp.TotalResponseBytes += e.ResponseBytes;
+                resp.TotalRequestBytes += e.RequestBytes;
+                resp.Endpoints.Add(new BridgeSessionReportEntry
+                {
+                    Endpoint = e.Key,
+                    Calls = e.Calls,
+                    ResponseBytes = e.ResponseBytes,
+                    AvgResponseBytes = e.Calls > 0
+                        ? (long)Math.Round((double)e.ResponseBytes / e.Calls)
+                        : 0,
+                    MaxResponseBytes = e.MaxResponseBytes,
+                    RequestBytes = e.RequestBytes,
+                    EstTokens = (e.ResponseBytes + e.RequestBytes) / 4
+                });
+            }
+            resp.EstTotalTokens = (resp.TotalResponseBytes + resp.TotalRequestBytes) / 4;
+
+            resp.Note =
+                "Bytes this bridge has moved since 'since' (Trados start, or the last reset) - " +
+                "NOT the AI's token usage, which the plugin cannot see. estTokens is a rough " +
+                "bytes/4 proxy. Remember each byte is billed again on every later turn of the " +
+                "same conversation, so a big early result costs far more than its size suggests. " +
+                "This endpoint excludes itself. /v1/tools is the one-off tool registry fetched at " +
+                "startup, not a per-turn cost.";
+
+            // Report first, then zero: the caller sees the window it asked about
+            // and the next window starts clean.
+            if (reset) BridgePayloadLedger.Reset();
+
+            WriteJson(context, 200, resp);
+        }
+
         // ── JSON helpers ─────────────────────────────────────────────────
 
         private static void WriteJson<T>(HttpListenerContext context, int statusCode, T payload)
@@ -3415,6 +3680,7 @@ namespace Supervertaler.Trados.Core
             try
             {
                 var bytes = SerializeJson(payload);
+                RecordResponsePayload(context, bytes.Length);
                 context.Response.StatusCode = statusCode;
                 context.Response.ContentType = "application/json; charset=utf-8";
                 context.Response.ContentLength64 = bytes.Length;

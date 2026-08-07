@@ -47,7 +47,7 @@
     },
     {
       "name": "add_term",
-      "description": "Add a term pair to the user's Supervertaler Write termbases, optionally with definition/domain/notes. ORIENTATION: strongly prefer passing sourceLang/targetLang – each termbase then stores the pair according to its OWN declared direction, so one call is correct even for termbases of opposite directions. Without them, `source` is ASSUMED to be in the open project's source language; a termbase whose languages cannot be related to that refuses rather than guessing (no language detection – term pairs are often identical across languages). The response echoes per termbase exactly what was stored, including orientation – check it. Without `termbases`, writes go to EVERY Write-enabled termbase. NOTE: Trados's own project termbases (.ttb / MultiTerm) are READ-ONLY for you – if the user wants a term added there, tell them to add it in Trados itself. Only use when the user asked for a term to be added, or explicitly agreed to your suggestion to add one.",
+      "description": "Add a term pair to the user's Supervertaler Write termbases, optionally with definition/domain/notes. ORIENTATION: strongly prefer passing sourceLang/targetLang – each termbase then stores the pair according to its OWN declared direction, so one call is correct even for termbases of opposite directions. Without them, `source` is ASSUMED to be in the open project's source language; a termbase whose languages cannot be related to that refuses rather than guessing (no language detection – term pairs are often identical across languages). The response echoes per termbase exactly what was stored, including orientation and its resolved role ('project' or 'background') – check it. A 'duplicate' result includes the 'existing' entry it matched (id, source, target). Without `termbases` or `scope`, writes go to EVERY Write-enabled termbase, mixing a background termbase (e.g. a large personal glossary) with a per-job project termbase. Prefer `scope` to target one role deliberately. NOTE: Trados's own project termbases (.ttb / MultiTerm) are READ-ONLY for you – if the user wants a term added there, tell them to add it in Trados itself. Only use when the user asked for a term to be added, or explicitly agreed to your suggestion to add one.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -60,9 +60,15 @@
             "type": "string"
           },
           "termbases": {
-            "description": "Restrict the write to these termbases, by name or numeric id (see list_resources). Omit = all Write-enabled termbases. Unknown or read-only names are reported per entry in results without blocking the rest.",
+            "description": "Restrict the write to these termbases, by name or numeric id (see list_resources). Omit = all Write-enabled termbases (or the 'scope' resolution, if given). Unknown or read-only names are reported per entry in results without blocking the rest. Wins over 'scope' if both are given.",
             "type": "array",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
+          },
+          "scope": {
+            "description": "Which role of Write-enabled termbase to target, resolved from each termbase's Project flag (see list_resources): 'project' = only termbase(s) flagged as this job's project termbase; 'background' = only Write-enabled termbase(s) WITHOUT the Project flag (e.g. a general personal glossary); 'both' (default) = every Write-enabled termbase, the historical behaviour. Ignored when 'termbases' is given. Use 'project' for job-specific terminology decisions so they don't silently pollute a shared background termbase.",
+            "type": "string"
           },
           "sourceLang": {
             "description": "Language of the `source` text (code like 'nl'/'en-GB' or a name like 'Dutch'). Supplying this makes orientation explicit and is the recommended way to call this tool.",
@@ -98,7 +104,7 @@
     },
     {
       "name": "update_term",
-      "description": "Change an existing entry in the user's SUPERVERTALER termbases (the termbase must be Write-enabled - same gate as add_term). Identify the entry by its EXACT current source and target terms (use lookup_term first to see the stored form); optionally restrict to one termbase by name. Provide newSource and/or newTarget. All exact matches in Write-enabled termbases are updated together (identical duplicates); every other field of the entry (definition, notes, domain, flags) is preserved, and the response lists exactly what changed. Trados project termbases (.ttb/.sdltb) are read-only by design - edits to those must be done in Studio.",
+      "description": "Change an existing entry in the user's SUPERVERTALER termbases (the termbase must be Write-enabled - same gate as add_term). Identify the entry by its EXACT current source and target terms (use lookup_term first to see the stored form); optionally restrict to one termbase by name. Provide any of newSource, newTarget, newNotes, newDefinition, newDomain - only the fields you provide are changed, everything else (including flags) is preserved. All exact matches in Write-enabled termbases are updated together (identical duplicates), and the response lists exactly what changed. Notes are where most terminological knowledge actually lives (usage warnings, spelling variants, context) - expect to edit them more often than the term strings themselves. Trados project termbases (.ttb/.sdltb) are read-only by design - edits to those must be done in Studio.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -120,6 +126,18 @@
           },
           "newTarget": {
             "description": "New target term. Omit to keep the current one.",
+            "type": "string"
+          },
+          "newNotes": {
+            "description": "New notes/usage-note text. Omit to keep the current one.",
+            "type": "string"
+          },
+          "newDefinition": {
+            "description": "New definition text. Omit to keep the current one.",
+            "type": "string"
+          },
+          "newDomain": {
+            "description": "New domain/subject field. Omit to keep the current one.",
             "type": "string"
           }
         },
@@ -221,7 +239,9 @@
           "termbases": {
             "description": "Restrict the check to these termbases, by name or numeric id (see list_resources). Omit = all read-enabled termbases. Strongly recommended on projects that pair a curated client termbase with a large general-domain one.",
             "type": "array",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           },
           "limit": {
             "description": "Maximum term groups to return (default 50).",
@@ -250,6 +270,33 @@
       },
       "method": "GET",
       "path": "/v1/coverage",
+      "paramMap": {},
+      "fixedQuery": {},
+      "fixedBody": {}
+    },
+    {
+      "name": "get_tracked_changes",
+      "description": "Extract the tracked changes (revisions) from the open document as (before, after) pairs per segment: 'before' is the target as it was offered (e.g. an AI draft or fuzzy match), 'after' is the reviewed final. These pairs show how the user actually corrects drafts – raw material for learning their style and terminology preferences. Only exists where Track Changes was switched ON in Studio while the edits were made; target-side text changes only (formatting-only edits are excluded). Pass save=true to ALSO write the FULL harvest (independent of 'limit') as a Markdown note into the active SuperMemory bank's 00_INBOX, so future projects for the same client can learn from it – typically once at the end of a review pass, and only when the user asked for it or agreed. Check with list_supermemory_banks that the right bank (client) is active before saving.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "save": {
+            "description": "Also write the full harvest into the active SuperMemory bank's 00_INBOX as a Markdown note (default false). Only save when the user asked or agreed.",
+            "type": "boolean",
+            "default": false
+          },
+          "limit": {
+            "description": "Maximum number of changes to return in the response (default 200, maximum 500). Does not limit what save=true writes to the memory bank.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "default": null
+          }
+        }
+      },
+      "method": "GET",
+      "path": "/v1/tracked-changes",
       "paramMap": {},
       "fixedQuery": {},
       "fixedBody": {}
@@ -677,7 +724,7 @@
     },
     {
       "name": "list_resources",
-      "description": "List the translation resources available: the Trados TMs attached to the open project (file-based and GroupShare server TMs), the Supervertaler bridged TMs, and ALL termbases - Supervertaler ones (kind: supervertaler, writable if flagged) and the Trados project's own (kind: trados-ttb or multiterm, always read-only). Useful for orientation before searching, and to answer 'what TMs/termbases am I using?'. Each termbase reports readEnabled: termbase activation is per project, and a project with everything switched off looks exactly like one with no terminology at all.",
+      "description": "List the translation resources available: the Trados TMs attached to the open project (file-based and GroupShare server TMs), the Supervertaler bridged TMs, and ALL termbases - Supervertaler ones (kind: supervertaler, writable if flagged) and the Trados project's own (kind: trados-ttb or multiterm, always read-only). Useful for orientation before searching, and to answer 'what TMs/termbases am I using?'. Each termbase reports readEnabled and writeEnabled (the per-project Read/Write ticks) and isProjectTermbase (the Trados 'Project' flag – true for a job-specific termbase, false for a shared background one). Check isProjectTermbase before add_term/update_term/delete_term calls to see which Write-enabled termbase(s) a 'project' vs 'background' scope would resolve to, and to catch a stale project termbase left Write-enabled from a previous job.",
       "inputSchema": {
         "type": "object",
         "properties": {}
@@ -755,7 +802,7 @@
     },
     {
       "name": "lookup_term",
-      "description": "Look up a term in the user's termbases: exact match first (against source AND target terms), then substring fallback. Each hit's source/target are returned EXACTLY as stored, in that termbase's own declared direction - never reoriented - with matchedField saying which column ('source'/'target'/'both') the query text was found in, and the entry's stored sourceLang/targetLang. That makes this tool safe for verifying what add_term wrote. Searches EVERY Supervertaler termbase in the database - hits from termbases whose Read tick is OFF are flagged \"inactive\": true (mention that to the user when it matters, e.g. a hit only exists in an inactive termbase). Pass activeOnly=true to search only the active (Read-enabled) termbases - useful when the user has many termbases and wants results limited to what's in use. Also searches the Trados project's own termbases (.ttb/.sdltb) when a document is open (those are always active ones).",
+      "description": "Look up a term in the user's termbases: exact match first (against source AND target terms), then substring fallback. Each hit's source/target are returned EXACTLY as stored, in that termbase's own declared direction - never reoriented - with matchedField saying which column ('source'/'target'/'both') the query text was found in, and the entry's stored sourceLang/targetLang. That makes this tool safe for verifying what add_term wrote (it shares the same match normalisation as add_term's duplicate check, so the two never disagree). Each hit also reports isProjectTermbase - true for a job-specific termbase (the Trados 'Project' flag), false for a shared background one; weight project hits above background hits when they conflict, mirroring TermLens's pink-vs-blue chips. Searches EVERY Supervertaler termbase in the database - hits from termbases whose Read tick is OFF are flagged \"inactive\": true (mention that to the user when it matters, e.g. a hit only exists in an inactive termbase). Pass activeOnly=true to search only the active (Read-enabled) termbases - useful when the user has many termbases and wants results limited to what's in use. Also searches the Trados project's own termbases (.ttb/.sdltb) when a document is open (those are always active ones).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -878,7 +925,7 @@
     },
     {
       "name": "update_comment",
-      "description": "Replace the text of an existing Trados comment on a segment – e.g. when a fix you applied makes the old comment text outdated. Address the comment by the index from get_comments (call it first). Only update comments the user asked you to change.",
+      "description": "Replace the text and/or severity of an existing Trados comment on a segment – e.g. when a fix you applied makes the old comment text outdated. Address the comment by the index from get_comments (call it first). Provide 'text', 'severity', or both - at least one is required. Only update comments the user asked you to change.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -891,14 +938,17 @@
             "type": "integer"
           },
           "text": {
-            "description": "The replacement comment text.",
+            "description": "The replacement comment text. Omit to change only severity.",
+            "type": "string"
+          },
+          "severity": {
+            "description": "New severity: Low, Medium, or High. Omit to leave the severity unchanged.",
             "type": "string"
           }
         },
         "required": [
           "id",
-          "commentIndex",
-          "text"
+          "commentIndex"
         ]
       },
       "method": "POST",
@@ -1213,6 +1263,27 @@
       "method": "GET",
       "path": "/v1/supermemory-banks",
       "paramMap": {},
+      "fixedQuery": {},
+      "fixedBody": {}
+    },
+    {
+      "name": "session_report",
+      "description": "How many bytes of tool results this Trados session has sent you, per endpoint, biggest first. Use it to find which tools are filling the conversation - every byte returned is re-sent on every later turn, so large early results dominate cost. Pass reset=true to report and then zero the counters, to measure one conversation in isolation. Byte counts are exact; estTokens is a rough bytes/4 proxy, not the AI's own token usage.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "reset": {
+            "description": "Zero the counters after returning this report. Default false.",
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "method": "GET",
+      "path": "/v1/session-report",
+      "paramMap": {
+        "reset": "reset"
+      },
       "fixedQuery": {},
       "fixedBody": {}
     }

@@ -1021,7 +1021,8 @@ namespace Supervertaler.Trados
                     searchSuperMemory: BridgeSearchSuperMemory,
                     listSuperMemoryBanks: BridgeListSuperMemoryBanks,
                     markReviewed: BridgeMarkReviewed,
-                    getCoverage: BridgeGetCoverage);
+                    getCoverage: BridgeGetCoverage,
+                    getTrackedChanges: BridgeGetTrackedChanges);
                 _supervertalerBridge.Start();
             }
             catch (Exception ex)
@@ -2500,6 +2501,224 @@ namespace Supervertaler.Trados
         }
 
         /// <summary>
+        /// Bridge delegate for GET /v1/tracked-changes (MCP get_tracked_changes).
+        /// Walks the open document for segments whose target carries tracked
+        /// changes (IRevisionMarker) and returns (before, after) pairs – the
+        /// target as it stood before the edits vs. the reviewed final. With
+        /// save=true the FULL harvest (not just the returned page) is also
+        /// written as a Markdown file into the active SuperMemory bank's
+        /// 00_INBOX, as raw material for distilling style rules and terminology.
+        /// </summary>
+        private BridgeTrackedChangesResponse BridgeGetTrackedChanges(BridgeTrackedChangesQuery query)
+        {
+            var ctrl = _control?.Value;
+            if (ctrl == null || ctrl.IsDisposed)
+                return new BridgeTrackedChangesResponse { Available = false };
+            if (ctrl.InvokeRequired)
+                return (BridgeTrackedChangesResponse)ctrl.Invoke(
+                    new Func<BridgeTrackedChangesResponse>(() => BridgeGetTrackedChanges(query)));
+            // Panel handle may not exist yet – see Core/UiThread.
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BridgeGetTrackedChanges(query));
+
+            if (_activeDocument == null)
+                return new BridgeTrackedChangesResponse
+                {
+                    Available = false,
+                    Note = "No document is open in the Trados editor."
+                };
+
+            EnsureBridgeFileMapFresh();
+            bool attributeFiles = _perFileMappingWorked && _fileIdToName.Count > 1;
+
+            string Collapse(string s) =>
+                System.Text.RegularExpressions.Regex.Replace(s ?? "", @"\s+", " ").Trim();
+
+            var all = new List<BridgeTrackedChangeRecord>();
+            int scanned = 0, noNetChange = 0, processed = 0;
+
+            foreach (var pair in _activeDocument.SegmentPairs)
+            {
+                processed++;
+                if (processed % 200 == 0)
+                    System.Windows.Forms.Application.DoEvents();
+                try
+                {
+                    if (pair.Target == null) continue;
+                    scanned++;
+
+                    List<string> authors;
+                    DateTime? lastDate;
+                    if (!Core.SegmentTagHandler.TryCollectRevisionInfo(pair.Target, out authors, out lastDate))
+                        continue;
+
+                    var before = Collapse(Core.SegmentTagHandler.GetOriginalText(pair.Target));
+                    var after = Collapse(Core.SegmentTagHandler.GetFinalText(pair.Target));
+
+                    // Revision markers with no net text effect (formatting-only
+                    // edits, or an edit typed and reverted) teach nothing; a
+                    // wholly inserted or wholly deleted target is not a
+                    // correction pair either.
+                    if (before == after || before.Length == 0 || after.Length == 0)
+                    {
+                        noNetChange++;
+                        continue;
+                    }
+
+                    var sourceSer = Core.SegmentTagHandler.Serialize(pair.Source);
+                    var source = Collapse(Core.SegmentTagHandler.StripTagPlaceholders(sourceSer.SerializedText ?? ""));
+
+                    var puId = _activeDocument.GetParentParagraphUnit(pair)
+                        ?.Properties?.ParagraphUnitId.Id ?? "";
+                    var segId = pair.Properties?.Id.Id ?? "";
+
+                    string fileName = null;
+                    if (attributeFiles)
+                    {
+                        string fid;
+                        if (_puIdToFileId.TryGetValue(puId, out fid) && fid != null)
+                            _fileIdToName.TryGetValue(fid, out fileName);
+                    }
+
+                    all.Add(new BridgeTrackedChangeRecord
+                    {
+                        Id = puId + ":" + segId,
+                        FileName = fileName,
+                        Source = source,
+                        Before = before,
+                        After = after,
+                        Authors = authors,
+                        LastDate = lastDate?.ToString("yyyy-MM-dd HH:mm"),
+                        Status = (pair.Properties?.ConfirmationLevel
+                            ?? Sdl.Core.Globalization.ConfirmationLevel.Unspecified).ToString()
+                    });
+                }
+                catch { /* skip unreadable segment */ }
+            }
+
+            var response = new BridgeTrackedChangesResponse
+            {
+                Available = true,
+                SegmentsScanned = scanned,
+                SegmentsWithChanges = all.Count,
+                Changes = all.Take(query.Limit).ToList(),
+                Truncated = all.Count > query.Limit
+            };
+
+            if (query.Save && all.Count > 0)
+            {
+                try
+                {
+                    response.SavedTo = SaveTrackedChangesHarvest(all);
+                    response.SavedToBank = ActiveMemoryBankName;
+                    RefreshSuperMemoryInboxCount();
+                }
+                catch (Exception ex)
+                {
+                    response.Note = "Changes were extracted, but saving to the memory bank failed: "
+                        + ex.Message + " ";
+                }
+            }
+
+            if (all.Count == 0)
+            {
+                response.Note = (response.Note ?? "")
+                    + "No segments with net tracked changes were found. Studio only records tracked "
+                    + "changes when Track Changes was switched ON during editing"
+                    + (noNetChange > 0
+                        ? $" ({noNetChange} segment(s) carried revision markers with no net text effect and were skipped)."
+                        : ".");
+            }
+            else
+            {
+                response.Note = (response.Note ?? "")
+                    + "'before' is the target as it stood before the tracked edits (e.g. the AI draft "
+                    + "or fuzzy match as offered); 'after' is the reviewed final. Target-side revisions "
+                    + "only, formatting-only edits excluded."
+                    + (response.Truncated
+                        ? $" Response shows the first {query.Limit} of {all.Count} changes (raise 'limit' to page)."
+                        : "")
+                    + (response.SavedTo != null
+                        ? $" The FULL harvest was saved to 00_INBOX of memory bank '{response.SavedToBank}' - the user can distill it via Process Inbox."
+                        : (query.Save
+                            ? ""
+                            : " Pass save=true to write the full harvest into the active SuperMemory bank's inbox for future projects."));
+            }
+
+            return response;
+        }
+
+        /// <summary>
+        /// Writes a tracked-changes harvest as a Markdown note into the active
+        /// SuperMemory bank's 00_INBOX (same flow as chat's "save to memory
+        /// bank"). Returns the path written. MUST be called on the UI thread.
+        /// </summary>
+        private string SaveTrackedChangesHarvest(List<BridgeTrackedChangeRecord> changes)
+        {
+            var vaultDir = ActiveMemoryBankDir;
+            var bankName = ActiveMemoryBankName;
+            if (!Directory.Exists(vaultDir))
+                throw new InvalidOperationException(
+                    $"Memory bank '{bankName}' does not exist yet (expected at {vaultDir}).");
+
+            var inboxDir = Path.Combine(vaultDir, "00_INBOX");
+            Directory.CreateDirectory(inboxDir);
+
+            string projectName = null, sourceLang = null, targetLang = null;
+            try { projectName = GetProjectName(); } catch { }
+            try
+            {
+                sourceLang = GetDocumentSourceLanguage();
+                targetLang = GetDocumentTargetLanguage();
+            }
+            catch { }
+
+            var safeProject = string.IsNullOrWhiteSpace(projectName)
+                ? "project"
+                : System.Text.RegularExpressions.Regex.Replace(
+                    projectName.ToLowerInvariant(), @"[^a-z0-9-_]+", "-").Trim('-');
+            if (safeProject.Length > 40) safeProject = safeProject.Substring(0, 40).Trim('-');
+            if (safeProject.Length == 0) safeProject = "project";
+
+            var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+            var filePath = Path.Combine(inboxDir, $"tracked-changes-{safeProject}-{stamp}.md");
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("# Tracked changes harvest – "
+                + (string.IsNullOrWhiteSpace(projectName) ? "untitled project" : projectName));
+            sb.AppendLine($"*Harvested {DateTime.Now:yyyy-MM-dd HH:mm} from Supervertaler for Trados*");
+            sb.AppendLine();
+            if (!string.IsNullOrWhiteSpace(sourceLang) || !string.IsNullOrWhiteSpace(targetLang))
+                sb.AppendLine($"- **Language pair:** {sourceLang} → {targetLang}");
+            sb.AppendLine($"- **Segments with tracked changes:** {changes.Count}");
+            sb.AppendLine();
+            sb.AppendLine("Each entry shows the target BEFORE the tracked edits (the draft as it was "
+                + "offered, e.g. by AI translation or a fuzzy match) and AFTER them (the reviewed "
+                + "final). Raw material for distilling style rules (04_STYLE) and terminology "
+                + "(02_TERMINOLOGY) via Process Inbox.");
+            sb.AppendLine();
+
+            int n = 0;
+            foreach (var c in changes)
+            {
+                n++;
+                sb.AppendLine($"## {n}. Segment {c.Id}"
+                    + (string.IsNullOrEmpty(c.FileName) ? "" : $" ({c.FileName})"));
+                sb.AppendLine();
+                sb.AppendLine($"- **Source:** {c.Source}");
+                sb.AppendLine($"- **Before:** {c.Before}");
+                sb.AppendLine($"- **After:** {c.After}");
+                if (c.Authors != null && c.Authors.Count > 0)
+                    sb.AppendLine($"- **Edited by:** {string.Join(", ", c.Authors)}"
+                        + (c.LastDate != null ? $" ({c.LastDate})" : ""));
+                sb.AppendLine();
+            }
+
+            File.WriteAllText(filePath, sb.ToString(), new System.Text.UTF8Encoding(false));
+            return filePath;
+        }
+
+        /// <summary>
         /// Bridge delegate for GET /v1/qa-check (MCP check_numbers / check_tags /
         /// check_terminology). Snapshot on the UI thread, analysis off-thread.
         /// Only segments with a non-empty target are checked – untranslated
@@ -3025,7 +3244,11 @@ namespace Supervertaler.Trados
                                     Name = tb.Name,
                                     Languages = $"{tb.SourceLang} → {tb.TargetLang}",
                                     Terms = tb.TermCount,
-                                    IsProjectTermbase = tb.IsProjectTermbase,
+                                    // The settings' Project tick is the flag TermLens
+                                    // (pink chips) and the quick-add actions use – the
+                                    // DB's is_project_termbase column is a separate,
+                                    // often stale field and must not decide this.
+                                    IsProjectTermbase = tb.Id == settings.ProjectTermbaseId,
                                     ReadEnabled = !disabled.Contains(tb.Id),
                                     WriteEnabled = write.Contains(tb.Id),
                                     Kind = "supervertaler"
@@ -3506,6 +3729,35 @@ namespace Supervertaler.Trados
                             Results = results
                         };
                 }
+                else if (!string.IsNullOrWhiteSpace(req.Scope)
+                    && !string.Equals(req.Scope, "both", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(req.Scope, "all", StringComparison.OrdinalIgnoreCase))
+                {
+                    bool wantProject = string.Equals(req.Scope, "project", StringComparison.OrdinalIgnoreCase);
+                    bool wantBackground = string.Equals(req.Scope, "background", StringComparison.OrdinalIgnoreCase);
+                    if (!wantProject && !wantBackground)
+                        return new BridgeAddTermResponse
+                        {
+                            Ok = false,
+                            Error = $"unknown scope '{req.Scope}' – use 'project', 'background', or 'both'"
+                        };
+
+                    // The settings' Project tick, not the DB's is_project_termbase
+                    // column – same source of truth as TermLens's pink chips.
+                    targets = writeTermbases.Where(t => (t.Id == settings.ProjectTermbaseId) == wantProject).ToList();
+                    if (targets.Count == 0)
+                        return new BridgeAddTermResponse
+                        {
+                            Ok = false,
+                            Error = wantProject
+                                ? "scope 'project' was requested, but none of the Write-enabled termbases " +
+                                  "carries the Project flag – tick 'Project' for this job's termbase in the " +
+                                  "Supervertaler Termbases settings, or pass an explicit 'termbases' list"
+                                : "scope 'background' was requested, but every Write-enabled termbase " +
+                                  "carries the Project flag – pass an explicit 'termbases' list if you " +
+                                  "meant one of those"
+                        };
+                }
 
                 string projSrcLang = "";
                 try { projSrcLang = _activeDocument?.ActiveFile?.SourceFile?.Language?.DisplayName ?? ""; }
@@ -3534,6 +3786,7 @@ namespace Supervertaler.Trados
                         {
                             Termbase = o.TermbaseName,
                             Status = "added",
+                            Role = tb == null ? null : (tb.Id == settings.ProjectTermbaseId ? "project" : "background"),
                             Stored = new BridgeStoredTerm
                             {
                                 Source = o.StoredSource,
@@ -3571,12 +3824,21 @@ namespace Supervertaler.Trados
                     }
                     else
                     {
+                        bool isDuplicate = o.Status == TermbaseReader.TermInsertOutcome.StatusDuplicate;
                         results.Add(new BridgeAddTermResult
                         {
                             Termbase = o.TermbaseName,
-                            Status = o.Status == TermbaseReader.TermInsertOutcome.StatusDuplicate
-                                ? "duplicate" : "error",
-                            Detail = o.Detail
+                            Status = isDuplicate ? "duplicate" : "error",
+                            Role = tb == null ? null : (tb.Id == settings.ProjectTermbaseId ? "project" : "background"),
+                            Detail = o.Detail,
+                            Existing = isDuplicate && o.ExistingId >= 0
+                                ? new BridgeExistingTerm
+                                {
+                                    Id = o.ExistingId,
+                                    Source = o.ExistingSource,
+                                    Target = o.ExistingTarget
+                                }
+                                : null
                         });
                     }
                 }
@@ -3595,6 +3857,34 @@ namespace Supervertaler.Trados
                     response.Error = results.TrueForAll(r => r.Status == "duplicate")
                         ? "the term already exists in every targeted termbase – see results"
                         : "nothing was added – see results for the per-termbase reasons";
+
+                // Stale-project-termbase check: a Write-enabled termbase carrying the
+                // Project flag is meant to belong to THIS job. If its name shares no
+                // word with the currently open project's name, it's likely a leftover
+                // from a previous job that was never un-ticked. Only project-flagged
+                // termbases are checked – a deliberately generic background termbase
+                // (e.g. "BEIJER") never matches a job-specific project name and would
+                // otherwise fire on every call.
+                var projectName = GetProjectName();
+                if (!string.IsNullOrWhiteSpace(projectName))
+                {
+                    string[] Tokenize(string s) => System.Text.RegularExpressions.Regex
+                        .Split(s.ToLowerInvariant(), @"[^a-z0-9]+")
+                        .Where(t => t.Length > 0).ToArray();
+                    var projectTokens = new HashSet<string>(Tokenize(projectName));
+                    var staleNames = targets
+                        .Where(t => t.Id == settings.ProjectTermbaseId && addedTo.Contains(t.Name))
+                        .Where(t => !Tokenize(t.Name).Any(projectTokens.Contains))
+                        .Select(t => t.Name)
+                        .Distinct()
+                        .ToList();
+                    if (staleNames.Count > 0)
+                        response.Note = (response.Note != null ? response.Note + " " : "") +
+                            $"note: write-enabled project termbase '{string.Join("', '", staleNames)}' " +
+                            $"does not appear to match the open project '{projectName}' – check it's not a " +
+                            "leftover from a previous job.";
+                }
+
                 return response;
             }
             catch (Exception ex)
@@ -3675,11 +3965,16 @@ namespace Supervertaler.Trados
             {
                 var newSource = string.IsNullOrWhiteSpace(req.NewSource) ? null : req.NewSource.Trim();
                 var newTarget = string.IsNullOrWhiteSpace(req.NewTarget) ? null : req.NewTarget.Trim();
-                if (!delete && newSource == null && newTarget == null)
+                var newNotes = string.IsNullOrWhiteSpace(req.NewNotes) ? null : req.NewNotes.Trim();
+                var newDefinition = string.IsNullOrWhiteSpace(req.NewDefinition) ? null : req.NewDefinition.Trim();
+                var newDomain = string.IsNullOrWhiteSpace(req.NewDomain) ? null : req.NewDomain.Trim();
+                if (!delete && newSource == null && newTarget == null
+                    && newNotes == null && newDefinition == null && newDomain == null)
                     return new BridgeEditTermResponse
                     {
                         Ok = false,
-                        Error = "nothing to change – provide 'newSource' and/or 'newTarget'"
+                        Error = "nothing to change – provide 'newSource', 'newTarget', 'newNotes', " +
+                                "'newDefinition' and/or 'newDomain'"
                     };
 
                 var settings = TermLensSettings.Load();
@@ -3753,9 +4048,12 @@ namespace Supervertaler.Trados
                     {
                         var s = newSource ?? e.SourceTerm;
                         var t = newTarget ?? e.TargetTerm;
+                        var definition = newDefinition ?? e.Definition ?? "";
+                        var domain = newDomain ?? e.Domain ?? "";
+                        var notes = newNotes ?? e.Notes ?? "";
                         // Preserve every other field of the entry.
                         if (!TermbaseReader.UpdateTerm(settings.TermbasePath, e.Id, s, t,
-                                e.Definition ?? "", e.Domain ?? "", e.Notes ?? "",
+                                definition, domain, notes,
                                 e.IsNonTranslatable, e.SourceAbbreviation, e.TargetAbbreviation,
                                 e.Url, e.Client, e.Forbidden, e.Project))
                             continue;
@@ -3772,9 +4070,9 @@ namespace Supervertaler.Trados
                             TermbaseName = e.TermbaseName,
                             IsProjectTermbase = e.IsProjectTermbase,
                             Ranking = e.Ranking,
-                            Definition = e.Definition,
-                            Domain = e.Domain,
-                            Notes = e.Notes,
+                            Definition = definition,
+                            Domain = domain,
+                            Notes = notes,
                             Url = e.Url,
                             Forbidden = e.Forbidden,
                             CaseSensitive = e.CaseSensitive,
@@ -3786,7 +4084,13 @@ namespace Supervertaler.Trados
                             TargetSynonyms = e.TargetSynonyms ?? new List<string>()
                         };
                         TermLensEditorViewPart.NotifyTermInserted(new List<Models.TermEntry> { updated });
-                        details.Add($"{e.TermbaseName}: “{e.SourceTerm} → {e.TargetTerm}” is now “{s} → {t}”");
+                        var changeParts = new List<string>();
+                        if (s != e.SourceTerm || t != e.TargetTerm)
+                            changeParts.Add($"“{e.SourceTerm} → {e.TargetTerm}” is now “{s} → {t}”");
+                        if (newNotes != null) changeParts.Add("notes updated");
+                        if (newDefinition != null) changeParts.Add("definition updated");
+                        if (newDomain != null) changeParts.Add("domain updated");
+                        details.Add($"{e.TermbaseName}: " + string.Join(", ", changeParts));
                     }
                 }
 
@@ -4102,8 +4406,18 @@ namespace Supervertaler.Trados
 
             if (_activeDocument == null)
                 return new BridgeResultResponse { Ok = false, Error = "no document is open in the Trados editor" };
-            if (string.IsNullOrWhiteSpace(req?.Text))
-                return new BridgeResultResponse { Ok = false, Error = "missing 'text'" };
+            bool hasText = !string.IsNullOrWhiteSpace(req?.Text);
+            bool hasSeverity = !string.IsNullOrWhiteSpace(req?.Severity);
+            if (!hasText && !hasSeverity)
+                return new BridgeResultResponse { Ok = false, Error = "nothing to change – provide 'text' and/or 'severity'" };
+
+            var newSeverity = Sdl.FileTypeSupport.Framework.NativeApi.Severity.Low;
+            if (hasSeverity && !Enum.TryParse(req.Severity, true, out newSeverity))
+                return new BridgeResultResponse
+                {
+                    Ok = false,
+                    Error = $"unknown severity '{req.Severity}' – use Low, Medium, or High"
+                };
 
             try
             {
@@ -4124,16 +4438,19 @@ namespace Supervertaler.Trados
                                       $"{comments.Count} comment(s); call get_comments first";
                             return;
                         }
-                        comments[req.CommentIndex].Text = req.Text;
+                        if (hasText) comments[req.CommentIndex].Text = req.Text;
+                        if (hasSeverity) comments[req.CommentIndex].Severity = newSeverity;
                         updated = true;
                     });
 
                 if (!updated)
                     return new BridgeResultResponse { Ok = false, Error = failure ?? "comment not updated" };
+                var whatChanged = hasText && hasSeverity ? "Comment text and severity replaced."
+                    : hasText ? "Comment text replaced." : "Comment severity replaced.";
                 return new BridgeResultResponse
                 {
                     Ok = true,
-                    Note = "Comment text replaced. Part of the document's unsaved changes until the user saves."
+                    Note = whatChanged + " Part of the document's unsaved changes until the user saves."
                 };
             }
             catch (Exception ex)

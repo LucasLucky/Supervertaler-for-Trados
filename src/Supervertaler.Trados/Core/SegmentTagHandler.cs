@@ -700,6 +700,77 @@ namespace Supervertaler.Trados.Core
             }
         }
 
+        /// <summary>
+        /// Returns the original (pre-edit) plain text of a segment as it stood
+        /// before its tracked changes were made: deleted text is kept, inserted
+        /// text is dropped. The counterpart of <see cref="GetFinalText"/> –
+        /// together they turn a segment with revisions into a (before, after)
+        /// pair.
+        /// </summary>
+        public static string GetOriginalText(ISegment segment)
+        {
+            if (segment == null) return "";
+            var sb = new StringBuilder();
+            AppendOriginalText(segment, sb);
+            return sb.ToString();
+        }
+
+        private static void AppendOriginalText(IAbstractMarkupDataContainer container, StringBuilder sb)
+        {
+            foreach (var item in container)
+            {
+                if (item is IRevisionMarker revision)
+                {
+                    // Skip inserted text entirely; include deleted/unchanged text
+                    if (revision.Properties.RevisionType != RevisionType.Insert)
+                    {
+                        AppendOriginalText(revision, sb);
+                    }
+                }
+                else if (item is IText textItem)
+                {
+                    sb.Append(textItem.Properties.Text);
+                }
+                else if (item is IAbstractMarkupDataContainer nested)
+                {
+                    AppendOriginalText(nested, sb);
+                }
+                // Standalone tags, placeholders, etc. – skip (plain text only)
+            }
+        }
+
+        /// <summary>
+        /// Collects revision metadata (distinct authors, latest revision date)
+        /// from a segment's tracked changes. Returns false when the segment
+        /// carries no revision markers at all.
+        /// </summary>
+        public static bool TryCollectRevisionInfo(ISegment segment, out List<string> authors, out DateTime? lastDate)
+        {
+            authors = null;
+            lastDate = null;
+            if (segment == null) return false;
+
+            bool found = false;
+            foreach (var item in segment.AllSubItems)
+            {
+                var revision = item as IRevisionMarker;
+                if (revision == null) continue;
+                found = true;
+
+                var props = revision.Properties;
+                var author = props?.Author;
+                if (!string.IsNullOrWhiteSpace(author))
+                {
+                    if (authors == null) authors = new List<string>();
+                    if (!authors.Contains(author)) authors.Add(author);
+                }
+                var date = props?.Date;
+                if (date != null && (lastDate == null || date > lastDate))
+                    lastDate = date;
+            }
+            return found;
+        }
+
         // ─── Helpers ─────────────────────────────────────────
 
         /// <summary>
