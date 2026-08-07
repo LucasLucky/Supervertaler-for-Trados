@@ -122,23 +122,29 @@ and displays their terms as green chips alongside Supervertaler terms.
 
 Two channels with **different semantics – do not mirror one onto the other.** `CHANGELOG.md` is the single source of truth both draw from.
 
+**Single-channel distribution (from 2026-08-02): the plugin binary ships ONLY through the RWS App Store.** GitHub releases carry the notes, the tag, and the MCP server assets – never the `.sdlplugin`.
+
 | | **GitHub releases** | **RWS App Store** |
 |---|---|---|
 | Tracks | **builds** | **approvals** |
 | Mutability | immutable, append-only, **never deleted** | rolling – delete the unapproved one and re-upload a bigger cumulative one as needed |
 | Changelog baseline | the **previous GitHub release tag** (auto via `gh`) | the last **published** App Store version (passed manually) |
-| Carries the plugin? | **Yes** – both unsigned zips attached | yes – the signed `.sdlplugin` |
+| Carries the plugin? | **No** – notes + MCP assets only | **yes** – the signed `.sdlplugin`, the only channel that does |
 
 Rules:
 - **Never delete a GitHub release.** The App Store delete/re-upload dance stays entirely on the App Store side and never touches a GitHub release.
 - **Cut a GitHub release** whenever you'd submit to the App Store (Sunday cadence) **plus** for any urgent mid-week build a user is actively waiting on. Tag = the exact built version.
-- **Attach both plugin zips** to every GitHub release so eager users can install before App Store approval (which can take days, esp. weekends). This reverses the old "notes-only, no binaries" policy (v4.19.24–v4.20.44).
-- **Why zips, not bare `.sdlplugin`:** GitHub Releases replaces spaces in asset filenames with periods, turning `Supervertaler for Trados.sdlplugin` → `Supervertaler.for.Trados.sdlplugin`. Trados extracts to `Unpacked/<sdlplugin-filename-without-extension>/` and matches the manifest `<PlugInName>`, so a dotted name reintroduces the duplicate-package crash. The hyphenated zip preserves the exact inner filename. The `.sdlplugin` names are **load-bearing – never rename them.**
+- **Never attach the plugin to a GitHub release.** Landed in **18.20.156** (2026-08-02), reversing the "attach both zips" policy that ran from v4.20.45 to 18.20.155, for three reasons – recorded in the 20.156 changelog entry and `tools/github_release.py`'s docstring: App Store builds are RWS-signed and GitHub ones were not, so every Studio start nagged about an "unsigned plug-in"; the in-plugin update check queries the App Store catalogue, so a GitHub installer ran a build *newer* than the catalogue and was silently never told about updates again; and 67 releases predating the v4.20.34 trial anchor were still downloadable, any of which could reset the 14-day trial indefinitely. Those old assets were deleted on 2026-08-02.
+- **The MCP assets MUST stay attached.** The plugin's *Settings → AI Settings → Connect AI assistant…* dialog points users at `/releases/latest` for the `.mcpb`, so a release without it leaves that button pointing at nothing. `github_release.py` hard-fails rather than release without it (`--no-mcpb` overrides).
+- **Pre-approval hand-offs go direct, not public.** For a user who needs a fix before it clears App Store review, share the built zip privately (e.g. an expiring Drive link) and keep that folder empty between hand-offs – a standing public link recreates exactly the problem above.
+- **The zips are still built** (`dist/`), just not attached: `build.sh` relies on it and they are what gets hand-shared above.
+- **Why zips, not bare `.sdlplugin`, when sharing:** any transport that rewrites spaces in the filename – GitHub Releases turns `Supervertaler for Trados.sdlplugin` into `Supervertaler.for.Trados.sdlplugin` – breaks Trados, which extracts to `Unpacked/<sdlplugin-filename-without-extension>/` and matches the manifest `<PlugInName>`; a dotted name reintroduces the duplicate-package crash. The hyphenated zip preserves the exact inner filename. The `.sdlplugin` names are **load-bearing – never rename them.**
 
 Tooling:
-- `build.sh` calls `python tools/github_release.py --zip-only` after building, producing `Supervertaler-for-Trados-Studio-2024.zip` and `…-Studio-2026-beta.zip` in `dist/` (GitHub-only; the App Store still gets the raw `.sdlplugin`).
-- `python tools/github_release.py --create` auto-detects the last GitHub tag, extracts the `CHANGELOG.md` delta since it, writes `release-body-v<ver>.md` (with the unsigned/zip-extract preamble + links), and runs `gh release create v<ver>` with both zips attached. Run without `--create` for a dry run; `--since <ver>` overrides the baseline.
-- `python tools/appstore_release.py <last_published_version>` is unchanged – it generates the App Store notes from its own (published-version) baseline.
+- `build.sh` calls `python tools/github_release.py --zip-only` after building, producing `Supervertaler-for-Trados-Studio-2024.zip` and `Supervertaler-for-Trados-Studio-2026.zip` in `dist/`, and mirrors both raw `.sdlplugin` files into `RWS AppStore/` so the App Store Manager upload has everything in one folder.
+- `python tools/github_release.py --create` auto-detects the last GitHub tag, extracts the `CHANGELOG.md` delta since it, writes `release-body-v<ver>.md` (App Store install preamble + MCP asset table + links), builds the `.mcpb`, and runs `gh release create v<ver>` with the two MCP assets attached. Run without `--create` for a dry run; `--since <ver>` overrides the baseline.
+- It titles the release with the bare tag; recent convention is a descriptive title (`v18.20.159 / 19.20.159 – <headline changes>`), set afterwards with `gh release edit <tag> --title "…"`.
+- `python tools/appstore_release.py <last_published_version>` generates the App Store notes from its own (published-version) baseline, into `RWS AppStore/release_notes_v<ver>.md`, including both builds' version numbers, min/max Studio versions and SHA-256 checksums. It buckets bullets by their `### Added/Changed/Fixed` heading in `CHANGELOG.md`, so a miscategorised bullet lands in the wrong section.
 
 ---
 
