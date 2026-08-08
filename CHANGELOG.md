@@ -7,6 +7,14 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.162 / 19.20.162] – 2026-08-08
+
+### Fixed (Supervertaler MCP Server · find_and_replace refused every segment containing a tag)
+
+- **`find_and_replace` skipped any segment carrying an inline tag, reporting it as a match that "straddles inline formatting/tags" even when it plainly did not.** On a tag-heavy document that is most of the file, which made the tool useless exactly where a consistency sweep is worth most. Confirmed live: the phrase *Overzicht aansluitingen*, sitting wholly inside a single `<t1>…</t1>` wrapper, was refused, while the same phrase in two untagged segments was replaced.
+- **The safety check was comparing two different kinds of string.** It built the expected result by replacing across `Target.ToString()` — which renders the *markup* as well, `<cf size=8>` and the like — then compared that against a simulation built by replacing inside each text node, which has no markup in it. For any segment with a tag the two could never match, so the guard fired on every one of them.
+- Both sides now start from the same basis: the segment's concatenated text nodes. The guard therefore tests what it was always meant to test — whether replacing across the whole text gives the same answer as replacing inside each node — so a match genuinely straddling a tag boundary is still refused, and one that merely sits near a tag is no longer punished for it. The `before`/`after` preview now shows the segment's text rather than raw internal markup.
+
 ## [18.20.161 / 19.20.161] – 2026-08-08
 
 ### Fixed (Supervertaler MCP Server · get_active_segment misrepresented every tag)

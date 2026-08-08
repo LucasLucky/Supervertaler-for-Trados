@@ -5073,7 +5073,18 @@ namespace Supervertaler.Trados
                         if (!_puIdToFileId.TryGetValue(puId, out fid) || fid != filterFileId) continue;
                     }
 
-                    var currentTarget = pair.Target.ToString() ?? "";
+                    // Work from the CONCATENATED TEXT NODES, not pair.Target.ToString().
+                    // ToString() renders the markup too (<cf size=8> and friends), so the
+                    // "expected" string carried tag syntax the per-node simulation below
+                    // could never reproduce – and every segment containing any tag was
+                    // rejected as tag-spanning, however safely the match sat inside a
+                    // single text node. Confirmed live: "Overzicht aansluitingen" inside
+                    // one <t1>…</t1> wrapper was refused while the same phrase in untagged
+                    // segments was replaced. Both sides of the comparison must be the same
+                    // kind of string for the check to mean anything.
+                    var iTexts = new List<IText>();
+                    FindReplaceCollectTexts(pair.Target, iTexts);
+                    var currentTarget = string.Concat(iTexts.Select(t => t.Properties.Text ?? ""));
                     var expected = FindReplacePerform(currentTarget, find, replace,
                         req.CaseSensitive, req.Regex, req.WholeWord);
                     if (expected == currentTarget) continue; // no match here
@@ -5094,10 +5105,11 @@ namespace Supervertaler.Trados
                         continue;
                     }
 
-                    // Tag-boundary safety: the match must be reproducible by
-                    // per-IText replacement, or it straddles a tag and we skip.
-                    var iTexts = new List<IText>();
-                    FindReplaceCollectTexts(pair.Target, iTexts);
+                    // Tag-boundary safety: replacing across the whole plain text must give
+                    // the same result as replacing inside each text node separately. When
+                    // it does not, the match really does straddle a tag boundary and only
+                    // a manual edit is safe. (iTexts was collected above, with the plain
+                    // text this compares against.)
                     var simulated = string.Concat(iTexts.Select(t =>
                         FindReplacePerform(t.Properties.Text ?? "", find, replace,
                             req.CaseSensitive, req.Regex, req.WholeWord)));
