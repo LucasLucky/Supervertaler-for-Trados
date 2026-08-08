@@ -280,6 +280,91 @@ namespace Supervertaler.Trados.Core
             return sb.ToString();
         }
 
+        // ─── Comment preservation across a target rewrite ────
+
+        /// <summary>
+        /// The comment markers currently on a target, outermost first.
+        ///
+        /// Comments live ONLY in the target's markup (a Studio comment is not
+        /// part of the source), so any rebuild that clears the target and
+        /// replays the SOURCE's tags drops them. That made the ordinary
+        /// delivery workflow — read the comments, fix the segments they refer
+        /// to — delete its own comments one segment at a time, silently, with
+        /// the write still reporting success. Field report: job QLEV-008-BE,
+        /// segment 50, verified gone from the saved SDLXLIFF.
+        /// </summary>
+        public static List<ICommentMarker> CaptureCommentMarkers(IAbstractMarkupDataContainer container)
+        {
+            var list = new List<ICommentMarker>();
+            CollectCommentMarkers(container, list);
+            return list;
+        }
+
+        private static void CollectCommentMarkers(
+            IAbstractMarkupDataContainer container, List<ICommentMarker> list)
+        {
+            if (container == null) return;
+            foreach (var item in container)
+            {
+                if (item is ICommentMarker marker)
+                {
+                    list.Add(marker);
+                    CollectCommentMarkers(marker, list);
+                }
+                else if (item is IAbstractMarkupDataContainer nested)
+                {
+                    CollectCommentMarkers(nested, list);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Rebuilds the captured comment markers into a freshly cleared target
+        /// and returns the container the new content must be written into (the
+        /// innermost marker), so the content ends up wrapped by them.
+        ///
+        /// Re-anchoring is deliberately coarse: whatever span a marker covered
+        /// before, it now covers the whole new target. The old span cannot
+        /// survive a rewrite that replaces the text it pointed into, and a
+        /// comment attached to slightly too much text is vastly better than a
+        /// comment silently deleted. Returns <paramref name="target"/> itself
+        /// when there is nothing to restore or restoration fails, so a write
+        /// never fails on account of a comment.
+        /// </summary>
+        public static IAbstractMarkupDataContainer OpenCommentMarkers(
+            IAbstractMarkupDataContainer target, List<ICommentMarker> markers)
+        {
+            if (target == null || markers == null || markers.Count == 0) return target;
+            try
+            {
+                ICommentMarker outermost = null, innermost = null;
+                foreach (var original in markers)
+                {
+                    var clone = original?.Clone() as ICommentMarker;
+                    if (clone == null) continue;
+                    clone.Clear(); // keep the Comments, drop the stale content
+                    if (outermost == null) { outermost = clone; innermost = clone; }
+                    else { innermost.Add(clone); innermost = clone; }
+                }
+                if (outermost == null) return target;
+                target.Add(outermost);
+                return innermost;
+            }
+            catch
+            {
+                return target;
+            }
+        }
+
+        /// <summary>True when every captured comment survived into the target –
+        /// the post-write check behind update_segments' comment warning.</summary>
+        public static bool CommentsPreserved(IAbstractMarkupDataContainer target, int expected)
+        {
+            if (expected <= 0) return true;
+            try { return CaptureCommentMarkers(target).Count >= expected; }
+            catch { return false; }
+        }
+
         // ─── Reconstruction ──────────────────────────────────
 
         /// <summary>
@@ -318,8 +403,15 @@ namespace Supervertaler.Trados.Core
                 // (e.g. Visio, Excel) rather than as separate IPlaceholderTag elements (DOCX).
                 bool sourceHasTextNewlines = SourceTextContainsNewlines(sourceSegment);
 
+                // Comments live only on the target, and Clear() below would take
+                // them with it – see CaptureCommentMarkers. Capture, then rebuild
+                // the marker chain and write the new content INSIDE it.
+                var commentMarkers = CaptureCommentMarkers(targetSegment);
+
                 // Clear the target segment
                 targetSegment.Clear();
+
+                var destination = OpenCommentMarkers(targetSegment, commentMarkers);
 
                 // Each tag number may be materialised at most once. Cloning the
                 // same TagInfo twice produces two Trados tags carrying the SAME
@@ -331,8 +423,9 @@ namespace Supervertaler.Trados.Core
                 // unknown-tag-number branch already does.
                 var usedTagNumbers = new HashSet<int>();
 
-                // Add parsed elements to the target
-                AddElementsToContainer(targetSegment, elements, tagMap, textTemplate,
+                // Add parsed elements to the target (inside the comment markers
+                // when the segment carried any).
+                AddElementsToContainer(destination, elements, tagMap, textTemplate,
                     sourceHasTextNewlines, usedTagNumbers);
 
                 return true;

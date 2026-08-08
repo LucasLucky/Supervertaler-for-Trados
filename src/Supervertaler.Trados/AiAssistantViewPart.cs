@@ -1638,6 +1638,15 @@ namespace Supervertaler.Trados
                                 var tagMap = sourceSer.TagMap
                                     ?? new Dictionary<int, Core.TagInfo>();
 
+                                // How many comments this segment carried going in.
+                                // Both write branches clear the target, and comments
+                                // live only there, so without deliberate preservation
+                                // the routine "fix the segment this comment is about"
+                                // edit deletes the comment. Counted before the write
+                                // so the post-write check can prove they survived.
+                                int commentsBefore =
+                                    Core.SegmentTagHandler.CaptureCommentMarkers(sp.Target).Count;
+
                                 var resolved = Core.Export.BilingualTagNamer.ResolveSemanticNames(
                                     targetText, tagMap);
 
@@ -1659,10 +1668,14 @@ namespace Supervertaler.Trados
                                     var textTpl = Core.SegmentTagHandler.FindFirstText(sp.Source);
                                     if (textTpl != null)
                                     {
+                                        var keptComments =
+                                            Core.SegmentTagHandler.CaptureCommentMarkers(sp.Target);
                                         sp.Target.Clear();
+                                        var dest = Core.SegmentTagHandler.OpenCommentMarkers(
+                                            sp.Target, keptComments);
                                         var clone = (IText)textTpl.Clone();
                                         clone.Properties.Text = plain;
-                                        sp.Target.Add(clone);
+                                        dest.Add(clone);
                                     }
                                 }
 
@@ -1678,6 +1691,21 @@ namespace Supervertaler.Trados
                                 // tags. That is exactly the silent lossy write this audit
                                 // exists to stop being silent.
                                 tagWarning = DescribeTagIdMismatch(sp.Source, sp.Target);
+
+                                // Comment audit, same principle as the tag audit: a
+                                // write that silently destroys a comment is the worst
+                                // available behaviour, so if preservation did not hold
+                                // the caller is told rather than left to discover it
+                                // by re-parsing the saved file.
+                                if (!Core.SegmentTagHandler.CommentsPreserved(sp.Target, commentsBefore))
+                                {
+                                    var lost = commentsBefore == 1
+                                        ? "1 comment on this segment was"
+                                        : commentsBefore + " comments on this segment were";
+                                    tagWarning = (tagWarning == null ? "" : tagWarning + " ")
+                                        + lost + " not preserved by this write – re-add with "
+                                        + "add_comment (get_comments to confirm).";
+                                }
                             });
                     }
 
