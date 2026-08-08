@@ -7,6 +7,14 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.163 / 19.20.163] – 2026-08-08
+
+### Fixed (Supervertaler MCP Server · one slow request no longer blocks every other one)
+
+- **The bridge served requests strictly one at a time, so a single slow call stalled everything queued behind it.** Measured on a large project: a request that answers in 0.4 seconds against an idle bridge took **84 seconds** when it happened to be issued behind two long-running ones. Because a client-side timeout does not cancel work already running inside Studio, an abandoned request kept the queue blocked — and retrying, the natural reaction, made it worse rather than better.
+- The listener thread now only accepts connections and hands each request to a worker, so it is never blocked. Operations that touch the Trados editor still take their turn on the UI thread — that is required, the editor is not safe to drive from several threads — but everything that does not need the editor (termbase lookups, help, the tool list, `session_report`) now answers immediately instead of waiting behind them.
+- **If you saw "the request was canceled due to the configured HttpClient.Timeout of 30 seconds elapsing", update the MCP server itself as well.** That message comes from the separately-installed MCP server, not the plugin, and its timeout was raised to 5 minutes in 20.148 — so seeing it means that component is older than the plugin. It does not update with Studio: reinstall the `.mcpb` in Claude Desktop (or re-unzip the exe for other clients) after a plugin update, then restart the client.
+
 ## [18.20.162 / 19.20.162] – 2026-08-08
 
 ### Fixed (Supervertaler MCP Server · find_and_replace refused every segment containing a tag)

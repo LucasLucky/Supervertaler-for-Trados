@@ -1213,11 +1213,19 @@ namespace Supervertaler.Trados.Core
     ///     button uses.
     ///
     /// Threading:
-    ///   * Listener runs on a dedicated background thread; one request at a
-    ///     time (Trados editor operations are not concurrency-safe).
-    ///   * Both endpoint handlers marshal back to the UI thread via the
-    ///     supplied delegates – callers MUST be safe to invoke from any
-    ///     thread; the bridge itself does not synchronise with WinForms.
+    ///   * The listener runs on a dedicated background thread that ONLY accepts:
+    ///     each request is handed to a ThreadPool worker so the accept loop never
+    ///     blocks. Handling requests inline used to serialise the whole bridge,
+    ///     so one slow or client-abandoned call stalled every later one.
+    ///   * Handlers that touch the Trados editor marshal to the UI thread via the
+    ///     supplied delegates and therefore still serialise THERE, which is
+    ///     required – editor operations are not concurrency-safe. Handlers that
+    ///     do not need the editor (term lookup, help, tool registry,
+    ///     session_report) now genuinely run in parallel.
+    ///   * Consequence for anything added here: handler code may run on several
+    ///     threads at once, so bridge-level shared state must be synchronised.
+    ///     The existing state already is – see BridgePayloadLedger's lock and the
+    ///     coverage sets' _bridgeCoverageLock.
     /// </summary>
     public sealed class SupervertalerBridge : IDisposable
     {
@@ -1509,19 +1517,40 @@ namespace Supervertaler.Trados.Core
                     return;
                 }
 
-                try
+                // Hand the request to a worker and go straight back to
+                // GetContext(). Previously HandleRequest ran INLINE here, so the
+                // listener accepted exactly one request at a time: a single slow
+                // call blocked every later one, and because a client-side timeout
+                // does not cancel the work already running on this side, an
+                // abandoned request kept the queue stalled and each retry made it
+                // worse. Measured before this change: /v1/project answered in
+                // 0.4 s idle but took 84 s when issued behind two abandoned calls.
+                //
+                // Handlers that touch Trados marshal to the UI thread themselves
+                // and still serialize there – that is inherent, the SDK is
+                // UI-thread-bound. What this fixes is everything that does NOT
+                // need the UI thread (term lookup, help, the tool registry,
+                // session_report) no longer waiting behind something that does.
+                // The shared bridge state is already lock-protected
+                // (BridgePayloadLedger, the coverage sets), so concurrent
+                // handlers are safe.
+                ThreadPool.QueueUserWorkItem(state =>
                 {
-                    HandleRequest(context);
-                }
-                catch (Exception ex)
-                {
-                    BridgeLog.Write($"[SupervertalerBridge] HandleRequest threw: {ex.Message}");
-                    TryWriteError(context, 500, "internal error");
-                }
-                finally
-                {
-                    try { context.Response.Close(); } catch { /* ignore */ }
-                }
+                    var ctx = (HttpListenerContext)state;
+                    try
+                    {
+                        HandleRequest(ctx);
+                    }
+                    catch (Exception ex)
+                    {
+                        BridgeLog.Write($"[SupervertalerBridge] HandleRequest threw: {ex.Message}");
+                        TryWriteError(ctx, 500, "internal error");
+                    }
+                    finally
+                    {
+                        try { ctx.Response.Close(); } catch { /* ignore */ }
+                    }
+                }, context);
             }
         }
 
