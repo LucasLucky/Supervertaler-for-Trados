@@ -1062,14 +1062,16 @@ namespace Supervertaler.Trados
                 var pair = _activeDocument.ActiveSegmentPair;
                 if (pair == null) return snapshot;
 
-                // Strip U+2028 / U+2029 the same way the Chat path does
-                var sourceText = pair.Source?.ToString();
-                if (sourceText != null)
-                    sourceText = sourceText.Replace("\u2028", " ").Replace("\u2029", " ");
-
-                var targetText = pair.Target != null
-                    ? SegmentTagHandler.GetFinalText(pair.Target)
-                    : null;
+                // Serialize BOTH sides the way get_segments does, so the markers an
+                // agent sees here are the <t1/>/<t2>\u2026</t2> ones update_segments
+                // accepts. Previously source used the raw ToString() (emitting
+                // internal markup like <group name="Group 258"><cf size=8>, which
+                // update_segments rejects) and target used GetFinalText, which
+                // strips tags entirely \u2013 so every neighbouring target looked like it
+                // had lost its formatting. An agent acting on that would "repair"
+                // segments that were never broken.
+                var sourceText = SerializeForBridge(pair.Source);
+                var targetText = pair.Target != null ? SerializeForBridge(pair.Target) : null;
 
                 snapshot.Available = true;
                 snapshot.Project = new BridgeProjectInfo
@@ -1087,7 +1089,7 @@ namespace Supervertaler.Trados
 
                 // Surrounding segments
                 var surroundingCount = _settings?.AiSettings?.QuickLauncherSurroundingSegments ?? 5;
-                var surrounding = GetSurroundingSegments(surroundingCount);
+                var surrounding = GetSurroundingSegments(surroundingCount, serializeTags: true);
                 snapshot.SurroundingSegments = new List<BridgeSegmentInfo>();
                 foreach (var s in surrounding)
                 {
@@ -11899,7 +11901,40 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         /// Gets surrounding segments (source + target) around the active segment.
         /// Returns a list of [source, target] string arrays.
         /// </summary>
-        private List<string[]> GetSurroundingSegments(int count)
+        /// <param name="serializeTags">When true, source and target are serialized
+        /// with the <c>&lt;t1/&gt;</c>-style markers get_segments/update_segments use.
+        /// The MCP bridge needs this; the chat/prompt path keeps the historical
+        /// plain-text rendering, so an LLM writing prose is not shown tag noise.</param>
+        /// <summary>
+        /// Serializes one side of a segment pair the way get_segments does: the
+        /// normalised <c>&lt;t1/&gt;</c> / <c>&lt;t2&gt;…&lt;/t2&gt;</c> markers that
+        /// update_segments accepts, with semantic names applied. Use this for
+        /// anything the MCP bridge returns, so every tool describes a segment the
+        /// same way and a marker copied from one tool is valid in another.
+        /// U+2028/U+2029 are flattened, as the chat path has always done.
+        /// </summary>
+        private static string SerializeForBridge(ISegment side)
+        {
+            if (side == null) return "";
+            try
+            {
+                var ser = SegmentTagHandler.Serialize(side);
+                var text = Core.Export.BilingualTagNamer.ApplySemanticNames(
+                    ser.SerializedText ?? "", ser.TagMap);
+                return (text ?? "").Replace("\u2028", " ").Replace("\u2029", " ");
+            }
+            catch
+            {
+                // Never let a serialization quirk blank the whole snapshot.
+                return (side.ToString() ?? "").Replace("\u2028", " ").Replace("\u2029", " ");
+            }
+        }
+
+        /// <param name="serializeTags">When true, source and target are serialized
+        /// with the <c>&lt;t1/&gt;</c>-style markers get_segments/update_segments use.
+        /// The MCP bridge needs this; the chat/prompt path keeps the historical
+        /// plain-text rendering, so an LLM writing prose is not shown tag noise.</param>
+        private List<string[]> GetSurroundingSegments(int count, bool serializeTags = false)
         {
             var result = new List<string[]>();
             if (_activeDocument == null || count <= 0)
@@ -11930,9 +11965,13 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
 
                 foreach (var pair in _activeDocument.SegmentPairs)
                 {
-                    var src = pair.Source?.ToString() ?? "";
-                    var tgt = pair.Target != null
-                        ? SegmentTagHandler.GetFinalText(pair.Target) : "";
+                    var src = serializeTags
+                        ? SerializeForBridge(pair.Source)
+                        : (pair.Source?.ToString() ?? "");
+                    var tgt = pair.Target == null ? ""
+                        : serializeTags
+                            ? SerializeForBridge(pair.Target)
+                            : SegmentTagHandler.GetFinalText(pair.Target);
                     allPairs.Add(Tuple.Create(src, tgt));
 
                     if (activeIdx < 0)

@@ -7,6 +7,14 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.161 / 19.20.161] – 2026-08-08
+
+### Fixed (Supervertaler MCP Server · get_active_segment misrepresented every tag)
+
+- **`get_active_segment` showed the current segment's target with all its inline tags stripped, and its source in raw internal markup.** A footer segment whose source and target both carry a page-number field was reported as source `Side <field name="Page" value="10"/>` and target `Pagina ` – so the target looked like it had lost the field. It had not: `get_segments` correctly reports the same segment as `Side <t1/>` → `Pagina <t1/>`. The same applied to every entry in `surroundingSegments`.
+- **This invited exactly the wrong repair.** An AI reading the active segment or its neighbours would conclude that formatting had been dropped and "fix" segments that were never broken — writing real tag damage into a clean document. The raw source form (`<group name="Group 258">`, `<cf size=8>`) is also not a marker `update_segments` accepts, so copying it would fail.
+- Both fields now go through the same serializer `get_segments` uses, so every tool describes a segment the same way and a marker copied from one tool is valid in another. The AI chat and prompt-context path deliberately keeps its previous plain-text rendering — an LLM writing prose is not helped by tag noise — so only the MCP surface changed.
+
 ## [18.20.160 / 19.20.160] – 2026-08-08
 
 ### Fixed (Supervertaler MCP Server · update_segments destroyed a segment's comments)
