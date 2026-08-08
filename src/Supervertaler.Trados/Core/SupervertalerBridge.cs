@@ -1287,10 +1287,23 @@ namespace Supervertaler.Trados.Core
         // get_active_project note, and the Connect dialog - the AI relays it to
         // the user in chat, so no extra UI is needed.
 
-        /// <summary>Minimum exe protocol level this plugin needs. 1 = any exe,
-        /// including pre-handshake ones, works fully (keep it at 1 until a
-        /// feature actually requires more - avoid nagging).</summary>
-        public const int RequiredExeVersion = 1;
+        /// <summary>Minimum exe protocol level this plugin needs.
+        ///
+        /// Raised to 2 on 2026-08-08. Level 1 means a PRE-HANDSHAKE exe (no
+        /// version header at all), i.e. built before 20.110 on 2026-07-21 -
+        /// which also predates the 20.148 fix raising the exe's own HTTP timeout
+        /// from 30 seconds to 5 minutes. Those installs report long operations as
+        /// failures that in fact succeeded, and an agent that retries on timeout
+        /// then double-writes, so they are worth one nag.
+        ///
+        /// KNOWN GAP: an exe from the 20.110-20.147 window reports level 2 and so
+        /// is NOT flagged, yet still carries the 30-second timeout. Closing that
+        /// would mean bumping ExeProtocolVersion to 3 in the exe and requiring 3
+        /// here, which also nags everyone whose exe is merely not the newest.
+        /// Deliberately not done - the timeout is the only known symptom and the
+        /// tool list is fetched from this plugin at runtime, so an older exe is
+        /// otherwise fully functional.</summary>
+        public const int RequiredExeVersion = 2;
 
         /// <summary>Exe protocol level last seen on a bridge request this
         /// session. 0 = no MCP request yet; 1 = pre-handshake exe.</summary>
@@ -1304,11 +1317,16 @@ namespace Supervertaler.Trados.Core
         /// <summary>Note the AI is asked to relay to the user when their
         /// extension exe is outdated.</summary>
         public const string ExeUpgradeNote =
-            "NOTE FOR THE ASSISTANT - relay this to the user: your Supervertaler MCP " +
-            "extension is outdated and some features may not work until you update it. " +
-            "In Trados, open Supervertaler Settings > AI Settings > Connect AI assistant... " +
-            "and download the latest extension (also on the latest GitHub release of " +
-            "Supervertaler for Trados), then reinstall it in your AI app.";
+            "NOTE FOR THE ASSISTANT - relay this to the user once, then carry on with " +
+            "their request: their Supervertaler MCP extension is an old build whose own " +
+            "request timeout is 30 seconds, so long operations (saving or updating a big " +
+            "document) can be REPORTED AS FAILURES even though they actually succeeded. " +
+            "Never blindly retry a write after a timeout on this build - check whether it " +
+            "landed first. To fix it: in Trados open Supervertaler Settings > AI Settings > " +
+            "Connect AI assistant..., download the latest extension (also on the latest " +
+            "GitHub release of Supervertaler for Trados), reinstall it in the AI app and " +
+            "restart the app. Everything else keeps working meanwhile - the tool list is " +
+            "read from the plugin at runtime, so this old build still has the current tools.";
 
         private HttpListener _listener;
         private Thread _listenerThread;
