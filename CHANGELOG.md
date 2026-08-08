@@ -7,6 +7,20 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.160 / 19.20.160] – 2026-08-08
+
+### Fixed (Supervertaler MCP Server · update_segments destroyed a segment's comments)
+
+- **Writing a segment through `update_segments` deleted every Trados comment on it, silently, and reported success.** The write path clears the target and rebuilds it from the *source*'s tags — and a comment lives only in the target's markup, so it went with the clear and nothing put it back. Verified on a real job: the comment was gone from the saved SDLXLIFF, with `ok: true` and no warning.
+- **This turned the normal delivery workflow into a shredder.** Read the comments, act on what they say, fix the segments they refer to — and each fix deletes the comment that prompted it, one segment at a time. Following the documented rule guaranteed the loss: tag markers are to be copied from the segment's *source* field, and the comment anchor exists only on the target side, so a correctly-behaving AI dropped it every time. Nothing surfaced this until someone re-parsed the whole document from disk.
+- Comment markers are now captured before the rewrite and restored around the new text, on both the tagged and the plain-text write paths. Re-anchoring is deliberately coarse — a comment that covered part of a segment now covers all of it — because the span it pointed into no longer exists after a rewrite, and a comment attached to slightly too much text is far better than one silently deleted.
+- If a comment cannot be preserved after all, the segment's result now carries a `warning` saying so, on the same channel as the tag-id audit. A destructive silent success is the worst of the available behaviours; an announced failure is recoverable.
+
+### Fixed (Supervertaler MCP Server · two limits that hid real findings)
+
+- **`find_inconsistencies` could not reach past its first 200 groups.** The cap was applied with no way to page, so on a document with 375 inconsistent groups the remaining 175 were unreachable at any `limit` — and on the job where this surfaced, those later groups were the cross-file terminology drift, i.e. the part worth finding. There is now an `offset` parameter, the cap is 500, and when the result is truncated the note gives the exact offset to pass for the next page.
+- **`add_term` no longer strips trailing punctuation from terms.** `Rev.` → `Rev.` was being stored as `Rev` → `Rev`, an entry that no longer records the decision it was created for; `NOTE:`, `Doc.nr.`, `PO-nr.` and `SAFETY INFORMATION!` lost their final character the same way. Abbreviation-with-period is a legitimate term form. Stripping still happens for the in-Studio quick-add, where the term is captured from a selection in running text and a final `.` really is sentence punctuation — but a term named deliberately through the MCP server is now stored exactly as sent. Lookup is unaffected: the search trims the stored term as well as the query, so `Rev.` still matches a search for `Rev`.
+
 ## [18.20.159 / 19.20.159] – 2026-08-07
 
 ### Fixed (TermLens · selection tracking survives brackets)

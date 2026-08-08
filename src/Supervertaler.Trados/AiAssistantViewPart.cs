@@ -3510,7 +3510,7 @@ namespace Supervertaler.Trados
         /// Groups repeated source texts (tag-stripped, trimmed) and reports the
         /// groups whose non-empty targets differ. Marshals to the UI thread.
         /// </summary>
-        private BridgeInconsistenciesResponse BuildBridgeInconsistencies(int limit)
+        private BridgeInconsistenciesResponse BuildBridgeInconsistencies(int limit, int offset)
         {
             var ctrl = _control?.Value;
             if (ctrl == null || ctrl.IsDisposed)
@@ -3518,13 +3518,13 @@ namespace Supervertaler.Trados
 
             if (ctrl.InvokeRequired)
             {
-                return (BridgeInconsistenciesResponse)ctrl.Invoke(new Func<BridgeInconsistenciesResponse>(() => BuildBridgeInconsistencies(limit)));
+                return (BridgeInconsistenciesResponse)ctrl.Invoke(new Func<BridgeInconsistenciesResponse>(() => BuildBridgeInconsistencies(limit, offset)));
             }
             // The panel may have no handle yet (never opened this session), in
             // which case InvokeRequired lies – marshal via the UI thread we
             // captured at startup instead. See Core/UiThread.
             if (UiThread.InvokeRequired && UiThread.IsAvailable)
-                return UiThread.Invoke(() => BuildBridgeInconsistencies(limit));
+                return UiThread.Invoke(() => BuildBridgeInconsistencies(limit, offset));
 
             var response = new BridgeInconsistenciesResponse
             {
@@ -3621,7 +3621,14 @@ namespace Supervertaler.Trados
                             distinctTargets.Add(o.Target);
                     if (distinctTargets.Count < 2) continue;
 
+                    // Count every qualifying group, but only materialise the
+                    // requested page. Without an offset the groups past the cap
+                    // were unreachable at any 'limit' – on a 375-group job that
+                    // silently hid the cross-file terminology drift, which was
+                    // the part that mattered.
+                    int index = response.GroupsFound;
                     response.GroupsFound++;
+                    if (index < offset) continue;
                     if (response.Groups.Count >= limit)
                     {
                         response.Truncated = true;
@@ -3635,12 +3642,20 @@ namespace Supervertaler.Trados
                 }
 
                 response.Returned = response.Groups.Count;
+                response.Offset = offset;
                 if (response.GroupsFound == 0)
                     response.Note = "No inconsistencies: every repeated source segment has a single " +
                                     "consistent translation (or is not translated yet).";
                 else if (response.Truncated)
-                    response.Note = $"Only the first {response.Returned} of {response.GroupsFound} " +
-                                    "inconsistent groups returned – raise 'limit' to see more.";
+                {
+                    int nextOffset = offset + response.Returned;
+                    response.Note = $"Groups {offset + 1}–{nextOffset} of {response.GroupsFound} returned. " +
+                                    $"Call again with offset={nextOffset} for the next page" +
+                                    (limit < 500 ? ", or raise 'limit' (max 500)" : "") + ".";
+                }
+                else if (offset > 0)
+                    response.Note = $"Groups {offset + 1}–{offset + response.Returned} of " +
+                                    $"{response.GroupsFound} returned – this is the last page.";
             }
             catch (Exception ex)
             {

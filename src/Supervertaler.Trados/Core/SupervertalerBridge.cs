@@ -476,9 +476,10 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "groupsFound", Order = 1)] public int GroupsFound { get; set; }
         [DataMember(Name = "returned", Order = 2)] public int Returned { get; set; }
         [DataMember(Name = "truncated", Order = 3)] public bool Truncated { get; set; }
-        [DataMember(Name = "groups", Order = 4, EmitDefaultValue = false)]
+        [DataMember(Name = "offset", Order = 4)] public int Offset { get; set; }
+        [DataMember(Name = "groups", Order = 5, EmitDefaultValue = false)]
         public List<BridgeInconsistencyGroup> Groups { get; set; }
-        [DataMember(Name = "note", Order = 5, EmitDefaultValue = false)] public string Note { get; set; }
+        [DataMember(Name = "note", Order = 6, EmitDefaultValue = false)] public string Note { get; set; }
     }
 
     /// <summary>Parsed query for GET /v1/qa-check.</summary>
@@ -1230,7 +1231,7 @@ namespace Supervertaler.Trados.Core
         private readonly Func<BridgeUpdateSegmentsRequest, BridgeUpdateSegmentsResponse> _updateSegments;
         private readonly Func<BridgeAddTermRequest, BridgeAddTermResponse> _addTerm;
         private readonly Func<BridgeFilesResponse> _getFiles;
-        private readonly Func<int, BridgeInconsistenciesResponse> _findInconsistencies;
+        private readonly Func<int, int, BridgeInconsistenciesResponse> _findInconsistencies;
         private readonly Func<BridgeStudioTmQuery, BridgeTmSearchResponse> _searchStudioTm;
         private readonly Func<BridgeQaQuery, BridgeQaResponse> _runQaCheck;
         private readonly Func<BridgeTmCompareQuery, BridgeTmCompareResponse> _compareTm;
@@ -1317,7 +1318,7 @@ namespace Supervertaler.Trados.Core
             Func<BridgeUpdateSegmentsRequest, BridgeUpdateSegmentsResponse> updateSegments = null,
             Func<BridgeAddTermRequest, BridgeAddTermResponse> addTerm = null,
             Func<BridgeFilesResponse> getFiles = null,
-            Func<int, BridgeInconsistenciesResponse> findInconsistencies = null,
+            Func<int, int, BridgeInconsistenciesResponse> findInconsistencies = null,
             Func<BridgeStudioTmQuery, BridgeTmSearchResponse> searchStudioTm = null,
             Func<BridgeQaQuery, BridgeQaResponse> runQaCheck = null,
             Func<BridgeTmCompareQuery, BridgeTmCompareResponse> compareTm = null,
@@ -3213,12 +3214,17 @@ namespace Supervertaler.Trados.Core
             int limit;
             if (!int.TryParse(QueryUtf8(context.Request)["limit"], out limit) || limit <= 0)
                 limit = 50;
-            limit = Math.Min(limit, 200);
+            // Cap raised from 200 and paired with 'offset': at 200-with-no-offset
+            // the groups past the cap were unreachable at any limit.
+            limit = Math.Min(limit, 500);
+            int offset;
+            if (!int.TryParse(QueryUtf8(context.Request)["offset"], out offset) || offset < 0)
+                offset = 0;
 
             BridgeInconsistenciesResponse response;
             try
             {
-                response = _findInconsistencies(limit) ?? new BridgeInconsistenciesResponse { Available = false };
+                response = _findInconsistencies(limit, offset) ?? new BridgeInconsistenciesResponse { Available = false };
             }
             catch (Exception ex)
             {

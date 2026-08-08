@@ -1308,7 +1308,18 @@ namespace Supervertaler.Trados.Core
                 dbPath, sourceTerm, targetTerm, definition, domain, notes,
                 termbases, isNonTranslatable: false,
                 orient: tb => DecideOrientationStrict(
-                    tb, projectSourceLang, explicitSourceLang, explicitTargetLang));
+                    tb, projectSourceLang, explicitSourceLang, explicitTargetLang),
+                // Store exactly what the caller sent. Trailing-punctuation
+                // stripping exists for the in-Studio quick-add, where the term is
+                // captured from a selection in running text and a final "." is
+                // sentence punctuation. Here the caller named the string
+                // deliberately, and abbreviation-with-period is a legitimate term
+                // form: "Rev." -> "Rev." degenerated to "Rev" -> "Rev", losing the
+                // decision the entry existed to record. Also seen: NOTE:, Doc.nr.,
+                // PO-nr., SAFETY INFORMATION!. Lookup is unaffected - SearchTerm
+                // RTRIMs the STORED term as well as the query, so "Rev." still
+                // matches a search for "Rev".
+                preserveTrailingPunctuation: true);
         }
 
         /// <summary>
@@ -1384,11 +1395,12 @@ namespace Supervertaler.Trados.Core
             string dbPath, string sourceTerm, string targetTerm,
             string definition, string domain, string notes,
             List<TermbaseInfo> termbases, bool isNonTranslatable,
-            Func<TermbaseInfo, (bool swap, string cannotOrient)> orient)
+            Func<TermbaseInfo, (bool swap, string cannotOrient)> orient,
+            bool preserveTrailingPunctuation = false)
         {
             // Strip trailing sentence punctuation from translatable terms on save
             // (e.g. "circumference." -> "circumference"); non-translatables kept as-is.
-            if (!isNonTranslatable)
+            if (!isNonTranslatable && !preserveTrailingPunctuation)
             {
                 sourceTerm = NormalizeTermForSave(sourceTerm);
                 targetTerm = NormalizeTermForSave(targetTerm);
