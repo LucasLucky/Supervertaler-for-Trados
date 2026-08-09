@@ -9,7 +9,7 @@ namespace Supervertaler.Trados.Controls
     /// A tiny, one-way in-app notice with a link out to further reading (e.g. a
     /// GitHub Discussions post). Unlike <see cref="SurveyDialog"/> this collects
     /// no answer and has no server round-trip: it is shown at most once per
-    /// caller-supplied id (tracked in <see cref="Settings.TermLensSettings.ShownAnnouncementIds"/>),
+    /// caller-supplied id (tracked in <see cref="Settings.AnnouncementState"/>),
     /// and closing it by any means – the link, "Got it", Esc, or the window's
     /// close button – dismisses it for good.
     ///

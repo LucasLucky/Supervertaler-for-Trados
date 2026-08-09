@@ -15,6 +15,7 @@ namespace Supervertaler.Trados.Controls
         private Label _lblHeading;
         private ComboBox _cmbMemoryBank;
         private LinkLabel _lnkHelp;
+        private Button _btnConvertLegacy;
         private Button _btnProcessInbox;
         private Button _btnHealthCheck;
         private Button _btnDistill;
@@ -31,6 +32,10 @@ namespace Supervertaler.Trados.Controls
         private bool _suppressComboChange;
 
         /// <summary>Raised when the user clicks "Process Inbox".</summary>
+        /// <summary>Raised when the user asks to convert a legacy-layout bank.
+        /// Only reachable while <see cref="SetLegacyBank"/> has flagged one.</summary>
+        public event EventHandler ConvertLegacyRequested;
+
         public event EventHandler ProcessInboxRequested;
 
         /// <summary>Raised when the user clicks "Health Check".</summary>
@@ -155,6 +160,29 @@ namespace Supervertaler.Trados.Controls
             };
             _lnkHelp.LinkClicked += (s, e) =>
                 HelpSystem.OpenHelp(HelpSystem.Topics.SuperMemory);
+
+            // ─── Convert legacy bank ────────────────────────────────
+            // Hidden unless the active bank is still on the old seven-folder
+            // layout. Such a bank contributes NOTHING to a prompt under the new
+            // reader, so the one thing this must not do is stay quiet about it.
+            _btnConvertLegacy = new Button
+            {
+                Text = "⚠ Convert this bank",
+                Font = btnFont,
+                FlatStyle = FlatStyle.Flat,
+                ForeColor = Color.FromArgb(150, 70, 0),
+                BackColor = Color.FromArgb(255, 244, 214),
+                Cursor = Cursors.Hand,
+                AutoSize = true,
+                Padding = new Padding(UiScale.Pixels(4), 0, UiScale.Pixels(4), 0),
+                Height = UiScale.Pixels(24),
+                TabStop = false,
+                UseCompatibleTextRendering = true,
+                Visible = false
+            };
+            _btnConvertLegacy.FlatAppearance.BorderSize = 0;
+            _btnConvertLegacy.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 232, 180);
+            _btnConvertLegacy.Click += (s, e) => ConvertLegacyRequested?.Invoke(this, EventArgs.Empty);
 
             // ─── Process Inbox button ────────────────────────────────
             _btnProcessInbox = new Button
@@ -307,6 +335,7 @@ namespace Supervertaler.Trados.Controls
             Controls.Add(_btnDistill);
             Controls.Add(_btnHealthCheck);
             Controls.Add(_btnProcessInbox);
+            Controls.Add(_btnConvertLegacy);
             Controls.Add(_lnkHelp);
             Controls.Add(_cmbMemoryBank);
             Controls.Add(_lblHeading);
@@ -371,6 +400,25 @@ namespace Supervertaler.Trados.Controls
         /// <summary>
         /// Updates the inbox file count display and enables/disables the Process Inbox button.
         /// </summary>
+        /// <summary>
+        /// Shows or hides the convert prompt for a bank still on the old layout.
+        /// </summary>
+        public void SetLegacyBank(bool isLegacy)
+        {
+            if (_btnConvertLegacy == null) return;
+            _btnConvertLegacy.Visible = isLegacy;
+            if (isLegacy)
+            {
+                var tip = new ToolTip { AutoPopDelay = 12000 };
+                tip.SetToolTip(_btnConvertLegacy,
+                    "This bank still uses the old folder layout and is NOT being read" + Environment.NewLine +
+                    "- it contributes nothing to the AI's context." + Environment.NewLine + Environment.NewLine +
+                    "Converting folds its articles into brief.md, terminology.md and" + Environment.NewLine +
+                    "style.md. Nothing is deleted: the original folders are moved to" + Environment.NewLine +
+                    "reference/_legacy so you can check the result.");
+            }
+        }
+
         public void UpdateInboxCount(int count)
         {
             _lastInboxCount = count;

@@ -125,6 +125,7 @@ namespace Supervertaler.Trados.Controls
         public event EventHandler SettingsRequested;
 
         /// <summary>Raised when the user clicks "Process Inbox" in the SuperMemory toolbar.</summary>
+        public event EventHandler ConvertLegacyBankRequested;
         public event EventHandler ProcessInboxRequested;
 
         /// <summary>Raised when the user clicks "Health Check" in the SuperMemory toolbar.</summary>

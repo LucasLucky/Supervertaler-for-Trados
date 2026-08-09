@@ -306,6 +306,7 @@ namespace Supervertaler.Trados
 
             // Wire SuperMemory toolbar events
             _control.Value.ProcessInboxRequested += OnProcessInbox;
+            _control.Value.ConvertLegacyBankRequested += OnConvertLegacyBank;
             _control.Value.HealthCheckRequested += OnHealthCheck;
             _control.Value.DistillRequested += OnDistill;
             _control.Value.OverviewRequested += OnOverview;
@@ -6501,6 +6502,7 @@ namespace Supervertaler.Trados
                 }
 
                 _control.Value.SuperMemoryToolbar?.SetMemoryBanks(banks, activeName);
+                RefreshLegacyBankNotice();
             }
             catch
             {
@@ -6515,6 +6517,87 @@ namespace Supervertaler.Trados
         /// restarts the inbox watcher against the new bank, and drops a system
         /// banner into the chat so the user sees confirmation of the switch.
         /// </summary>
+        /// <summary>
+        /// Shows the toolbar's convert prompt when the active bank is still on
+        /// the old seven-folder layout. Such a bank has none of the three files
+        /// the reader looks for, so it contributes NOTHING to a prompt - and
+        /// would do so without a word, which is the failure mode worth spending
+        /// UI on.
+        /// </summary>
+        private void RefreshLegacyBankNotice()
+        {
+            try
+            {
+                var isLegacy = UserDataPath.IsLegacyBankLayout(ActiveMemoryBankDir);
+                _control?.Value?.SuperMemoryToolbar?.SetLegacyBank(isLegacy);
+            }
+            catch { /* the notice is advisory; never break the panel over it */ }
+        }
+
+        /// <summary>
+        /// Converts the active legacy bank in place, after telling the user
+        /// exactly what will happen. Conversion is lossless - the old folders are
+        /// moved to reference/_legacy, not deleted - so the confirmation can
+        /// promise that honestly.
+        /// </summary>
+        private void OnConvertLegacyBank(object sender, EventArgs e)
+        {
+            try
+            {
+                var bankDir = ActiveMemoryBankDir;
+                var bankName = ActiveMemoryBankName;
+
+                if (!UserDataPath.IsLegacyBankLayout(bankDir))
+                {
+                    MessageBox.Show(
+                        "This bank has already been converted.",
+                        "SuperMemory", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    RefreshLegacyBankNotice();
+                    return;
+                }
+
+                var answer = MessageBox.Show(
+                    "Convert the memory bank '" + bankName + "' to the new layout?\n\n" +
+                    "Right now this bank uses the old folder structure, which means it is " +
+                    "NOT being read - the AI sees nothing from it.\n\n" +
+                    "Converting folds its articles into brief.md, terminology.md and " +
+                    "style.md. Nothing is deleted: the original folders are moved to " +
+                    "reference\\_legacy so you can check the result.\n\n" +
+                    "The conversion copies text across as-is. It does not tidy it up - " +
+                    "you will want to read through the result and prune it, especially " +
+                    "the terminology, which reads best as a table.",
+                    "Convert memory bank",
+                    MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
+
+                if (answer != DialogResult.OK) return;
+
+                string error;
+                int folded;
+                if (!UserDataPath.TryConvertLegacyBank(bankDir, out error, out folded))
+                {
+                    MessageBox.Show(error ?? "The bank could not be converted.",
+                        "SuperMemory", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
+                // The cached reader was built when the bank had no readable
+                // files; drop it so the next turn sees the converted content.
+                _kbReader = null;
+                RefreshLegacyBankNotice();
+
+                MessageBox.Show(
+                    "Converted '" + bankName + "': " + folded + " article(s) folded into the " +
+                    "three files.\n\nThe originals are in reference\\_legacy. Open the bank " +
+                    "and read through what came across before relying on it.",
+                    "SuperMemory", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Could not convert the bank: " + ex.Message,
+                    "SuperMemory", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
         private void OnMemoryBankChanged(object sender, MemoryBankChangedEventArgs e)
         {
             if (e == null || string.IsNullOrWhiteSpace(e.BankName)) return;

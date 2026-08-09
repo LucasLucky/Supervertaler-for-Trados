@@ -3445,8 +3445,7 @@ namespace Supervertaler.Trados
                     if (settings.AiSettings?.IncludeSuperMemoryContext != true)
                         return;
 
-                    if (settings.ShownAnnouncementIds != null &&
-                        settings.ShownAnnouncementIds.Contains(AnnouncementId))
+                    if (Settings.AnnouncementState.HasBeenShown(AnnouncementId))
                         return;
 
                     for (int i = 0; i < 30 && !ctrl.IsHandleCreated; i++)
@@ -3456,19 +3455,15 @@ namespace Supervertaler.Trados
                     // Record the impression before showing it: closing via Esc/X
                     // still counts, matching the "shown at most once" contract.
                     //
-                    // Re-load immediately before saving rather than reusing the
-                    // copy loaded above. Several startup tasks (this, the survey,
-                    // the usage-stats opt-in) each load, mutate and save the WHOLE
-                    // settings file concurrently, so a save from a stale copy
-                    // silently discards whatever the others wrote. Keeping the
-                    // read and the write adjacent shrinks that window to almost
-                    // nothing.
-                    var toSave = TermLensSettings.Load();
-                    if (toSave.ShownAnnouncementIds == null)
-                        toSave.ShownAnnouncementIds = new System.Collections.Generic.List<string>();
-                    if (!toSave.ShownAnnouncementIds.Contains(AnnouncementId))
-                        toSave.ShownAnnouncementIds.Add(AnnouncementId);
-                    toSave.Save();
+                    // Written to its own file, NOT settings.json. This used to do
+                    // a load-mutate-save of the whole settings file, which loses
+                    // the flag whenever another holder of a stale settings object
+                    // saves afterwards - and AiAssistantViewPart caches one from
+                    // startup and saves it on bank switches, prompt changes and
+                    // chat turns. The result was an announcement that reappeared
+                    // on some restarts and not others, depending on what the user
+                    // happened to do that session. See AnnouncementState.
+                    Settings.AnnouncementState.MarkShown(AnnouncementId);
 
                     ctrl.BeginInvoke(new Action(() =>
                     {
