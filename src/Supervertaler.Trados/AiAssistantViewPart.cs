@@ -2720,8 +2720,12 @@ namespace Supervertaler.Trados
             sb.AppendLine();
             sb.AppendLine("Each entry shows the target BEFORE the tracked edits (the draft as it was "
                 + "offered, e.g. by AI translation or a fuzzy match) and AFTER them (the reviewed "
-                + "final). Raw material for distilling style rules (04_STYLE) and terminology "
-                + "(02_TERMINOLOGY) via Process Inbox.");
+                + "final) - a record of how this translator actually corrects machine output.");
+            sb.AppendLine();
+            sb.AppendLine("This file is source material and nothing reads it automatically. Read it "
+                + "yourself, or paste it into the assistant and ask what keeps recurring, then write "
+                + "the decisions worth keeping into `terminology.md` (as table rows) and `style.md`. "
+                + "A change that shows up once is an edit; one that shows up nine times is a rule.");
             sb.AppendLine();
 
             int n = 0;
