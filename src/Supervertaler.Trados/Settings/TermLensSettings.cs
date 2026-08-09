@@ -648,6 +648,8 @@ namespace Supervertaler.Trados.Settings
                 var settingsDir  = Path.GetDirectoryName(settingsFile);
                 Directory.CreateDirectory(settingsDir);
 
+                MergeBackgroundOwnedFields();
+
                 using (var stream = new MemoryStream())
                 {
                     var settings = new DataContractJsonSerializerSettings
@@ -665,6 +667,71 @@ namespace Supervertaler.Trados.Settings
             catch
             {
                 // Silently ignore save failures
+            }
+        }
+
+        /// <summary>
+        /// Re-reads the fields that BACKGROUND tasks own and folds anything new
+        /// on disk back into this instance before it is written.
+        ///
+        /// The whole settings file is serialised on every Save, and several
+        /// long-lived objects hold a copy loaded at startup - AiAssistantViewPart
+        /// keeps one for the session and saves it on bank switches, prompt
+        /// changes and chat turns. A startup task that records "the user has now
+        /// seen this" therefore had its write silently undone minutes later by an
+        /// unrelated save of a stale copy. Observed with the SuperMemory
+        /// announcement, which reappeared on some restarts and not others
+        /// depending on what the user did in between.
+        ///
+        /// These fields are append-only records of things that HAPPENED, so a
+        /// union with whatever is on disk is always the correct merge: an id
+        /// present in either copy means the event occurred. Preferences are
+        /// deliberately not merged - for those, last writer wins is right.
+        /// </summary>
+        private void MergeBackgroundOwnedFields()
+        {
+            try
+            {
+                if (!File.Exists(SettingsFilePath)) return;
+                var onDisk = Load();
+                if (onDisk == null) return;
+
+                if (onDisk.ShownAnnouncementIds != null)
+                {
+                    if (ShownAnnouncementIds == null)
+                        ShownAnnouncementIds = new List<string>();
+                    foreach (var id in onDisk.ShownAnnouncementIds)
+                        if (!ShownAnnouncementIds.Contains(id))
+                            ShownAnnouncementIds.Add(id);
+                }
+
+                if (onDisk.AnsweredSurveyIds != null)
+                {
+                    if (AnsweredSurveyIds == null)
+                        AnsweredSurveyIds = new List<int>();
+                    foreach (var id in onDisk.AnsweredSurveyIds)
+                        if (!AnsweredSurveyIds.Contains(id))
+                            AnsweredSurveyIds.Add(id);
+                }
+
+                if (onDisk.SurveyShownCounts != null)
+                {
+                    if (SurveyShownCounts == null)
+                        SurveyShownCounts = new Dictionary<string, int>();
+                    foreach (var kv in onDisk.SurveyShownCounts)
+                    {
+                        // The higher count is the truthful one: it means the
+                        // dialog really was put in front of the user that often,
+                        // and under-counting would show it past its cap.
+                        int mine;
+                        if (!SurveyShownCounts.TryGetValue(kv.Key, out mine) || kv.Value > mine)
+                            SurveyShownCounts[kv.Key] = kv.Value;
+                    }
+                }
+            }
+            catch
+            {
+                // A failed merge must never block the save itself.
             }
         }
 

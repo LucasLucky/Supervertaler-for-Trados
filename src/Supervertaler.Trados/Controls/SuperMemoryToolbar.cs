@@ -352,39 +352,32 @@ namespace Supervertaler.Trados.Controls
             var y = (Height - _btnProcessInbox.Height) / 2;
             var x = UiScale.Pixels(4);
 
-            _lblHeading.Location = new Point(x,
-                (Height - _lblHeading.Height) / 2);
-            x += _lblHeading.Width + UiScale.Pixels(4);
+            // Hidden controls must not reserve width. _btnConvertLegacy is hidden
+            // for a converted bank, and counting it anyway pushed everything to
+            // its right off the edge of a docked panel.
+            void Place(Control c, int gap)
+            {
+                if (c == null || !c.Visible) return;
+                c.Location = new Point(x, (Height - c.Height) / 2);
+                x += c.Width + UiScale.Pixels(gap);
+            }
 
-            _cmbMemoryBank.Location = new Point(x,
-                (Height - _cmbMemoryBank.Height) / 2);
-            x += _cmbMemoryBank.Width + UiScale.Pixels(4);
+            Place(_lblHeading, 4);
+            Place(_cmbMemoryBank, 4);
 
-            _lnkHelp.Location = new Point(x,
-                (Height - _lnkHelp.Height) / 2);
-            x += _lnkHelp.Width + UiScale.Pixels(6);
+            // Directly after the bank it refers to, and before the action
+            // buttons: it is the one thing that must be noticed on a bank that
+            // is silently contributing nothing.
+            Place(_btnConvertLegacy, 6);
 
-            _btnProcessInbox.Location = new Point(x, y);
-            x += _btnProcessInbox.Width + UiScale.Pixels(2);
-
-            _btnHealthCheck.Location = new Point(x, y);
-            x += _btnHealthCheck.Width + UiScale.Pixels(2);
-
-            _btnDistill.Location = new Point(x, y);
-            x += _btnDistill.Width + UiScale.Pixels(2);
-
-            _btnOverview.Location = new Point(x, y);
-            x += _btnOverview.Width + UiScale.Pixels(2);
-
-            _btnSummary.Location = new Point(x, y);
-            x += _btnSummary.Width + UiScale.Pixels(6);
-
-            _lblInboxCount.Location = new Point(x,
-                (Height - _lblInboxCount.Height) / 2);
-            x += _lblInboxCount.Width + UiScale.Pixels(2);
-
-            _btnRefresh.Location = new Point(x,
-                (Height - _btnRefresh.Height) / 2);
+            Place(_lnkHelp, 6);
+            Place(_btnProcessInbox, 2);
+            Place(_btnHealthCheck, 2);
+            Place(_btnDistill, 2);
+            Place(_btnOverview, 2);
+            Place(_btnSummary, 6);
+            Place(_lblInboxCount, 2);
+            Place(_btnRefresh, 0);
         }
 
         /// <summary>

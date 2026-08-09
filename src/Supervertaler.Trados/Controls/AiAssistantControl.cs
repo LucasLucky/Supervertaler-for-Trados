@@ -407,6 +407,8 @@ namespace Supervertaler.Trados.Controls
             _superMemoryToolbar = new SuperMemoryToolbar();
             _superMemoryToolbar.ProcessInboxRequested += (s, e) =>
                 ProcessInboxRequested?.Invoke(this, EventArgs.Empty);
+            _superMemoryToolbar.ConvertLegacyRequested += (s, e) =>
+                ConvertLegacyBankRequested?.Invoke(this, EventArgs.Empty);
             _superMemoryToolbar.HealthCheckRequested += (s, e) =>
                 HealthCheckRequested?.Invoke(this, EventArgs.Empty);
             _superMemoryToolbar.DistillRequested += (s, e) =>
