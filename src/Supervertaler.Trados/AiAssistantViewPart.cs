@@ -305,12 +305,9 @@ namespace Supervertaler.Trados
                 SafeInvoke(() => _control.Value.BatchTranslateControl.AppendLog(msg, true));
 
             // Wire SuperMemory toolbar events
-            _control.Value.ProcessInboxRequested += OnProcessInbox;
             _control.Value.ConvertLegacyBankRequested += OnConvertLegacyBank;
-            _control.Value.HealthCheckRequested += OnHealthCheck;
-            _control.Value.DistillRequested += OnDistill;
+            _control.Value.OpenBankFolderRequested += OnOpenBankFolder;
             _control.Value.OverviewRequested += OnOverview;
-            _control.Value.AiSummaryRequested += OnAiSummary;
             _control.Value.SuperMemoryRefreshRequested += (s, e) => RefreshSuperMemoryInboxCount();
             _control.Value.MemoryBankChanged += OnMemoryBankChanged;
             _control.Value.NewMemoryBankRequested += OnNewMemoryBankRequested;
@@ -7292,39 +7289,160 @@ namespace Supervertaler.Trados
         /// memory bank from its frontmatter index and open it in the browser.
         /// Metadata only – no LLM call – so it is fast and free.
         /// </summary>
+        /// <summary>
+        /// Bank report: what this bank actually contributes to a prompt.
+        ///
+        /// Computed from the files themselves - no AI call, no metadata index.
+        /// The previous Overview rendered an HTML page out of article
+        /// frontmatter, and a three-file bank has none. The questions worth
+        /// answering now are "what is in here", "how much of the prompt does it
+        /// take", and "is anything obviously wrong".
+        /// </summary>
         private void OnOverview(object sender, EventArgs e)
         {
-            var vaultDir = ActiveMemoryBankDir;
-            var bankName = ActiveMemoryBankName;
-            if (!Directory.Exists(vaultDir))
+            try
             {
-                ShowSuperMemoryMessage($"Memory bank **{bankName}** does not exist yet.\n\n" +
-                    $"Expected location:\n`{vaultDir}`");
-                return;
-            }
+                var bankDir = ActiveMemoryBankDir;
+                var bankName = ActiveMemoryBankName;
 
-            var capturedDir = vaultDir;
-            var capturedName = bankName;
-            Task.Run(() =>
-            {
+                if (!Directory.Exists(bankDir))
+                {
+                    ShowSuperMemoryMessage("Memory bank **" + bankName + "** does not exist yet.\n\n" +
+                        "Expected location:\n`" + bankDir + "`");
+                    return;
+                }
+
+                if (UserDataPath.IsLegacyBankLayout(bankDir))
+                {
+                    ShowSuperMemoryMessage(
+                        "**" + bankName + "** still uses the old folder layout, so nothing in it is " +
+                        "being read - it contributes nothing to the AI's context.\n\n" +
+                        "Use the Convert button in the toolbar first.");
+                    return;
+                }
+
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("### SuperMemory report - " + bankName);
+                sb.AppendLine();
+
+                var warnings = new List<string>();
+
+                foreach (var f in Core.MemoryBankReader.BankFiles)
+                {
+                    int n = -1;
+                    try
+                    {
+                        var fp = Path.Combine(bankDir, f);
+                        if (File.Exists(fp)) n = File.ReadAllLines(fp).Length;
+                    }
+                    catch { }
+
+                    sb.AppendLine(n < 0
+                        ? "- `" + f + "` - **missing**"
+                        : "- `" + f + "` - " + n + " lines");
+
+                    if (n < 0 && f == Core.MemoryBankReader.BriefFile)
+                        warnings.Add("No `brief.md`, so the AI is told nothing about who this client is.");
+                }
+
+                // The table is the format that makes a wrong entry findable, so a
+                // terminology file that is not one is worth saying out loud.
                 try
                 {
-                    var reader = new MemoryBankReader(capturedDir);
-                    var index = reader.GetIndexSnapshot();
-                    var path = MemoryBankReport.WriteHtmlOverviewToTempFile(index, capturedName);
-                    System.Diagnostics.Process.Start(
-                        new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+                    var termPath = Path.Combine(bankDir, Core.MemoryBankReader.TerminologyFile);
+                    if (File.Exists(termPath))
+                    {
+                        int rows = 0;
+                        foreach (var line in File.ReadAllLines(termPath))
+                        {
+                            var t = line.Trim();
+                            if (!t.StartsWith("|") || !t.EndsWith("|")) continue;
+                            if (t.Replace("|", "").Replace("-", "").Replace(":", "").Trim().Length == 0) continue;
+                            if (t.IndexOf("Source", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                                t.IndexOf("Target", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                            rows++;
+                        }
+                        sb.AppendLine();
+                        sb.AppendLine(rows > 0
+                            ? "**" + rows + " term row(s)** in the table."
+                            : "No table rows found in `terminology.md`.");
+                        if (rows == 0)
+                            warnings.Add("`terminology.md` has no table rows - if it is still prose from a " +
+                                "conversion, rewriting it as a table is what makes a wrong entry findable.");
+                    }
+                }
+                catch { }
 
-                    SafeInvoke(() => ShowSuperMemoryMessage(
-                        $"☰ **Memory bank overview** generated for **{capturedName}** " +
-                        $"({index.Count} notes) and opened in your browser.\n\n`{path}`"));
-                }
-                catch (Exception ex)
+                // Stray root files: searchable, but never sent to the AI.
+                try
                 {
-                    var err = ex.Message;
-                    SafeInvoke(() => AddErrorMessage($"Overview generation failed: {err}"));
+                    var strays = Directory.GetFiles(bankDir, "*.md", SearchOption.TopDirectoryOnly)
+                        .Select(Path.GetFileName)
+                        .Where(n => !Core.MemoryBankReader.BankFiles.Contains(n, StringComparer.OrdinalIgnoreCase))
+                        .ToList();
+                    if (strays.Count > 0)
+                        warnings.Add("These sit in the bank root but are never sent to the AI - fold them " +
+                            "into the three files or move them to `reference/`: " +
+                            string.Join(", ", strays.Select(n => "`" + n + "`")));
                 }
-            });
+                catch { }
+
+                // What actually reaches a prompt, shared layer included.
+                try
+                {
+                    var ctx = EnsureKbReader()?.LoadContext(GetProjectName(), null,
+                        GetDocumentSourceLanguage(), GetDocumentTargetLanguage());
+                    sb.AppendLine();
+                    if (ctx == null || !ctx.HasContent)
+                    {
+                        sb.AppendLine("**Nothing would be sent to the AI from this bank.**");
+                    }
+                    else
+                    {
+                        sb.AppendLine("**~" + ctx.EstimatedTokens + " tokens** would be added to a prompt.");
+                        bool shared =
+                            !string.IsNullOrWhiteSpace(ctx.SharedBriefText) ||
+                            !string.IsNullOrWhiteSpace(ctx.SharedTerminologyText) ||
+                            !string.IsNullOrWhiteSpace(ctx.SharedStyleText);
+                        sb.AppendLine(shared
+                            ? "Includes the `" + Core.MemoryBankReader.SharedBankName +
+                              "` bank, which this one overrides where they disagree."
+                            : "No `" + Core.MemoryBankReader.SharedBankName +
+                              "` bank found - house defaults are not being applied.");
+                    }
+                }
+                catch { }
+
+                if (warnings.Count > 0)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("**Worth fixing**");
+                    foreach (var w in warnings) sb.AppendLine("- " + w);
+                }
+
+                ShowSuperMemoryMessage(sb.ToString().TrimEnd());
+            }
+            catch (Exception ex)
+            {
+                AddErrorMessage("Could not build the bank report: " + ex.Message);
+            }
+        }
+
+        /// <summary>Opens the active bank's folder. The files are meant to be
+        /// edited by hand, so reaching them must not require knowing the path.</summary>
+        private void OnOpenBankFolder(object sender, EventArgs e)
+        {
+            try
+            {
+                var dir = ActiveMemoryBankDir;
+                Directory.CreateDirectory(dir);
+                System.Diagnostics.Process.Start(
+                    new System.Diagnostics.ProcessStartInfo(dir) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                AddErrorMessage("Could not open the bank folder: " + ex.Message);
+            }
         }
 
         /// <summary>

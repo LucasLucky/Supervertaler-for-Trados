@@ -642,6 +642,25 @@ namespace Supervertaler.Trados.Settings
                 break;
             }
 
+            // Shift by whatever puts the article's TOP heading at level 4, i.e.
+            // one below the ### it is filed under. A fixed offset cannot do this:
+            // articles that lead with ## and articles that lead with # would land
+            // at different depths, and shifting ## by three leaves a hole at
+            // level 4 that makes an outline view show a gap where the term's
+            // first section should be.
+            int topLevel = int.MaxValue;
+            bool scanFence = false;
+            foreach (var raw in lines)
+            {
+                var t = raw.TrimStart();
+                if (t.StartsWith("```", StringComparison.Ordinal)) { scanFence = !scanFence; continue; }
+                if (scanFence || !t.StartsWith("#", StringComparison.Ordinal)) continue;
+                int n = 0;
+                while (n < t.Length && t[n] == '#') n++;
+                if (n < t.Length && t[n] == ' ' && n < topLevel) topLevel = n;
+            }
+            int shift = topLevel == int.MaxValue ? 0 : Math.Max(0, 4 - topLevel);
+
             var sb = new StringBuilder();
             bool inFence = false;
             foreach (var raw in lines)
@@ -661,7 +680,7 @@ namespace Supervertaler.Trados.Settings
                         while (hashes < trimmed.Length && trimmed[hashes] == '#') hashes++;
                         if (hashes < trimmed.Length && trimmed[hashes] == ' ')
                         {
-                            var demoted = Math.Min(6, hashes + 3);
+                            var demoted = Math.Min(6, hashes + shift);
                             line = new string('#', demoted) + trimmed.Substring(hashes);
                         }
                     }

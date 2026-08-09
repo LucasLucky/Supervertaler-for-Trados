@@ -16,13 +16,9 @@ namespace Supervertaler.Trados.Controls
         private ComboBox _cmbMemoryBank;
         private LinkLabel _lnkHelp;
         private Button _btnConvertLegacy;
-        private Button _btnProcessInbox;
-        private Button _btnHealthCheck;
-        private Button _btnDistill;
-        private Button _btnOverview;
-        private Button _btnSummary;
+        private Button _btnOverview;   // now the bank report
+        private Button _btnOpenFolder;
         private Button _btnRefresh;
-        private Label _lblInboxCount;
 
         /// <summary>
         /// Suppresses <see cref="MemoryBankChanged"/> while the dropdown is being
@@ -38,17 +34,17 @@ namespace Supervertaler.Trados.Controls
 
         public event EventHandler ProcessInboxRequested;
 
-        /// <summary>Raised when the user clicks "Health Check".</summary>
-        public event EventHandler HealthCheckRequested;
 
-        /// <summary>Raised when the user clicks "Distill".</summary>
-        public event EventHandler DistillRequested;
 
         /// <summary>Raised when the user clicks "Overview" (generate HTML overview).</summary>
+        /// <summary>Raised for the bank report (formerly Overview).</summary>
         public event EventHandler OverviewRequested;
 
-        /// <summary>Raised when the user clicks "Summary" (AI natural-language summary).</summary>
-        public event EventHandler AiSummaryRequested;
+        /// <summary>Raised to open the active bank's folder on disk. The whole
+        /// design assumes the user edits these files themselves, so getting to
+        /// them has to be one click.</summary>
+        public event EventHandler OpenFolderRequested;
+
 
         /// <summary>Raised when the user clicks the refresh button.</summary>
         public event EventHandler RefreshRequested;
@@ -161,6 +157,13 @@ namespace Supervertaler.Trados.Controls
             _lnkHelp.LinkClicked += (s, e) =>
                 HelpSystem.OpenHelp(HelpSystem.Topics.SuperMemory);
 
+            var tip = new ToolTip { AutoPopDelay = 8000 };
+            tip.SetToolTip(_cmbMemoryBank,
+                "Active memory bank." + Environment.NewLine +
+                "Switching is immediate - the next chat turn reads from" + Environment.NewLine +
+                "the new bank; chat history is preserved." + Environment.NewLine +
+                "The _shared bank is always loaded alongside it.");
+
             // ─── Convert legacy bank ────────────────────────────────
             // Hidden unless the active bank is still on the old seven-folder
             // layout. Such a bank contributes NOTHING to a prompt under the new
@@ -184,120 +187,25 @@ namespace Supervertaler.Trados.Controls
             _btnConvertLegacy.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 232, 180);
             _btnConvertLegacy.Click += (s, e) => ConvertLegacyRequested?.Invoke(this, EventArgs.Empty);
 
-            // ─── Process Inbox button ────────────────────────────────
-            _btnProcessInbox = new Button
-            {
-                Text = "\u2B07 Process Inbox", // ⬇ down arrow
-                Font = btnFont,
-                FlatStyle = FlatStyle.Flat,
-                ForeColor = Color.FromArgb(30, 90, 158),
-                BackColor = Color.Transparent,
-                Cursor = Cursors.Hand,
-                AutoSize = true,
-                Padding = new Padding(UiScale.Pixels(4), 0, UiScale.Pixels(4), 0),
-                Height = UiScale.Pixels(24),
-                TabStop = false,
-                UseCompatibleTextRendering = true
-            };
-            _btnProcessInbox.FlatAppearance.BorderSize = 0;
-            _btnProcessInbox.FlatAppearance.MouseOverBackColor = Color.FromArgb(220, 232, 245);
-            _btnProcessInbox.Click += (s, e) => ProcessInboxRequested?.Invoke(this, EventArgs.Empty);
-
-            // Tooltip explaining what this does
-            var tip = new ToolTip { AutoPopDelay = 8000 };
-            tip.SetToolTip(_cmbMemoryBank,
-                "Active memory bank.\n" +
-                "Switching is immediate - the next chat turn reads from\n" +
-                "the new bank; chat history is preserved.");
-            tip.SetToolTip(_btnProcessInbox,
-                "Reads new Markdown notes from the active memory bank's\n" +
-                "00_INBOX folder and uses AI to organise them into structured\n" +
-                "knowledge base articles (client profiles, terminology,\n" +
-                "domain knowledge, style guides). For binary files like TMX\n" +
-                "or PDF, use Distill instead.");
-
-            // ─── Health Check button ─────────────────────────────────
-            _btnHealthCheck = new Button
-            {
-                Text = "\u2714 Health Check", // ✔ check mark
-                Font = btnFont,
-                FlatStyle = FlatStyle.Flat,
-                ForeColor = Color.FromArgb(30, 90, 158),
-                BackColor = Color.Transparent,
-                Cursor = Cursors.Hand,
-                AutoSize = true,
-                Padding = new Padding(UiScale.Pixels(4), 0, UiScale.Pixels(4), 0),
-                Height = UiScale.Pixels(24),
-                TabStop = false,
-                UseCompatibleTextRendering = true
-            };
-            _btnHealthCheck.FlatAppearance.BorderSize = 0;
-            _btnHealthCheck.FlatAppearance.MouseOverBackColor = Color.FromArgb(220, 232, 245);
-            _btnHealthCheck.Click += (s, e) => HealthCheckRequested?.Invoke(this, EventArgs.Empty);
-
-            tip.SetToolTip(_btnHealthCheck,
-                "Scans the active memory bank for problems: conflicting\n" +
-                "terminology, broken links, stale or duplicate content.\n" +
-                "Fixes what it can and flags the rest for review.");
-
-            // ─── Distill button ─────────────────────────────────────
-            _btnDistill = new Button
-            {
-                Text = "\u2697 Distill", // ⚗ alembic
-                Font = btnFont,
-                FlatStyle = FlatStyle.Flat,
-                ForeColor = Color.FromArgb(30, 90, 158),
-                BackColor = Color.Transparent,
-                Cursor = Cursors.Hand,
-                AutoSize = true,
-                Padding = new Padding(UiScale.Pixels(4), 0, UiScale.Pixels(4), 0),
-                Height = UiScale.Pixels(24),
-                TabStop = false,
-                UseCompatibleTextRendering = true
-            };
-            _btnDistill.FlatAppearance.BorderSize = 0;
-            _btnDistill.FlatAppearance.MouseOverBackColor = Color.FromArgb(220, 232, 245);
-            _btnDistill.Click += (s, e) => DistillRequested?.Invoke(this, EventArgs.Empty);
-
-            tip.SetToolTip(_btnDistill,
-                "Extract knowledge from translation files (TMX, DOCX, PDF,\n" +
-                "termbases) into structured Markdown articles in the active\n" +
-                "memory bank. Source files dropped into the inbox are\n" +
-                "archived after a successful distill.");
-
-            // ─── Overview button ────────────────────────────────────
-            // ☰ (U+2630) renders in the same Misc-Symbols block as the Distill
-            // alembic; the earlier 📊 (U+1F4CA) is an astral emoji the button
-            // font can't render and showed as a tofu box.
-            _btnOverview = MakeActionButton("☰ Overview", btnFont); // ☰
+            // ─── Bank report ────────────────────────────────────────
+            _btnOverview = MakeActionButton("☰ Report", btnFont); // ☰
             _btnOverview.Click += (s, e) => OverviewRequested?.Invoke(this, EventArgs.Empty);
-            // Studio 2026 first-click-eaten workaround – see Core/ClickThrough.cs.
+            // Studio 2026 first-click-eaten workaround - see Core/ClickThrough.cs.
             ClickThrough.Attach(_btnOverview, () => OverviewRequested?.Invoke(this, EventArgs.Empty));
             tip.SetToolTip(_btnOverview,
-                "Open a scannable HTML overview of the active memory bank:\n" +
-                "a searchable terminology table, conflicting-term and stub\n" +
-                "lists, domain/client coverage, and recent changes. Opens in\n" +
-                "your browser; reads only metadata, so it is instant.");
+                "What this bank actually contributes: the three files and their" + Environment.NewLine +
+                "sizes, how many terms are in the table, how many tokens get" + Environment.NewLine +
+                "injected into a prompt, what _shared adds on top, and anything" + Environment.NewLine +
+                "that looks wrong. Instant - no AI call.");
 
-            // ─── AI Summary button ──────────────────────────────────
-            _btnSummary = MakeActionButton("✨ Summary", btnFont); // ✨
-            _btnSummary.Click += (s, e) => AiSummaryRequested?.Invoke(this, EventArgs.Empty);
-            ClickThrough.Attach(_btnSummary, () => AiSummaryRequested?.Invoke(this, EventArgs.Empty));
-            tip.SetToolTip(_btnSummary,
-                "Ask the AI for a short plain-English profile of the active\n" +
-                "memory bank: what it covers, where it is strong or thin, and\n" +
-                "what needs attention. Posted into the chat.");
-
-            // ─── Inbox count label ───────────────────────────────────
-            _lblInboxCount = new Label
-            {
-                Text = "",
-                Font = labelFont,
-                ForeColor = Color.FromArgb(140, 140, 140),
-                AutoSize = true,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(UiScale.Pixels(4), 0, 0, 0)
-            };
+            // ─── Open bank folder ───────────────────────────────────
+            _btnOpenFolder = MakeActionButton("📂 Open folder", btnFont);
+            _btnOpenFolder.Click += (s, e) => OpenFolderRequested?.Invoke(this, EventArgs.Empty);
+            ClickThrough.Attach(_btnOpenFolder, () => OpenFolderRequested?.Invoke(this, EventArgs.Empty));
+            tip.SetToolTip(_btnOpenFolder,
+                "Open this bank's folder. The files are meant to be edited by" + Environment.NewLine +
+                "hand - brief.md, terminology.md, style.md - so this is the" + Environment.NewLine +
+                "normal way to change what the AI knows.");
 
             // ─── Refresh button ─────────────────────────────────────
             _btnRefresh = new Button
@@ -329,12 +237,8 @@ namespace Supervertaler.Trados.Controls
 
             Controls.Add(sep);
             Controls.Add(_btnRefresh);
-            Controls.Add(_lblInboxCount);
-            Controls.Add(_btnSummary);
             Controls.Add(_btnOverview);
-            Controls.Add(_btnDistill);
-            Controls.Add(_btnHealthCheck);
-            Controls.Add(_btnProcessInbox);
+            Controls.Add(_btnOpenFolder);
             Controls.Add(_btnConvertLegacy);
             Controls.Add(_lnkHelp);
             Controls.Add(_cmbMemoryBank);
@@ -347,9 +251,8 @@ namespace Supervertaler.Trados.Controls
 
         private void LayoutControls()
         {
-            if (_btnProcessInbox == null) return;
+            if (_btnOverview == null) return;
 
-            var y = (Height - _btnProcessInbox.Height) / 2;
             var x = UiScale.Pixels(4);
 
             // Hidden controls must not reserve width. _btnConvertLegacy is hidden
@@ -364,19 +267,10 @@ namespace Supervertaler.Trados.Controls
 
             Place(_lblHeading, 4);
             Place(_cmbMemoryBank, 4);
-
-            // Directly after the bank it refers to, and before the action
-            // buttons: it is the one thing that must be noticed on a bank that
-            // is silently contributing nothing.
             Place(_btnConvertLegacy, 6);
-
             Place(_lnkHelp, 6);
-            Place(_btnProcessInbox, 2);
-            Place(_btnHealthCheck, 2);
-            Place(_btnDistill, 2);
             Place(_btnOverview, 2);
-            Place(_btnSummary, 6);
-            Place(_lblInboxCount, 2);
+            Place(_btnOpenFolder, 6);
             Place(_btnRefresh, 0);
         }
 
@@ -412,17 +306,14 @@ namespace Supervertaler.Trados.Controls
             }
         }
 
+        /// <summary>
+        /// No longer shown. The inbox belonged to the folder layout that banks
+        /// no longer use; kept as a no-op so the callers that still report a
+        /// count do not need to know that.
+        /// </summary>
         public void UpdateInboxCount(int count)
         {
             _lastInboxCount = count;
-            if (_lblInboxCount == null) return;
-            _lblInboxCount.Text = count > 0
-                ? $"{count} file{(count != 1 ? "s" : "")} in inbox"
-                : "Inbox empty";
-            _btnProcessInbox.Enabled = count > 0;
-            _btnProcessInbox.ForeColor = count > 0
-                ? Color.FromArgb(30, 90, 158)
-                : Color.FromArgb(170, 170, 170);
         }
 
         /// <summary>
@@ -437,43 +328,11 @@ namespace Supervertaler.Trados.Controls
         /// </summary>
         public void SetBusy(bool busy)
         {
-            // Process Inbox: respects both the busy flag AND the current
-            // inbox count. Disabled while busy; after busy, only enabled
-            // if the inbox has at least one file.
-            _btnProcessInbox.Enabled = !busy && _lastInboxCount > 0;
-
-            // Health Check and Distill: available whenever not busy.
-            // Health Check handles the "bank is empty" case gracefully
-            // with a chat message; Distill always needs to be clickable
-            // because the user picks files via a dialog.
-            _btnHealthCheck.Enabled = !busy;
-            _btnDistill.Enabled = !busy;
-            // Overview is metadata-only and never calls the LLM, so it stays
-            // usable even while an AI operation is running. Summary uses the LLM,
-            // so it follows the busy flag.
-            _btnSummary.Enabled = !busy;
-
-            if (!busy)
-            {
-                _btnProcessInbox.ForeColor = _btnProcessInbox.Enabled
-                    ? Color.FromArgb(30, 90, 158)
-                    : Color.FromArgb(170, 170, 170);
-                _btnHealthCheck.ForeColor = Color.FromArgb(30, 90, 158);
-                _btnDistill.ForeColor = Color.FromArgb(30, 90, 158);
-                _btnSummary.ForeColor = Color.FromArgb(30, 90, 158);
-            }
-            else
-            {
-                _btnProcessInbox.ForeColor = Color.FromArgb(170, 170, 170);
-                _btnHealthCheck.ForeColor = Color.FromArgb(170, 170, 170);
-                _btnDistill.ForeColor = Color.FromArgb(170, 170, 170);
-                _btnSummary.ForeColor = Color.FromArgb(170, 170, 170);
-            }
+            // Nothing here calls the LLM any more: the report is computed from
+            // the files on disk, and opening a folder or re-reading it is always
+            // safe. Kept because callers still bracket long operations with it.
+            if (_cmbMemoryBank != null) _cmbMemoryBank.Enabled = !busy;
         }
-
-        // ══════════════════════════════════════════════════════════════
-        //  Memory bank dropdown
-        // ══════════════════════════════════════════════════════════════
 
         /// <summary>
         /// Replaces the memory bank dropdown contents with the given list and

@@ -126,19 +126,15 @@ namespace Supervertaler.Trados.Controls
 
         /// <summary>Raised when the user clicks "Process Inbox" in the SuperMemory toolbar.</summary>
         public event EventHandler ConvertLegacyBankRequested;
-        public event EventHandler ProcessInboxRequested;
 
-        /// <summary>Raised when the user clicks "Health Check" in the SuperMemory toolbar.</summary>
-        public event EventHandler HealthCheckRequested;
 
-        /// <summary>Raised when the user clicks "Distill" in the SuperMemory toolbar.</summary>
-        public event EventHandler DistillRequested;
 
         /// <summary>Raised when the user clicks "Overview" in the SuperMemory toolbar.</summary>
         public event EventHandler OverviewRequested;
 
-        /// <summary>Raised when the user clicks "Summary" in the SuperMemory toolbar.</summary>
-        public event EventHandler AiSummaryRequested;
+        /// <summary>Open the active bank's folder on disk.</summary>
+        public event EventHandler OpenBankFolderRequested;
+
 
         /// <summary>Raised when the user clicks the refresh button in the SuperMemory toolbar.</summary>
         public event EventHandler SuperMemoryRefreshRequested;
@@ -405,18 +401,12 @@ namespace Supervertaler.Trados.Controls
 
             // ─── SuperMemory toolbar (below context strip) ─────────
             _superMemoryToolbar = new SuperMemoryToolbar();
-            _superMemoryToolbar.ProcessInboxRequested += (s, e) =>
-                ProcessInboxRequested?.Invoke(this, EventArgs.Empty);
             _superMemoryToolbar.ConvertLegacyRequested += (s, e) =>
                 ConvertLegacyBankRequested?.Invoke(this, EventArgs.Empty);
-            _superMemoryToolbar.HealthCheckRequested += (s, e) =>
-                HealthCheckRequested?.Invoke(this, EventArgs.Empty);
-            _superMemoryToolbar.DistillRequested += (s, e) =>
-                DistillRequested?.Invoke(this, EventArgs.Empty);
             _superMemoryToolbar.OverviewRequested += (s, e) =>
                 OverviewRequested?.Invoke(this, EventArgs.Empty);
-            _superMemoryToolbar.AiSummaryRequested += (s, e) =>
-                AiSummaryRequested?.Invoke(this, EventArgs.Empty);
+            _superMemoryToolbar.OpenFolderRequested += (s, e) =>
+                OpenBankFolderRequested?.Invoke(this, EventArgs.Empty);
             _superMemoryToolbar.RefreshRequested += (s, e) =>
                 SuperMemoryRefreshRequested?.Invoke(this, EventArgs.Empty);
             _superMemoryToolbar.MemoryBankChanged += (s, e) =>
