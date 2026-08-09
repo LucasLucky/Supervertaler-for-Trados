@@ -11,8 +11,8 @@ namespace Supervertaler.Trados.Controls
     ///
     /// Two save modes:
     ///   • Structured article (default): writes a ready-to-use .md article
-    ///     directly to 02_TERMINOLOGY/ – no AI processing needed.
-    ///   • Raw note: writes an unstructured note to 00_INBOX/ for the AI
+    ///     as a row in terminology.md - no AI processing needed.
+    ///   • Raw note: writes an unstructured note to reference/ as source
     ///     to compile into structured articles via Process Inbox. Useful
     ///     when the knowledge is fuzzy or context-dependent ("fiche can
     ///     mean either sheet or plug depending on context").
@@ -38,7 +38,7 @@ namespace Supervertaler.Trados.Controls
         public bool AppendToPrompt => _chkAppendToPrompt?.Checked ?? true;
 
         /// <summary>
-        /// When true, write the entry to 00_INBOX/ as a raw note for AI
+        /// When true, write the entry to reference/ as a raw note instead of
         /// processing (via Process Inbox) rather than directly to
         /// 02_TERMINOLOGY/ as a structured article. Useful for knowledge
         /// that is ambiguous or context-dependent.

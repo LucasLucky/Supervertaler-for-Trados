@@ -541,7 +541,7 @@ namespace Supervertaler.Trados.Core
     public class BridgeTrackedChangesQuery
     {
         /// <summary>Write the full harvest (all changes, not just the returned
-        /// page) as a Markdown file into the active SuperMemory bank's 00_INBOX.</summary>
+        /// page) as a Markdown file into the active SuperMemory bank's reference/ folder.</summary>
         public bool Save;
         public int Limit = 200;
     }

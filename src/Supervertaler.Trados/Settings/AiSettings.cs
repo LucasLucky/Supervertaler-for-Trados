@@ -340,7 +340,7 @@ namespace Supervertaler.Trados.Settings
 
         /// <summary>
         /// Name of the memory bank that is currently active for AI context, Quick
-        /// Add, Process Inbox, Health Check and Distill. Matches a subfolder name
+        /// Add and the bank report. Matches a subfolder name
         /// under <c>&lt;Root&gt;/memory-banks/</c>. When empty or when the named bank
         /// no longer exists, the plugin falls back to
         /// <see cref="UserDataPath.DefaultMemoryBankName"/>. Mirrors the Python

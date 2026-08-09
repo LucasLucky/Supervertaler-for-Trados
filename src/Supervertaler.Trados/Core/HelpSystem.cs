@@ -64,9 +64,6 @@ namespace Supervertaler.Trados.Core
             // terminology.
             public const string SuperMemory         = "trados/ai-assistant/super-memory/";
             public const string SuperMemoryQuickAdd = "trados/ai-assistant/super-memory/quick-add/";
-            public const string SuperMemoryInbox    = "trados/ai-assistant/super-memory/process-inbox/";
-            public const string SuperMemoryHealth   = "trados/ai-assistant/super-memory/health-check/";
-            public const string SuperMemoryDistill  = "trados/ai-assistant/super-memory/distill/";
             public const string SuperMemoryObsidian = "trados/ai-assistant/super-memory/obsidian-setup/";
 
             public const string SuperSearch         = "trados/supersearch/";
