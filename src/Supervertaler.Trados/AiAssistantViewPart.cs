@@ -6684,6 +6684,15 @@ namespace Supervertaler.Trados
                 var bankDir = UserDataPath.GetMemoryBankDir(bankName);
                 if (!Directory.Exists(bankDir)) return;
 
+                // 06_TEMPLATES held the AI prompts for Process Inbox and Health
+                // Check. A bank on the new layout has neither, because converting
+                // moves the old folders into reference/_legacy - so this fired
+                // immediately after a successful conversion and offered to write
+                // 06_TEMPLATES back into the bank that had just been cleaned up.
+                // Accepting would have re-created exactly what the conversion
+                // removed.
+                if (!UserDataPath.IsLegacyBankLayout(bankDir)) return;
+
                 var missing = UserDataPath.GetMissingCanonicalTemplates(bankDir);
                 if (missing.Count == 0) return;
 

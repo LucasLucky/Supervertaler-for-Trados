@@ -555,9 +555,10 @@ namespace Supervertaler.Trados.Settings
                         try { body = File.ReadAllText(file); } catch { continue; }
                         if (string.IsNullOrWhiteSpace(body)) continue;
 
-                        sb.AppendLine("### " + Path.GetFileNameWithoutExtension(file));
+                        var title = Path.GetFileNameWithoutExtension(file);
+                        sb.AppendLine("### " + title);
                         sb.AppendLine();
-                        sb.AppendLine(StripFrontmatterBlock(body).Trim());
+                        sb.AppendLine(FoldArticleBody(StripFrontmatterBlock(body), title));
                         sb.AppendLine();
                         articlesFolded++;
                     }
@@ -601,6 +602,82 @@ namespace Supervertaler.Trados.Settings
                 return false;
             }
         }
+
+        /// <summary>
+        /// Prepares one article's body to sit UNDER an <c>###</c> heading.
+        ///
+        /// Three things have to happen or the merged file is worse than the
+        /// folders it replaced:
+        ///
+        /// 1. Headings are demoted. An article written as a standalone note uses
+        ///    <c>##</c> for its own sections; dropped verbatim under an <c>###</c>
+        ///    term heading, those sections outrank the term that contains them, so
+        ///    every "Preferred translation" reads as a sibling of the whole
+        ///    terminology section rather than as part of one term. Folding and
+        ///    outlining then show nonsense - and being scannable is the entire
+        ///    reason for merging.
+        /// 2. A leading title that just repeats the filename is dropped, since
+        ///    the <c>###</c> heading already says it.
+        /// 3. <c>[[wikilinks]]</c> are flattened. They pointed at sibling FILES
+        ///    that no longer exist once everything is in one document; leaving
+        ///    them is a promise of a link that goes nowhere.
+        /// </summary>
+        private static string FoldArticleBody(string body, string title)
+        {
+            if (string.IsNullOrWhiteSpace(body)) return "";
+
+            var lines = body.Replace("\r\n", "\n").Split('\n').ToList();
+
+            // Drop a leading H1 that merely repeats the article title.
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (string.IsNullOrWhiteSpace(lines[i])) continue;
+                var t = lines[i].TrimStart();
+                if (t.StartsWith("#", StringComparison.Ordinal))
+                {
+                    var heading = t.TrimStart('#').Trim();
+                    if (string.Equals(heading, title, StringComparison.OrdinalIgnoreCase))
+                        lines.RemoveAt(i);
+                }
+                break;
+            }
+
+            var sb = new StringBuilder();
+            bool inFence = false;
+            foreach (var raw in lines)
+            {
+                var line = raw;
+
+                // Never rewrite inside a code fence.
+                if (line.TrimStart().StartsWith("```", StringComparison.Ordinal))
+                    inFence = !inFence;
+
+                if (!inFence)
+                {
+                    var trimmed = line.TrimStart();
+                    if (trimmed.StartsWith("#", StringComparison.Ordinal))
+                    {
+                        int hashes = 0;
+                        while (hashes < trimmed.Length && trimmed[hashes] == '#') hashes++;
+                        if (hashes < trimmed.Length && trimmed[hashes] == ' ')
+                        {
+                            var demoted = Math.Min(6, hashes + 3);
+                            line = new string('#', demoted) + trimmed.Substring(hashes);
+                        }
+                    }
+
+                    line = WikiLinkPattern.Replace(line, m => m.Groups[1].Value);
+                }
+
+                sb.AppendLine(line);
+            }
+
+            return sb.ToString().Trim();
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex WikiLinkPattern =
+            new System.Text.RegularExpressions.Regex(@"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
 
         /// <summary>
         /// Removes a leading YAML frontmatter block, including the malformed
