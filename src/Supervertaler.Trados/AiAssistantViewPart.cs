@@ -307,6 +307,7 @@ namespace Supervertaler.Trados
             // Wire SuperMemory toolbar events
             _control.Value.ConvertLegacyBankRequested += OnConvertLegacyBank;
             _control.Value.OpenBankFolderRequested += OnOpenBankFolder;
+            _control.Value.HarvestTrackedChangesRequested += OnHarvestTrackedChanges;
             _control.Value.OverviewRequested += OnOverview;
             _control.Value.SuperMemoryRefreshRequested += (s, e) => RefreshSuperMemoryInboxCount();
             _control.Value.MemoryBankChanged += OnMemoryBankChanged;
@@ -7170,6 +7171,68 @@ namespace Supervertaler.Trados
             catch (Exception ex)
             {
                 AddErrorMessage("Could not build the bank report: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Harvests the open document's tracked changes into the active bank.
+        ///
+        /// Same work as the MCP get_tracked_changes tool with save=true, which
+        /// until now was the only way to reach it - so a translator not driving
+        /// Trados from Claude Desktop had no idea the feature existed. It runs at
+        /// the end of a review pass, which is when this panel is already open.
+        /// </summary>
+        private void OnHarvestTrackedChanges(object sender, EventArgs e)
+        {
+            try
+            {
+                if (_activeDocument == null)
+                {
+                    ShowSuperMemoryMessage("No document is open in the Trados editor.");
+                    return;
+                }
+
+                var bankName = ActiveMemoryBankName;
+                var result = BridgeGetTrackedChanges(new BridgeTrackedChangesQuery { Save = true, Limit = 1 });
+
+                if (result == null || !result.Available)
+                {
+                    ShowSuperMemoryMessage(result?.Note ?? "Could not read the document's tracked changes.");
+                    return;
+                }
+
+                if (result.SegmentsWithChanges == 0)
+                {
+                    // Worth being explicit: an empty harvest almost always means
+                    // Track Changes was off while editing, not that the review
+                    // made no changes.
+                    ShowSuperMemoryMessage(
+                        "**No tracked changes found** in this document.\n\n" +
+                        "Studio only records them when Track Changes was switched ON while you " +
+                        "were editing (Review \u2192 Track Changes). Nothing was written.");
+                    return;
+                }
+
+                if (string.IsNullOrEmpty(result.SavedTo))
+                {
+                    ShowSuperMemoryMessage(
+                        $"Found {result.SegmentsWithChanges} segment(s) with tracked changes, but the " +
+                        $"harvest could not be saved.\n\n{result.Note}");
+                    return;
+                }
+
+                ShowSuperMemoryMessage(
+                    $"**Harvested {result.SegmentsWithChanges} segment(s)** with tracked changes into " +
+                    $"memory bank **{bankName}**.\n\n" +
+                    $"`{result.SavedTo}`\n\n" +
+                    "This is source material and nothing reads it automatically. Open it, or ask me " +
+                    "what keeps recurring in it, then put the decisions worth keeping into " +
+                    "`terminology.md` and `style.md`. A change that appears once is an edit; one that " +
+                    "appears nine times is a rule.");
+            }
+            catch (Exception ex)
+            {
+                AddErrorMessage("Could not harvest tracked changes: " + ex.Message);
             }
         }
 

@@ -18,6 +18,7 @@ namespace Supervertaler.Trados.Controls
         private Button _btnConvertLegacy;
         private Button _btnOverview;   // now the bank report
         private Button _btnOpenFolder;
+        private Button _btnHarvest;
         private Button _btnRefresh;
 
         /// <summary>
@@ -44,6 +45,10 @@ namespace Supervertaler.Trados.Controls
         /// design assumes the user edits these files themselves, so getting to
         /// them has to be one click.</summary>
         public event EventHandler OpenFolderRequested;
+
+        /// <summary>Raised to harvest the open document's tracked changes into
+        /// the active bank's reference/ folder.</summary>
+        public event EventHandler HarvestRequested;
 
 
         /// <summary>Raised when the user clicks the refresh button.</summary>
@@ -113,9 +118,9 @@ namespace Supervertaler.Trados.Controls
             // ─── Heading label ───────────────────────────────────────
             _lblHeading = new Label
             {
-                Text = "Memory Bank",
-                Font = new Font("Segoe UI Semibold", UiScale.FontSize(7f)),
-                ForeColor = Color.FromArgb(90, 90, 90),
+                Text = "SuperMemory",
+                Font = new Font("Segoe UI Semibold", UiScale.FontSize(8.5f), FontStyle.Bold),
+                ForeColor = Color.FromArgb(30, 90, 158),
                 AutoSize = true,
                 TextAlign = ContentAlignment.MiddleLeft
             };
@@ -210,6 +215,23 @@ namespace Supervertaler.Trados.Controls
                 "hand - brief.md, terminology.md, style.md - so this is the" + Environment.NewLine +
                 "normal way to change what the AI knows.");
 
+            // ─── Harvest tracked changes ────────────────────────────
+            // The extraction existed from 20.158 but only over MCP, so it was
+            // invisible to anyone not driving Trados from Claude Desktop. It is
+            // a read plus a write into reference/, needs no AI call, and is most
+            // useful at the end of a review pass - which is exactly when the
+            // user is looking at this panel.
+            _btnHarvest = MakeActionButton("\u21BA Harvest changes", btnFont);
+            _btnHarvest.Click += (s, e) => HarvestRequested?.Invoke(this, EventArgs.Empty);
+            ClickThrough.Attach(_btnHarvest, () => HarvestRequested?.Invoke(this, EventArgs.Empty));
+            tip.SetToolTip(_btnHarvest,
+                "Collect this document's tracked changes into the active bank as" + Environment.NewLine +
+                "(before, after) pairs - what the draft offered vs what you made it." + Environment.NewLine +
+                Environment.NewLine +
+                "Needs Track Changes to have been ON while you edited. The file goes" + Environment.NewLine +
+                "to reference/ as source material; nothing reads it automatically." + Environment.NewLine +
+                "A change that recurs is a rule worth adding to terminology.md.");
+
             // ─── Refresh button ─────────────────────────────────────
             _btnRefresh = new Button
             {
@@ -242,6 +264,7 @@ namespace Supervertaler.Trados.Controls
             Controls.Add(_btnRefresh);
             Controls.Add(_btnOverview);
             Controls.Add(_btnOpenFolder);
+            Controls.Add(_btnHarvest);
             Controls.Add(_btnConvertLegacy);
             Controls.Add(_lnkHelp);
             Controls.Add(_cmbMemoryBank);
@@ -273,7 +296,8 @@ namespace Supervertaler.Trados.Controls
             Place(_btnConvertLegacy, 6);
             Place(_lnkHelp, 6);
             Place(_btnOverview, 2);
-            Place(_btnOpenFolder, 6);
+            Place(_btnOpenFolder, 2);
+            Place(_btnHarvest, 6);
             Place(_btnRefresh, 0);
         }
 

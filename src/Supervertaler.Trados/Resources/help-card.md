@@ -35,6 +35,18 @@ You talk to me in plain language – there are no commands to memorise. Here's t
 - "Update my main TM from the confirmed segments"
 - "Generate / export the target file"
 
+**SuperMemory** – the client decisions you have written down; I read the active bank on every turn
+- "What does this client prefer for <term>?" / "Why did we choose <X>?"
+- "What's in my memory bank?" / "Which banks do I have, and which is active?"
+- "Search my memory bank for <word>"
+- "Does anything in the bank conflict with what I just wrote?"
+- "Draft a terminology row for this decision" – then paste it into `terminology.md` yourself
+
+**Learning from your own corrections**
+- "Extract the tracked changes from this document" – (before, after) pairs showing what you changed in the draft
+- "Save those to my memory bank" – written to `reference/` as source material
+- "What keeps recurring in those changes?" – the useful question: a change that appears once is an edit, one that appears nine times is a rule worth adding to `terminology.md`
+
 **Prompt library**
 - "List my prompts"
 - "Show me my Default Translation Prompt"

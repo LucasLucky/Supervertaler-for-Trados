@@ -135,6 +135,9 @@ namespace Supervertaler.Trados.Controls
         /// <summary>Open the active bank's folder on disk.</summary>
         public event EventHandler OpenBankFolderRequested;
 
+        /// <summary>Harvest the document's tracked changes into the active bank.</summary>
+        public event EventHandler HarvestTrackedChangesRequested;
+
 
         /// <summary>Raised when the user clicks the refresh button in the SuperMemory toolbar.</summary>
         public event EventHandler SuperMemoryRefreshRequested;
@@ -407,6 +410,8 @@ namespace Supervertaler.Trados.Controls
                 OverviewRequested?.Invoke(this, EventArgs.Empty);
             _superMemoryToolbar.OpenFolderRequested += (s, e) =>
                 OpenBankFolderRequested?.Invoke(this, EventArgs.Empty);
+            _superMemoryToolbar.HarvestRequested += (s, e) =>
+                HarvestTrackedChangesRequested?.Invoke(this, EventArgs.Empty);
             _superMemoryToolbar.RefreshRequested += (s, e) =>
                 SuperMemoryRefreshRequested?.Invoke(this, EventArgs.Empty);
             _superMemoryToolbar.MemoryBankChanged += (s, e) =>
