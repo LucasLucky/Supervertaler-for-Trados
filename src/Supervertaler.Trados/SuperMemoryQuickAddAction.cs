@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -151,7 +152,7 @@ namespace Supervertaler.Trados
                 }
                 else
                 {
-                    mdWritten = WriteTermArticle(vaultPath, dlg.Term, dlg.Correction, dlg.Notes);
+                    mdWritten = AppendTerminologyRow(vaultPath, dlg.Term, dlg.Correction, dlg.Notes);
                 }
 
                 // ── 2. Append to active prompt (if requested) ────────
@@ -169,9 +170,9 @@ namespace Supervertaler.Trados
                 if (mdWritten)
                 {
                     if (dlg.SaveAsRawNote)
-                        msg.AppendLine($"\u2713  Saved raw note to memory bank \"{bankName}\" inbox.");
+                        msg.AppendLine($"\u2713  Saved note to memory bank \"{bankName}\" (reference folder).");
                     else
-                        msg.AppendLine($"\u2713  Added to memory bank \"{bankName}\".");
+                        msg.AppendLine($"\u2713  Added a row to terminology.md in memory bank \"{bankName}\".");
                 }
                 else
                 {
@@ -189,7 +190,7 @@ namespace Supervertaler.Trados
                 if (dlg.SaveAsRawNote && mdWritten)
                 {
                     msg.AppendLine();
-                    msg.AppendLine("Run Process Inbox in the Supervertaler Assistant to compile this note into a structured article.");
+                    msg.AppendLine("Saved as reference material. Nothing reads it automatically - fold anything worth keeping into brief.md, terminology.md or style.md yourself.");
                 }
 
                 msg.AppendLine();
@@ -213,68 +214,91 @@ namespace Supervertaler.Trados
         // ══════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// Creates a Markdown file in the SuperMemory vault's 02_TERMINOLOGY folder.
-        /// Uses the same YAML frontmatter format as existing articles.
+        /// Appends one row to the bank's <c>terminology.md</c> table.
+        ///
+        /// This used to write a whole .md article per term into 02_TERMINOLOGY.
+        /// That is the pattern the bank redesign removed: it produced 136 files
+        /// for what is a 136-row table, and a wrong entry among 136 files is
+        /// effectively invisible. One row in one table can be scanned, sorted and
+        /// corrected in seconds - which is the only reason errors ever get found.
+        ///
+        /// The row is inserted after the LAST existing table row, so successive
+        /// quick-adds accumulate in the table rather than scattering. If the file
+        /// has no table yet (a bank converted from the old layout is prose), one
+        /// is created at the end under its own heading.
         /// </summary>
-        private static bool WriteTermArticle(string vaultPath, string term, string correction, string notes)
+        private static bool AppendTerminologyRow(string vaultPath, string term, string correction, string notes)
         {
             try
             {
-                var termDir = Path.Combine(vaultPath, TermFolder);
-                Directory.CreateDirectory(termDir);
+                Directory.CreateDirectory(vaultPath);
+                var path = Path.Combine(vaultPath, Core.MemoryBankReader.TerminologyFile);
 
-                // Build a safe filename: "fiche → plug.md"
-                var safeTerm = SanitiseFileName(term);
-                var safeCorrection = SanitiseFileName(correction);
-                var fileName = $"{safeTerm} \u2192 {safeCorrection}.md";
-                var filePath = Path.Combine(termDir, fileName);
+                var row = "| " + EscapeCell(term) + " | " + EscapeCell(correction) +
+                          " | client | " + EscapeCell(notes) + " |";
 
-                // Don't overwrite existing articles silently
-                if (File.Exists(filePath))
+                if (!File.Exists(path))
                 {
-                    // Append a timestamp to make it unique
-                    var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-                    fileName = $"{safeTerm} \u2192 {safeCorrection} ({stamp}).md";
-                    filePath = Path.Combine(termDir, fileName);
+                    var fresh = new StringBuilder();
+                    fresh.AppendLine("# Terminology");
+                    fresh.AppendLine();
+                    fresh.AppendLine("| Source | Target | Scope | Note |");
+                    fresh.AppendLine("|---|---|---|---|");
+                    fresh.AppendLine(row);
+                    File.WriteAllText(path, fresh.ToString(), new UTF8Encoding(false));
+                    return true;
                 }
 
-                var today = DateTime.Now.ToString("yyyy-MM-dd");
-                var sb = new StringBuilder();
-                sb.AppendLine("---");
-                sb.AppendLine($"term_source: \"{EscapeYaml(term)}\"");
-                sb.AppendLine($"term_target: \"{EscapeYaml(correction)}\"");
-                sb.AppendLine("source_lang: \"*\"");
-                sb.AppendLine("target_lang: \"en-GB\"");
-                sb.AppendLine("domain: \"[[General]]\"");
-                sb.AppendLine("clients: []");
-                sb.AppendLine("status: \"approved\"");
-                sb.AppendLine($"last_updated: {today}");
-                sb.AppendLine("---");
-                sb.AppendLine();
-                sb.AppendLine($"# {term} \u2192 {correction}");
-                sb.AppendLine();
-                sb.AppendLine("## Preferred form");
-                sb.AppendLine($"**{correction}**");
-                sb.AppendLine();
+                var lines = new List<string>(File.ReadAllLines(path));
 
-                if (!string.IsNullOrEmpty(notes))
+                int lastRow = -1;
+                for (int i = 0; i < lines.Count; i++)
                 {
-                    sb.AppendLine("## Context and usage");
-                    sb.AppendLine($"- {notes}");
-                    sb.AppendLine();
+                    var t = lines[i].Trim();
+                    if (t.StartsWith("|") && t.EndsWith("|") && t.Length > 1)
+                        lastRow = i;
                 }
 
-                sb.AppendLine("## Sources");
-                sb.AppendLine("- Added via Supervertaler Quick Add");
-                sb.AppendLine();
+                if (lastRow < 0)
+                {
+                    // Prose file (typically a converted bank): start a table at the
+                    // end rather than trying to guess where one belongs.
+                    lines.Add("");
+                    lines.Add("## Quick-added terms");
+                    lines.Add("");
+                    lines.Add("| Source | Target | Scope | Note |");
+                    lines.Add("|---|---|---|---|");
+                    lines.Add(row);
+                }
+                else
+                {
+                    // The skeleton ships an empty placeholder row; fill it instead
+                    // of leaving a blank line in the middle of the table.
+                    var existing = lines[lastRow].Replace("|", "").Trim();
+                    if (existing.Length == 0)
+                        lines[lastRow] = row;
+                    else
+                        lines.Insert(lastRow + 1, row);
+                }
 
-                File.WriteAllText(filePath, sb.ToString(), new UTF8Encoding(false));
+                File.WriteAllLines(path, lines, new UTF8Encoding(false));
                 return true;
             }
             catch
             {
                 return false;
             }
+        }
+
+        /// <summary>Makes text safe for a Markdown table cell: a raw pipe would
+        /// end the cell early and silently shift every column after it.</summary>
+        private static string EscapeCell(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return "";
+            return text.Replace("|", "\\|")
+                       .Replace("\r", " ")
+                       .Replace("\n", " ")
+                       .Trim();
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -290,7 +314,7 @@ namespace Supervertaler.Trados
         {
             try
             {
-                var inboxDir = Path.Combine(vaultPath, "00_INBOX");
+                var inboxDir = Path.Combine(vaultPath, Core.MemoryBankReader.ReferenceFolder);
                 Directory.CreateDirectory(inboxDir);
 
                 var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
