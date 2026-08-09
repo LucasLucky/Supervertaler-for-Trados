@@ -341,23 +341,7 @@ namespace Supervertaler.Trados.Settings
             {
                 Directory.CreateDirectory(MemoryBanksRoot);
                 Directory.CreateDirectory(target);
-                foreach (var folder in SkeletonFolders)
-                {
-                    Directory.CreateDirectory(Path.Combine(target, folder));
-                }
-
-                // Populate 06_TEMPLATES with the bundled template files so the
-                // new bank is immediately usable by Process Inbox, Health Check,
-                // and the Obsidian-side query / translate-with-KB helpers.
-                // Failures here do not roll the bank back – the skeleton is the
-                // minimum viable state, and missing templates can be healed later
-                // via TryWriteMissingMemoryBankTemplates.
-                try
-                {
-                    string writeError;
-                    WriteMemoryBankTemplates(target, overwrite: false, out writeError);
-                }
-                catch { }
+                WriteNewBankSkeleton(target, safeName);
 
                 sanitisedName = safeName;
                 return true;
@@ -367,6 +351,287 @@ namespace Supervertaler.Trados.Settings
                 error = "Could not create memory bank at\n  " + target + "\n\n" + ex.Message;
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Writes a fresh bank's three files plus <c>reference/</c>.
+        ///
+        /// Starter content matters more than it looks: an empty bank teaches the
+        /// user nothing about the shape, and the shape is the whole design. Each
+        /// file therefore arrives with its headings and a one-line explanation of
+        /// what belongs in it. Failures are swallowed - a bank with a missing
+        /// file still works, and the user can create it by hand.
+        /// </summary>
+        private static void WriteNewBankSkeleton(string bankDir, string bankName)
+        {
+            void Write(string fileName, string body)
+            {
+                try
+                {
+                    var path = Path.Combine(bankDir, fileName);
+                    if (!File.Exists(path))
+                        File.WriteAllText(path, body, new UTF8Encoding(false));
+                }
+                catch { }
+            }
+
+            Write("brief.md",
+                "# " + bankName + "\r\n\r\n" +
+                "Who this client is and anything standing that applies to all their\r\n" +
+                "work: language pair, register, house preferences, things they have\r\n" +
+                "asked for or rejected before.\r\n\r\n" +
+                "## Standing instructions\r\n\r\n" +
+                "- \r\n\r\n" +
+                "## How far to trust this\r\n\r\n" +
+                "Say where this came from - a supplied style guide is worth more than\r\n" +
+                "something inferred from one review round, and future-you cannot tell\r\n" +
+                "the difference unless it is written down.\r\n\r\n" +
+                "## Files\r\n\r\n" +
+                "- [terminology.md](terminology.md) - term decisions, one table\r\n" +
+                "- [style.md](style.md) - prose rules and approved boilerplate\r\n" +
+                "- `reference/` - source material, unmodified\r\n");
+
+            Write("terminology.md",
+                "# Terminology - " + bankName + "\r\n\r\n" +
+                "One row per decision. Keep it a table: a table can be scanned and\r\n" +
+                "corrected in seconds, which is the only reason errors get caught.\r\n\r\n" +
+                "**Scope** says how far a row travels - `project`, `client`, or\r\n" +
+                "`domain`. A row that proves true for a second client belongs in the\r\n" +
+                "`" + Core.MemoryBankReader.SharedBankName + "` bank instead; move it there rather than copying it,\r\n" +
+                "or the two drift apart.\r\n\r\n" +
+                "| Source | Target | Scope | Note |\r\n" +
+                "|---|---|---|---|\r\n" +
+                "|  |  |  |  |\r\n");
+
+            Write("style.md",
+                "# Style - " + bankName + "\r\n\r\n" +
+                "Prose rules and approved boilerplate: how things are phrased, rather\r\n" +
+                "than which term is used. Quote the approved wording in full - a rule\r\n" +
+                "you have to reconstruct from a description is a rule that gets\r\n" +
+                "applied inconsistently.\r\n\r\n" +
+                "## 1. \r\n\r\n");
+
+            try
+            {
+                var refDir = Path.Combine(bankDir, Core.MemoryBankReader.ReferenceFolder);
+                Directory.CreateDirectory(refDir);
+                var readme = Path.Combine(refDir, "README.md");
+                if (!File.Exists(readme))
+                {
+                    File.WriteAllText(readme,
+                        "# reference/\r\n\r\n" +
+                        "Source material, kept **unmodified**: client style guides, PDFs,\r\n" +
+                        "glossaries, tracked-changes harvests.\r\n\r\n" +
+                        "Everything in brief.md, terminology.md and style.md is derived from\r\n" +
+                        "what is in here. Keeping the original is what lets you check a rule\r\n" +
+                        "that looks wrong - and find out whether it was mis-derived or the\r\n" +
+                        "source really does say that.\r\n\r\n" +
+                        "Nothing reads this folder automatically. It is the audit trail, not\r\n" +
+                        "an inbox.\r\n",
+                        new UTF8Encoding(false));
+                }
+            }
+            catch { }
+        }
+
+        // ── Legacy (pre-2026-08-08) bank layout ──────────────────────────
+        //
+        // Banks used to be a seven-folder wiki with one file per fact. The new
+        // reader only looks for brief/terminology/style at the bank root, so an
+        // unconverted bank contributes NOTHING to a prompt - and would do so
+        // silently, which is the one outcome worth engineering against. Detect
+        // it, tell the user, offer to convert.
+
+        /// <summary>
+        /// True when the folder looks like an old seven-folder bank that has not
+        /// been converted: it has at least one legacy content folder and none of
+        /// the three new files.
+        /// </summary>
+        public static bool IsLegacyBankLayout(string bankDir)
+        {
+            try
+            {
+                if (!Directory.Exists(bankDir)) return false;
+                if (Core.MemoryBankReader.BankFiles.Any(
+                        f => File.Exists(Path.Combine(bankDir, f))))
+                    return false;
+
+                return SkeletonFolders.Any(f => Directory.Exists(Path.Combine(bankDir, f)));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>Names of banks under the root still on the legacy layout.</summary>
+        public static List<string> ListLegacyBanks()
+        {
+            var result = new List<string>();
+            foreach (var name in ListMemoryBanks())
+            {
+                if (IsLegacyBankLayout(GetMemoryBankDir(name)))
+                    result.Add(name);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Folds a legacy bank into the three-file layout.
+        ///
+        /// Deliberately LOSSLESS AND DUMB: it concatenates each legacy folder's
+        /// articles under the file they belong to, and does not try to distil 136
+        /// term articles into a tidy table. Distilling needs judgement about which
+        /// decisions still hold, and a machine that guesses wrong here produces
+        /// exactly the confident-but-unreviewable content this redesign exists to
+        /// end. The user prunes afterwards, with everything still in front of them.
+        ///
+        /// Nothing is deleted: the legacy folders are moved into
+        /// <c>reference/_legacy/</c>, so a bad conversion can be inspected and
+        /// redone by hand.
+        /// </summary>
+        public static bool TryConvertLegacyBank(string bankDir, out string error, out int articlesFolded)
+        {
+            error = null;
+            articlesFolded = 0;
+
+            try
+            {
+                if (!IsLegacyBankLayout(bankDir))
+                {
+                    error = "This bank is not on the legacy layout (or has already been converted).";
+                    return false;
+                }
+
+                var bankName = new DirectoryInfo(bankDir).Name;
+
+                // legacy folder -> target file. 05_INDICES and 06_TEMPLATES are
+                // dropped: indices were generated FROM the articles, and templates
+                // were prompts for the automation that no longer exists. Both were
+                // already never read into a prompt.
+                var map = new[]
+                {
+                    new { Folder = "01_CLIENTS",     Target = Core.MemoryBankReader.BriefFile,       Heading = "Client notes" },
+                    new { Folder = "02_TERMINOLOGY", Target = Core.MemoryBankReader.TerminologyFile, Heading = "Terminology" },
+                    new { Folder = "04_STYLE",       Target = Core.MemoryBankReader.StyleFile,       Heading = "Style" },
+                    new { Folder = "03_DOMAINS",     Target = Core.MemoryBankReader.StyleFile,       Heading = "Domain knowledge" },
+                };
+
+                var buffers = new Dictionary<string, StringBuilder>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var m in map)
+                {
+                    var dir = Path.Combine(bankDir, m.Folder);
+                    if (!Directory.Exists(dir)) continue;
+
+                    StringBuilder sb;
+                    if (!buffers.TryGetValue(m.Target, out sb))
+                    {
+                        sb = new StringBuilder();
+                        sb.AppendLine("# " + Path.GetFileNameWithoutExtension(m.Target) + " - " + bankName);
+                        sb.AppendLine();
+                        sb.AppendLine("> Converted from the old folder layout. Everything is preserved");
+                        sb.AppendLine("> below, unedited. Prune it and, for terminology, rewrite it as a");
+                        sb.AppendLine("> table - a table is what makes a wrong row findable.");
+                        sb.AppendLine("> The originals are in `reference/_legacy/`.");
+                        sb.AppendLine();
+                        buffers[m.Target] = sb;
+                    }
+
+                    sb.AppendLine();
+                    sb.AppendLine("---");
+                    sb.AppendLine();
+                    sb.AppendLine("## " + m.Heading + " (from " + m.Folder + ")");
+                    sb.AppendLine();
+
+                    foreach (var file in Directory.GetFiles(dir, "*.md", SearchOption.AllDirectories)
+                                                  .OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+                    {
+                        if (Core.MemoryBankReader.IsIgnoredSidecar(file)) continue;
+                        var rel = file.Substring(bankDir.Length).TrimStart('\\', '/');
+                        if (rel.IndexOf("_archive", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+
+                        string body;
+                        try { body = File.ReadAllText(file); } catch { continue; }
+                        if (string.IsNullOrWhiteSpace(body)) continue;
+
+                        sb.AppendLine("### " + Path.GetFileNameWithoutExtension(file));
+                        sb.AppendLine();
+                        sb.AppendLine(StripFrontmatterBlock(body).Trim());
+                        sb.AppendLine();
+                        articlesFolded++;
+                    }
+                }
+
+                foreach (var kv in buffers)
+                {
+                    var path = Path.Combine(bankDir, kv.Key);
+                    if (File.Exists(path)) continue;
+                    File.WriteAllText(path, kv.Value.ToString(), new UTF8Encoding(false));
+                }
+
+                // Anything the map did not cover still needs a home, and the raw
+                // inbox is source material by definition.
+                var legacyRoot = Path.Combine(bankDir, Core.MemoryBankReader.ReferenceFolder, "_legacy");
+                Directory.CreateDirectory(legacyRoot);
+                foreach (var folder in SkeletonFolders)
+                {
+                    var src = Path.Combine(bankDir, folder);
+                    if (!Directory.Exists(src)) continue;
+                    var dst = Path.Combine(legacyRoot, folder);
+                    try { if (!Directory.Exists(dst)) Directory.Move(src, dst); } catch { }
+                }
+
+                // A bank with no brief at all still reads as "not a bank".
+                var briefPath = Path.Combine(bankDir, Core.MemoryBankReader.BriefFile);
+                if (!File.Exists(briefPath))
+                {
+                    File.WriteAllText(briefPath,
+                        "# " + bankName + "\r\n\r\n" +
+                        "Converted from the old folder layout; the previous bank had no\r\n" +
+                        "client profile to fold in. Describe the client here.\r\n",
+                        new UTF8Encoding(false));
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = "Could not convert the bank at\n  " + bankDir + "\n\n" + ex.Message;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Removes a leading YAML frontmatter block, including the malformed
+        /// "fenced frontmatter" variant (a ```yaml / ```markdown fence wrapping
+        /// the ---...--- block) that an earlier generation of the automation
+        /// produced in about 15% of articles.
+        /// </summary>
+        private static string StripFrontmatterBlock(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+
+            var s = text.TrimStart('﻿', ' ', '\r', '\n', '\t');
+
+            if (s.StartsWith("```", StringComparison.Ordinal))
+            {
+                var endFence = s.IndexOf("```", 3, StringComparison.Ordinal);
+                if (endFence > 0)
+                    s = s.Substring(endFence + 3).TrimStart('\r', '\n');
+            }
+
+            if (s.StartsWith("---", StringComparison.Ordinal))
+            {
+                var idx = s.IndexOf("\n---", StringComparison.Ordinal);
+                if (idx > 0)
+                {
+                    var after = s.IndexOf('\n', idx + 1);
+                    if (after > 0) s = s.Substring(after + 1);
+                }
+            }
+
+            return s;
         }
 
         // ── Memory bank templates (embedded resources) ───────────────────

@@ -28,9 +28,33 @@ namespace Supervertaler.Trados.Core
         private readonly Dictionary<string, KeyValuePair<long, string>> _bodyCache
             = new Dictionary<string, KeyValuePair<long, string>>(StringComparer.OrdinalIgnoreCase);
 
-        // Folders to scan for memory-bank articles (skip 00_INBOX, 05_INDICES, 06_TEMPLATES)
-        internal static readonly string[] ContentFolders =
-            { "01_CLIENTS", "02_TERMINOLOGY", "03_DOMAINS", "04_STYLE" };
+        // ── Bank layout (from 2026-08-08) ────────────────────────────────────
+        //
+        // A bank is THREE markdown files plus a reference/ folder, all at the
+        // bank root. That replaced a seven-folder wiki with one file per fact,
+        // which produced 136 files for what is a 136-row table, put 15% of the
+        // corpus behind malformed frontmatter nobody noticed, and became
+        // impossible for a human to audit - the whole point of keeping notes.
+        //
+        // reference/ holds the raw source material the three files were derived
+        // from. It is deliberately NOT read into prompts: it is the audit trail,
+        // so a derived claim can be checked against what it came from.
+        internal const string BriefFile = "brief.md";
+        internal const string TerminologyFile = "terminology.md";
+        internal const string StyleFile = "style.md";
+        internal const string ReferenceFolder = "reference";
+
+        internal static readonly string[] BankFiles =
+            { BriefFile, TerminologyFile, StyleFile };
+
+        /// <summary>
+        /// The bank loaded ALONGSIDE the active one, always. Holds defaults that
+        /// are true of the translator's work rather than of any one client; the
+        /// active bank overrides it wherever they disagree. The leading
+        /// underscore is a reserved namespace - <see cref="Settings.UserDataPath.SanitizeBankName"/>
+        /// trims leading separators, so a user cannot create a colliding bank.
+        /// </summary>
+        public const string SharedBankName = "_shared";
 
         /// <summary>
         /// File extensions that appear inside memory banks but are NOT knowledge
@@ -66,7 +90,7 @@ namespace Supervertaler.Trados.Core
         /// </summary>
         public bool VaultExists =>
             Directory.Exists(_vaultDir) &&
-            ContentFolders.Any(f => Directory.Exists(Path.Combine(_vaultDir, f)));
+            BankFiles.Any(f => File.Exists(Path.Combine(_vaultDir, f)));
 
         /// <summary>
         /// Builds or refreshes the lightweight frontmatter index.
@@ -79,39 +103,30 @@ namespace Supervertaler.Trados.Core
 
             var entries = new List<KbArticleIndex>();
 
-            foreach (var folder in ContentFolders)
+            // Index the bank's own markdown files (brief/terminology/style, plus
+            // anything else the user has dropped at the root). reference/ is
+            // excluded: it is source material, not knowledge, and indexing it
+            // would let a superseded draft answer a search as if it were current.
+            if (Directory.Exists(_vaultDir))
             {
-                var dir = Path.Combine(_vaultDir, folder);
-                if (!Directory.Exists(dir)) continue;
-
-                foreach (var file in Directory.GetFiles(dir, "*.md", SearchOption.AllDirectories))
+                foreach (var file in Directory.GetFiles(_vaultDir, "*.md", SearchOption.TopDirectoryOnly))
                 {
                     var fileName = Path.GetFileName(file);
                     if (fileName.StartsWith("_EXAMPLE_", StringComparison.OrdinalIgnoreCase))
                         continue;
-                    if (fileName.StartsWith("_archive", StringComparison.OrdinalIgnoreCase))
-                        continue;
-
-                    // Skip files in _archive subdirectories
-                    var relPath = file.Substring(_vaultDir.Length).TrimStart('\\', '/');
-                    if (relPath.Contains("_archive")) continue;
+                    if (IsIgnoredSidecar(file)) continue;
 
                     try
                     {
-                        var entry = new KbArticleIndex
+                        entries.Add(new KbArticleIndex
                         {
                             FilePath = file,
-                            RelativePath = relPath,
-                            Folder = folder,
-                            FileName = fileName
-                        };
-
-                        // Read just the frontmatter (first ~1KB is enough)
-                        var head = ReadHead(file, 2048);
-                        entry.Frontmatter = ParseFrontmatter(head);
-                        entry.FileSizeBytes = new FileInfo(file).Length;
-
-                        entries.Add(entry);
+                            RelativePath = fileName,
+                            Folder = "",
+                            FileName = fileName,
+                            Frontmatter = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                            FileSizeBytes = new FileInfo(file).Length
+                        });
                     }
                     catch
                     {
@@ -149,80 +164,100 @@ namespace Supervertaler.Trados.Core
             string manualClientProfile = null,
             string queryText = null)
         {
-            if (!VaultExists) return null;
-
-            RefreshIndex();
-            if (_index == null || _index.Count == 0) return null;
-
             var ctx = new KbContext();
 
-            // ── Step 1: Resolve client profile ──────────────────────
-            KbArticleIndex clientEntry = null;
+            // The bank IS the selection. There is no client detection any more:
+            // the user picked a bank from the toolbar, so filtering its contents
+            // by a frontmatter "client" field would only be a chance to get it
+            // wrong. projectName/domain/langs are kept in the signature because
+            // callers pass them, and they still label the result.
+            ctx.ClientName = string.IsNullOrWhiteSpace(manualClientProfile)
+                ? SafeBankName(_vaultDir)
+                : manualClientProfile;
+            ctx.DomainName = domain;
+            ctx.DetectionMethod = "bank";
 
-            if (!string.IsNullOrEmpty(manualClientProfile))
+            if (VaultExists)
             {
-                // Manual override – exact filename match
-                clientEntry = _index.FirstOrDefault(e =>
-                    e.Folder == "01_CLIENTS" &&
-                    e.FileName.Equals(manualClientProfile, StringComparison.OrdinalIgnoreCase));
-                ctx.DetectionMethod = "manual";
-            }
+                ctx.ClientProfileText = ReadBankFile(_vaultDir, BriefFile, out var briefPath);
+                ctx.ClientProfilePath = briefPath;
+                ctx.StyleGuideText = ReadBankFile(_vaultDir, StyleFile, out var stylePath);
+                ctx.StyleGuidePath = stylePath;
 
-            if (clientEntry == null && !string.IsNullOrEmpty(projectName))
-            {
-                // Auto-detect: match project name against client names
-                clientEntry = DetectClient(projectName);
-                ctx.DetectionMethod = clientEntry != null ? "project-name" : "none";
-            }
-
-            if (clientEntry != null)
-            {
-                ctx.ClientName = clientEntry.GetFrontmatter("client")
-                    ?? Path.GetFileNameWithoutExtension(clientEntry.FileName);
-                ctx.ClientProfileText = ReadFullArticle(clientEntry.FilePath);
-                ctx.ClientProfilePath = clientEntry.RelativePath;
-            }
-
-            // ── Step 2: Resolve domain article ──────────────────────
-            if (!string.IsNullOrEmpty(domain))
-            {
-                var domainEntry = _index.FirstOrDefault(e =>
-                    e.Folder == "03_DOMAINS" &&
-                    MatchesDomain(e, domain));
-
-                if (domainEntry != null)
+                var terms = ReadBankFile(_vaultDir, TerminologyFile, out var termPath);
+                if (!string.IsNullOrWhiteSpace(terms))
                 {
-                    ctx.DomainArticleText = ReadFullArticle(domainEntry.FilePath);
-                    ctx.DomainArticlePath = domainEntry.RelativePath;
-                    ctx.DomainName = domainEntry.GetFrontmatter("domain")
-                        ?? Path.GetFileNameWithoutExtension(domainEntry.FileName);
+                    ctx.TerminologyArticles.Add(terms);
+                    ctx.TerminologyPaths.Add(termPath);
                 }
             }
 
-            // ── Step 3: Resolve style guide ─────────────────────────
-            var styleEntry = FindStyleGuide(sourceLang, targetLang, ctx.ClientName);
-            if (styleEntry != null)
+            // ── The shared bank, always loaded alongside ─────────────
+            // Skipped when the active bank IS _shared, so editing your own
+            // defaults doesn't show them to you twice.
+            var sharedDir = ResolveSharedBankDir(_vaultDir);
+            if (sharedDir != null)
             {
-                ctx.StyleGuideText = ReadFullArticle(styleEntry.FilePath);
-                ctx.StyleGuidePath = styleEntry.RelativePath;
+                ctx.SharedBriefText = ReadBankFile(sharedDir, BriefFile, out _);
+                ctx.SharedTerminologyText = ReadBankFile(sharedDir, TerminologyFile, out _);
+                ctx.SharedStyleText = ReadBankFile(sharedDir, StyleFile, out _);
             }
 
-            // ── Step 4: Resolve terminology articles ────────────────
-            var termEntries = FindTerminologyArticles(ctx.ClientName, domain, sourceLang, targetLang, queryText);
-            foreach (var te in termEntries)
-            {
-                var text = ReadFullArticle(te.FilePath);
-                if (!string.IsNullOrWhiteSpace(text))
-                {
-                    ctx.TerminologyArticles.Add(text);
-                    ctx.TerminologyPaths.Add(te.RelativePath);
-                }
-            }
-
-            // ── Step 5: Apply token budget ──────────────────────────
             ctx.TrimToTokenBudget(tokenBudget);
 
             return ctx.HasContent ? ctx : null;
+        }
+
+        /// <summary>Bank folder name, used as the context's display label.</summary>
+        private static string SafeBankName(string dir)
+        {
+            try { return new DirectoryInfo(dir).Name; } catch { return null; }
+        }
+
+        /// <summary>
+        /// Reads one of the bank's three files. Returns null when absent - a bank
+        /// with no style.md is normal, not an error.
+        /// </summary>
+        private static string ReadBankFile(string bankDir, string fileName, out string relativePath)
+        {
+            relativePath = null;
+            try
+            {
+                var path = Path.Combine(bankDir, fileName);
+                if (!File.Exists(path)) return null;
+                var text = File.ReadAllText(path);
+                if (string.IsNullOrWhiteSpace(text)) return null;
+                relativePath = fileName;
+                return text.Trim();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Locates the <c>_shared</c> bank next to the active one, or null when it
+        /// does not exist or the active bank already is it.
+        /// </summary>
+        private static string ResolveSharedBankDir(string activeBankDir)
+        {
+            try
+            {
+                var name = SafeBankName(activeBankDir);
+                if (string.Equals(name, SharedBankName, StringComparison.OrdinalIgnoreCase))
+                    return null;
+
+                var root = Path.GetDirectoryName(activeBankDir);
+                if (string.IsNullOrEmpty(root)) return null;
+
+                var shared = Path.Combine(root, SharedBankName);
+                return Directory.Exists(shared) ? shared : null;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>
@@ -233,40 +268,53 @@ namespace Supervertaler.Trados.Core
             if (ctx == null || !ctx.HasContent) return null;
 
             var sb = new StringBuilder(4096);
-            sb.AppendLine("# KNOWLEDGE BASE");
+            sb.AppendLine("# SUPERMEMORY");
             sb.AppendLine();
-            sb.AppendLine("The following context comes from the translator's SuperMemory knowledge base:");
-            sb.AppendLine("the reasoning behind their past decisions.");
+            sb.AppendLine("The translator's own decisions and the reasoning behind them. These are");
+            sb.AppendLine("choices you cannot derive from the source text, so getting one wrong is a");
+            sb.AppendLine("real error, not a stylistic difference.");
             sb.AppendLine();
-            sb.AppendLine("Client-specific decisions – house style, approved terms, wordings a client has");
-            sb.AppendLine("previously rejected – take priority over general convention. You cannot derive");
-            sb.AppendLine("them, and getting them wrong is a real error.");
-            sb.AppendLine();
-            sb.AppendLine("Entries marked UNVERIFIED are an earlier leaning that was recorded but never");
-            sb.AppendLine("checked. Treat them as a hint, not an instruction: where your own judgement of");
-            sb.AppendLine("correct usage disagrees with an unverified entry, follow your judgement.");
+            sb.AppendLine("Two layers, and the order matters: house defaults first, then the client.");
+            sb.AppendLine("**Where they disagree, the client section wins** - that is what it is for.");
 
-            AppendSection(sb, "Client Profile", ctx.ClientName, ctx.ClientProfileText);
-            AppendSection(sb, "Domain Knowledge", ctx.DomainName, ctx.DomainArticleText);
-            AppendSection(sb, "Style Guide", null, ctx.StyleGuideText);
+            bool hasShared =
+                !string.IsNullOrWhiteSpace(ctx.SharedBriefText) ||
+                !string.IsNullOrWhiteSpace(ctx.SharedTerminologyText) ||
+                !string.IsNullOrWhiteSpace(ctx.SharedStyleText);
 
-            if (ctx.TerminologyArticles.Count > 0)
+            if (hasShared)
             {
                 sb.AppendLine();
-                sb.AppendLine("## Terminology Decisions");
+                sb.AppendLine("---");
                 sb.AppendLine();
-                sb.AppendLine("These terms have been chosen with reasoning. Follow the verified ones " +
-                    "exactly – rejected alternatives are listed so you know what to avoid. " +
-                    "UNVERIFIED entries are unconfirmed suggestions, not rules.");
+                sb.AppendLine("# House defaults");
                 sb.AppendLine();
-
-                foreach (var article in ctx.TerminologyArticles)
-                {
-                    AppendUnverifiedMarker(sb, article);
-                    sb.AppendLine(article.Trim());
-                    sb.AppendLine();
-                }
+                sb.AppendLine("How this translator works generally. Apply unless the client section below");
+                sb.AppendLine("says otherwise.");
+                AppendSection(sb, "General notes", null, ctx.SharedBriefText);
+                AppendSection(sb, "Terminology", null, ctx.SharedTerminologyText);
+                AppendSection(sb, "Style", null, ctx.SharedStyleText);
             }
+
+            sb.AppendLine();
+            sb.AppendLine("---");
+            sb.AppendLine();
+            sb.AppendLine("# Client: " + (ctx.ClientName ?? "current"));
+            if (hasShared)
+            {
+                sb.AppendLine();
+                sb.AppendLine("**Overrides the house defaults above.**");
+            }
+
+            AppendSection(sb, "Brief", null, ctx.ClientProfileText);
+
+            foreach (var article in ctx.TerminologyArticles)
+            {
+                if (string.IsNullOrWhiteSpace(article)) continue;
+                AppendSection(sb, "Terminology", null, article);
+            }
+
+            AppendSection(sb, "Style", null, ctx.StyleGuideText);
 
             return sb.ToString().TrimEnd();
         }
@@ -882,12 +930,22 @@ namespace Supervertaler.Trados.Core
         // Detection info
         public string DetectionMethod { get; set; } = "none";
 
+        // ── The _shared bank, loaded alongside the active one ────────────
+        // Separate fields rather than merged text, so FormatForPrompt can label
+        // which layer a rule came from. An AI told "the client overrides the
+        // house defaults" can only act on that if it can see which is which.
+        public string SharedBriefText { get; set; }
+        public string SharedTerminologyText { get; set; }
+        public string SharedStyleText { get; set; }
+
         /// <summary>True if any KB content was loaded.</summary>
         public bool HasContent =>
             !string.IsNullOrWhiteSpace(ClientProfileText) ||
-            !string.IsNullOrWhiteSpace(DomainArticleText) ||
             !string.IsNullOrWhiteSpace(StyleGuideText) ||
-            TerminologyArticles.Count > 0;
+            TerminologyArticles.Count > 0 ||
+            !string.IsNullOrWhiteSpace(SharedBriefText) ||
+            !string.IsNullOrWhiteSpace(SharedTerminologyText) ||
+            !string.IsNullOrWhiteSpace(SharedStyleText);
 
         /// <summary>
         /// Estimated token count (chars / 4 heuristic).
@@ -898,43 +956,44 @@ namespace Supervertaler.Trados.Core
             {
                 int chars = 0;
                 if (ClientProfileText != null) chars += ClientProfileText.Length;
-                if (DomainArticleText != null) chars += DomainArticleText.Length;
                 if (StyleGuideText != null) chars += StyleGuideText.Length;
                 foreach (var t in TerminologyArticles) chars += t.Length;
+                if (SharedBriefText != null) chars += SharedBriefText.Length;
+                if (SharedTerminologyText != null) chars += SharedTerminologyText.Length;
+                if (SharedStyleText != null) chars += SharedStyleText.Length;
                 return chars / 4;
             }
         }
 
         /// <summary>
-        /// Trims content to fit within a token budget, removing lowest-priority content first.
-        /// Priority: Client > Domain > Style > Terminology (from end).
+        /// Trims to fit a token budget. Drops the shared layer before the client
+        /// layer - the client bank is the one that was chosen deliberately, and
+        /// it overrides the defaults anyway, so shedding defaults loses least.
+        /// Terminology is dropped last on each layer: it is the densest content
+        /// and the hardest for a model to guess.
         /// </summary>
         public void TrimToTokenBudget(int maxTokens)
         {
             if (maxTokens <= 0 || EstimatedTokens <= maxTokens) return;
 
-            // Remove terminology articles from the end until within budget
-            while (TerminologyArticles.Count > 0 && EstimatedTokens > maxTokens)
-            {
-                TerminologyArticles.RemoveAt(TerminologyArticles.Count - 1);
-                TerminologyPaths.RemoveAt(TerminologyPaths.Count - 1);
-            }
+            if (EstimatedTokens > maxTokens) SharedBriefText = null;
+            if (EstimatedTokens > maxTokens) SharedStyleText = null;
+            if (EstimatedTokens > maxTokens) SharedTerminologyText = null;
 
-            // If still over budget, remove style guide
             if (EstimatedTokens > maxTokens)
             {
                 StyleGuideText = null;
                 StyleGuidePath = null;
             }
 
-            // If still over budget, remove domain article
-            if (EstimatedTokens > maxTokens)
+            while (TerminologyArticles.Count > 0 && EstimatedTokens > maxTokens)
             {
-                DomainArticleText = null;
-                DomainArticlePath = null;
+                TerminologyArticles.RemoveAt(TerminologyArticles.Count - 1);
+                if (TerminologyPaths.Count > 0)
+                    TerminologyPaths.RemoveAt(TerminologyPaths.Count - 1);
             }
 
-            // Last resort: truncate client profile
+            // Last resort: truncate the brief.
             if (EstimatedTokens > maxTokens && ClientProfileText != null)
             {
                 var maxChars = maxTokens * 4;
@@ -950,17 +1009,18 @@ namespace Supervertaler.Trados.Core
         {
             var parts = new List<string>();
             if (!string.IsNullOrWhiteSpace(ClientProfileText))
-                parts.Add("client: " + (ClientName ?? "detected"));
-            if (!string.IsNullOrWhiteSpace(DomainArticleText))
-                parts.Add("domain: " + (DomainName ?? "detected"));
-            if (!string.IsNullOrWhiteSpace(StyleGuideText))
-                parts.Add("style guide");
+                parts.Add("bank: " + (ClientName ?? "active"));
             if (TerminologyArticles.Count > 0)
-                parts.Add(TerminologyArticles.Count + " term article" +
-                    (TerminologyArticles.Count != 1 ? "s" : ""));
+                parts.Add("terminology");
+            if (!string.IsNullOrWhiteSpace(StyleGuideText))
+                parts.Add("style");
+            if (!string.IsNullOrWhiteSpace(SharedBriefText) ||
+                !string.IsNullOrWhiteSpace(SharedTerminologyText) ||
+                !string.IsNullOrWhiteSpace(SharedStyleText))
+                parts.Add("+ " + MemoryBankReader.SharedBankName);
 
             if (parts.Count == 0) return null;
-            return "Memory bank: " + string.Join(", ", parts) +
+            return "SuperMemory: " + string.Join(", ", parts) +
                 " (~" + EstimatedTokens + " tokens)";
         }
     }
