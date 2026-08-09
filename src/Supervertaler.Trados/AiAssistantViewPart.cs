@@ -2535,7 +2535,7 @@ namespace Supervertaler.Trados
         /// target as it stood before the edits vs. the reviewed final. With
         /// save=true the FULL harvest (not just the returned page) is also
         /// written as a Markdown file into the active SuperMemory bank's
-        /// 00_INBOX, as raw material for distilling style rules and terminology.
+        /// reference/, as source material to draw style rules and terminology from.
         /// </summary>
         private BridgeTrackedChangesResponse BridgeGetTrackedChanges(BridgeTrackedChangesQuery query)
         {
@@ -2667,7 +2667,7 @@ namespace Supervertaler.Trados
                         ? $" Response shows the first {query.Limit} of {all.Count} changes (raise 'limit' to page)."
                         : "")
                     + (response.SavedTo != null
-                        ? $" The FULL harvest was saved to 00_INBOX of memory bank '{response.SavedToBank}' - the user can distill it via Process Inbox."
+                        ? $" The FULL harvest was saved to the reference folder of memory bank '{response.SavedToBank}'. Nothing reads it automatically - fold what matters into brief.md, terminology.md or style.md."
                         : (query.Save
                             ? ""
                             : " Pass save=true to write the full harvest into the active SuperMemory bank's inbox for future projects."));
@@ -2678,7 +2678,7 @@ namespace Supervertaler.Trados
 
         /// <summary>
         /// Writes a tracked-changes harvest as a Markdown note into the active
-        /// SuperMemory bank's 00_INBOX (same flow as chat's "save to memory
+        /// SuperMemory bank's reference/ folder (same flow as chat's "save to memory
         /// bank"). Returns the path written. MUST be called on the UI thread.
         /// </summary>
         private string SaveTrackedChangesHarvest(List<BridgeTrackedChangeRecord> changes)
@@ -2689,7 +2689,7 @@ namespace Supervertaler.Trados
                 throw new InvalidOperationException(
                     $"Memory bank '{bankName}' does not exist yet (expected at {vaultDir}).");
 
-            var inboxDir = Path.Combine(vaultDir, "00_INBOX");
+            var inboxDir = Path.Combine(vaultDir, Core.MemoryBankReader.ReferenceFolder);
             Directory.CreateDirectory(inboxDir);
 
             string projectName = null, sourceLang = null, targetLang = null;
@@ -6017,7 +6017,7 @@ namespace Supervertaler.Trados
                 }
 
                 // Write inbox note
-                var inboxDir = Path.Combine(vaultDir, "00_INBOX");
+                var inboxDir = Path.Combine(vaultDir, Core.MemoryBankReader.ReferenceFolder);
                 Directory.CreateDirectory(inboxDir);
 
                 var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
@@ -6426,7 +6426,7 @@ namespace Supervertaler.Trados
                     Snippet = h.Snippet
                 }).ToList(),
                 Note = hits.Count == 0
-                    ? "No articles matched. The search covers 01_CLIENTS, 02_TERMINOLOGY, 03_DOMAINS and 04_STYLE; raw 00_INBOX material is not indexed."
+                    ? "No matches. The search covers the bank's brief.md, terminology.md and style.md; reference/ is source material and is deliberately not indexed."
                     : null
             };
         }
@@ -6802,7 +6802,7 @@ namespace Supervertaler.Trados
                         _control.Value.AddMessage(new ChatMessage
                         {
                             Role = ChatRole.Assistant,
-                            Content = $"Created memory bank **{sanitised}** with the standard folder layout (00_INBOX, 01_CLIENTS, 02_TERMINOLOGY, 03_DOMAINS, 04_STYLE, 05_INDICES, 06_TEMPLATES) and switched to it."
+                            Content = $"Created memory bank **{sanitised}** with brief.md, terminology.md, style.md and a reference folder, and switched to it. Open the folder from the toolbar to fill it in."
                         });
                     }
                     catch (Exception ex)
@@ -6916,7 +6916,7 @@ namespace Supervertaler.Trados
         {
             try
             {
-                var inboxDir = Path.Combine(ActiveMemoryBankDir, "00_INBOX");
+                var inboxDir = Path.Combine(ActiveMemoryBankDir, Core.MemoryBankReader.ReferenceFolder);
                 if (!Directory.Exists(inboxDir))
                 {
                     _control.Value.UpdateInboxCount(0);
@@ -6966,13 +6966,15 @@ namespace Supervertaler.Trados
         }
 
         /// <summary>
-        /// Watches the SuperMemory 00_INBOX folder for file changes and auto-refreshes the count.
+        /// Watches the bank's reference/ folder. The count is no longer shown - the
+        /// toolbar label went with the inbox - but the watcher is harmless and keeps
+        /// the refresh hook alive for whatever wants it next.
         /// </summary>
         private void StartInboxWatcher()
         {
             try
             {
-                var inboxDir = Path.Combine(ActiveMemoryBankDir, "00_INBOX");
+                var inboxDir = Path.Combine(ActiveMemoryBankDir, Core.MemoryBankReader.ReferenceFolder);
                 if (!Directory.Exists(inboxDir)) return;
 
                 // Watch every file type, not just *.md – users drop TMX, PDF,
@@ -8200,7 +8202,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             // bank-internal sidecars (.edtz etc.) – DocumentTextExtractor will
             // throw "Unsupported file format" on those, and they aren't
             // knowledge content anyway.
-            var inboxDir = Path.Combine(vaultDir, "00_INBOX");
+            var inboxDir = Path.Combine(vaultDir, Core.MemoryBankReader.ReferenceFolder);
             var inboxDistillable = new List<string>();
             if (Directory.Exists(inboxDir))
             {

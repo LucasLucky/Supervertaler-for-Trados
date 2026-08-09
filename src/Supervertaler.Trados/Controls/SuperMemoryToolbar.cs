@@ -199,7 +199,10 @@ namespace Supervertaler.Trados.Controls
                 "that looks wrong. Instant - no AI call.");
 
             // ─── Open bank folder ───────────────────────────────────
-            _btnOpenFolder = MakeActionButton("📂 Open folder", btnFont);
+            // No emoji: U+1F4C2 is astral and the button font renders it as a tofu
+            // box - the same trap the Overview button hit with U+1F4CA. Plain text
+            // beats a placeholder square.
+            _btnOpenFolder = MakeActionButton("Open folder", btnFont);
             _btnOpenFolder.Click += (s, e) => OpenFolderRequested?.Invoke(this, EventArgs.Empty);
             ClickThrough.Attach(_btnOpenFolder, () => OpenFolderRequested?.Invoke(this, EventArgs.Empty));
             tip.SetToolTip(_btnOpenFolder,
