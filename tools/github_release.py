@@ -144,7 +144,15 @@ def build_body(version, version19, selected):
     table += f"\n| `{MCPB_EXE_ZIP}` | AI assistant server for other local MCP clients, e.g. Claude Code (optional, see below) |"
     changelog = "\n\n".join(content for _v, content in selected) if selected else "_See CHANGELOG.md._"
 
-    return f"""Supervertaler for Trados **v{version}** (Studio 2024) / **v{version19}** (Studio 2026). Covers {span}.
+    return f"""> [!WARNING]
+> **Did the update prompt inside Trados send you here to download?**
+> Then your plugin predates **v4.19.24** and is still checking GitHub for updates.
+> There is no plugin to download on this page - install once from the
+> **[RWS App Store](https://appstore.rws.com/plugin/432)** (or *Add-Ins -> RWS App Store*
+> inside Studio) and it will check there from then on, and stop warning you about an
+> unsigned plug-in at every start.
+
+Supervertaler for Trados **v{version}** (Studio 2024) / **v{version19}** (Studio 2026). Covers {span}.
 
 ## 📦 How to install
 
