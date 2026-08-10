@@ -58,10 +58,8 @@ PRICE_IN, PRICE_OUT = 3.00, 15.00
 # Mirrors Supervertaler.McpServer/BridgeClient.cs so we hit the same instance
 # the MCP tools do.
 
-def resolve_handshake_path():
-    override = os.environ.get("SUPERVERTALER_BRIDGE_FILE")
-    if override:
-        return Path(override)
+def resolve_user_data_root():
+    """The shared Supervertaler user-data root, as the plugin resolves it."""
     root = Path.home() / "Supervertaler"
     cfg = Path(os.environ.get("APPDATA", "")) / "Supervertaler" / "config.json"
     if cfg.is_file():
@@ -71,7 +69,70 @@ def resolve_handshake_path():
                 root = Path(data["user_data_path"])
         except Exception:
             pass
-    return root / "trados" / "runtime" / "bridge.json"
+    return root
+
+
+def resolve_handshake_path():
+    override = os.environ.get("SUPERVERTALER_BRIDGE_FILE")
+    if override:
+        return Path(override)
+    return resolve_user_data_root() / "trados" / "runtime" / "bridge.json"
+
+
+# ─────────────────────────── output location ────────────────────────────
+# Reports quote a real client's source and confirmed target verbatim, and
+# the CSV carries every scored segment. This script lives in a PUBLIC git
+# repo, so the one place output must never default to is next to the
+# script: `git add -A` after a run would publish the client's document.
+# Default somewhere outside any checkout, and refuse to write into a git
+# working tree even when explicitly pointed at one.
+
+def default_output_dir():
+    return resolve_user_data_root() / "trados" / "benchmarks"
+
+
+def enclosing_git_worktree(path):
+    """The nearest ancestor that is a git working tree, or None."""
+    try:
+        for parent in [path, *path.parents]:
+            if (parent / ".git").exists():
+                return parent
+    except Exception:
+        pass
+    return None
+
+
+def resolve_output_base(out, out_dir, allow_repo_output):
+    """Absolute path stem for the .csv/.md pair. Exits rather than write
+    client text into a repo."""
+    # A caller who passes a path (not a bare name) means it; a bare basename
+    # is joined to the safe default directory. Tested on the RAW STRING, not
+    # Path.parts: pathlib normalises "./leak" down to a single part, so
+    # `--out ./leak` would silently land in the default directory instead of
+    # the current one - and the git guard below would never see it.
+    written_as_path = any(sep in out for sep in (os.sep, os.altsep) if sep)
+    target = Path(out) if Path(out).is_absolute() or written_as_path \
+        else Path(out_dir or default_output_dir()) / out
+    target = target.expanduser()
+    try:
+        target = target.resolve()
+    except Exception:
+        target = target.absolute()
+
+    repo = enclosing_git_worktree(target.parent)
+    if repo and not allow_repo_output:
+        sys.exit(
+            f"Refusing to write benchmark output into a git working tree:\n"
+            f"  output: {target}.csv / .md\n"
+            f"  repo:   {repo}\n\n"
+            "These files quote the job's source and confirmed target verbatim.\n"
+            f"Leave --out as a bare name (it lands in {default_output_dir()}),\n"
+            "pass --out-dir to choose somewhere else, or --allow-repo-output if\n"
+            "you have checked that this repo is private and stays that way."
+        )
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    return target
 
 
 def discover_bridge():
@@ -386,7 +447,15 @@ def main():
     ap.add_argument("--min-words", type=int, default=6, help="skip segments shorter than this")
     ap.add_argument("--include-tm-matches", action="store_true",
                     help="include 100%% TM matches (excluded by default - they come from the TM, not the model)")
-    ap.add_argument("--out", default="benchmark-report", help="output basename")
+    ap.add_argument("--out", default="benchmark-report",
+                    help="output basename. A bare name lands in --out-dir; pass a path "
+                         "(absolute or with a separator) to place it yourself.")
+    ap.add_argument("--out-dir", default=None,
+                    help=f"where reports go (default: {default_output_dir()}). Never "
+                         "defaults next to this script: the reports quote the job's "
+                         "source and target verbatim and this repo is public.")
+    ap.add_argument("--allow-repo-output", action="store_true",
+                    help="permit writing into a git working tree. Only for a private repo.")
     ap.add_argument("--dry-run", action="store_true", help="check wiring, make no API calls")
     ap.add_argument("--yes", action="store_true", help="proceed without the cost prompt")
     ap.add_argument("--repeats", type=int, default=1,
@@ -398,6 +467,10 @@ def main():
                          "reject the parameter. Both arms are always sampled identically.")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
+
+    # Resolved before anything is spent: a run whose report would land in a
+    # repo must fail now, not after the API bill and the translating.
+    out_base = resolve_output_base(args.out, args.out_dir, args.allow_repo_output)
 
     base, token = discover_bridge()
     print(f"Bridge: {base}")
@@ -566,13 +639,15 @@ def main():
 
     # ── artefacts ────────────────────────────────────────────────────
     import csv
-    csv_path = Path(f"{args.out}.csv")
+    # str(out_base) + suffix, not with_suffix: a basename containing a dot
+    # ("run.v2") would otherwise lose everything after it.
+    csv_path = Path(f"{out_base}.csv")
     with csv_path.open("w", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         w.writeheader()
         w.writerows(rows)
 
-    md_path = Path(f"{args.out}.md")
+    md_path = Path(f"{out_base}.md")
     worst = sorted(rows, key=lambda r: r["delta"])[:5]
     best = sorted(rows, key=lambda r: -r["delta"])[:5]
     with md_path.open("w", encoding="utf-8") as f:

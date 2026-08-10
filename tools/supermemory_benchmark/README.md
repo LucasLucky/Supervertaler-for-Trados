@@ -22,6 +22,14 @@ python benchmark.py --limit 40 --yes
 
 Outputs `benchmark-report.md` (summary, biggest wins and losses) and `benchmark-report.csv` (every segment, both arms, per-segment scores).
 
+### Where the reports go, and why not here
+
+**Reports land in `<user-data-root>\trados\benchmarks\`** — for a standard install, `D:\Supervertaler\trados\benchmarks\`. The run prints the full path when it finishes.
+
+They are deliberately **not** written next to this script. The `.md` quotes the job's source and confirmed target verbatim in its wins-and-losses sections, and the `.csv` carries every scored segment — that is a client's document, and this repo is public. One `git add -A` after a run would publish it.
+
+`--out` takes a bare name (joined to the output directory) or a full path if you want to place it yourself; `--out-dir` moves the directory. Either way the script **refuses to write into a git working tree** and exits before spending anything on API calls. `--allow-repo-output` overrides that, and is only sane for a repo you know is private and will stay private.
+
 ## The experiment worth running first
 
 Domain selection and bank value are **two different questions**, and conflating them will mislead you. Run three arms:
