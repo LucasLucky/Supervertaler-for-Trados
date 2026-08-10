@@ -7,6 +7,22 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.172 / 19.20.172] – 2026-08-10
+
+### Fixed (SuperMemory · the `_shared` bank was invisible to everything except the AI)
+
+- **`_shared` reported "0 articles" while holding three files, could not be searched, and switching to it emptied your active bank.** All three came from one line: bank names are cleaned before being turned into a folder path, and that cleaning strips a leading underscore — which is exactly how `_shared` is kept un-createable from the New-bank dialog. Applied to a name read back off disk it turned `_shared` into `shared`, and the plugin then went looking for a bank that does not exist.
+- **Nothing was ever lost, and nothing was withheld from the AI.** Prompt injection reaches the shared bank by a different route, so your house defaults have been in every prompt the whole time. What was broken was everything that *reported* on the bank — which is worse than it sounds: a bank that says it is empty is a bank you stop trusting, and `search_supermemory` answered "no matches" for rules you had written down and were being applied.
+- **Search now covers the shared bank as well as the active one.** Every result says which bank it came from, results from the active bank win ties (it overrides the shared defaults, so it should be read first), and an empty answer now names the banks it actually searched instead of implying you never wrote it down.
+- **`list_supermemory_banks` no longer presents `_shared` as an ordinary bank.** Each entry carries its role — a project bank, or the shared layer that is loaded on top of whichever bank is active — so an assistant can no longer read `active: false` as "this knowledge is not in play".
+- **The memory-bank dropdown explains what `_shared` is.** It stays selectable, because selecting it is how you edit your house defaults, and the toolbar's Open folder button works on whichever bank is active.
+
+### Fixed (`check_tags` reported a phantom tag on every segment you had commented)
+
+- **A Trados comment was being counted as an inline tag, so every commented segment failed the tag check** as "source has 0 inline tag(s), target has 1" — pointing at a tag that is not in the source, not in the target, and not visible anywhere in the editor. Found on a 213-segment patent with 15 comments, which produced exactly 15 findings; the only clue that they were phantoms was that the two counts matched.
+- **Why it happened.** A comment is markup wrapping the commented text, and Studio renders it as a coloured highlight rather than as a tag. The plugin's serialiser had no case for it and fell through to its catch-all, which turns any unrecognised wrapper into a paired tag.
+- **The same phantom was being shown to the AI.** `get_segments` returned the comment as a `<t1>…</t1>` around target text the translator sees unmarked, which an assistant would then dutifully carry into its own translation. Comments are unaffected by the fix: they live only in the target and were already carried across a write separately.
+
 ## [18.20.169 / 19.20.169] – 2026-08-09
 
 ### Changed (SuperMemory · a memory bank is now three files you can actually read)
