@@ -171,6 +171,28 @@ namespace Supervertaler.Trados.Core
                         SerializeContainer(revision, sb, tagMap, ref tagCounter);
                     }
                 }
+                else if (item is ICommentMarker comment)
+                {
+                    // A comment is NOT an inline tag. It wraps target text as
+                    // markup, but Studio renders it as a coloured highlight and
+                    // shows no tag in the editor - so emitting <tN> here invented
+                    // a tag the translator cannot see and did not put there.
+                    //
+                    // What that cost before this branch existed: every commented
+                    // segment failed check_tags as "source has 0 inline tag(s),
+                    // target has 1" (field report: a 213-segment patent with 15
+                    // comments produced exactly 15 phantom findings, and the
+                    // count-vs-comment correlation was the only way to spot it).
+                    // It also handed the AI a <tN> to faithfully reproduce in its
+                    // translation, in text the user sees as unmarked.
+                    //
+                    // Skipping it here loses nothing: comments live only in the
+                    // target and are already carried across a write out-of-band
+                    // by CaptureCommentMarkers/OpenCommentMarkers, and
+                    // CollectTagIds likewise walks through them without
+                    // collecting an id.
+                    SerializeContainer(comment, sb, tagMap, ref tagCounter);
+                }
                 else if (item is IAbstractMarkupDataContainer nestedContainer)
                 {
                     // ILockedContent, etc. – treat as paired tag
