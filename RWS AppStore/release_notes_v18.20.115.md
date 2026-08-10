@@ -1,0 +1,32 @@
+# RWS App Store Manager - v18.20.115
+
+Two builds ship from this one release (identical feature set, distinct
+version numbers so the App Store never sees a collision):
+
+| Build | Version number | Min studio | Max studio | Checksum (SHA-256) |
+|-------|----------------|------------|------------|--------------------|
+| Studio 2024 | `18.20.115.0` | `18.0` | `18.9` | `641e3aa9f3dc52c8cbb55f56d806dfca1d5b49751a18e4f0b32ee02b5e6077ad` |
+| Studio 2026 | `19.20.115.0` | `19.0` | `19.0.9` | `bfc02d8be975da39ee9fa3f0b9af9c1a2d79cd565062aa690ff8a27c7d752c01` |
+
+---
+
+## Changelog
+
+This release rounds out the Supervertaler MCP Server (39 tools): your AI assistant can now see every project, TM and template on the machine, curate your termbases (not just add to them), fetch exactly the segment you name, and save the document on request - plus reliability plumbing underneath.
+
+### Added
+- **Four new machine-wide tools**: **`list_projects`** (every project registered in Trados Studio, with status, dates, paths and which Studio version registered it), **`get_project`** (details of any registered project by name – languages, files, status – without opening it), **`list_tms`** (the file TMs in your Studio folders plus those referenced by your projects), and **`list_project_templates`**. Ask *"what projects do I have?"*, *"when did I create the ACME job?"*, *"which TMs are on this machine?"*
+- **All of these read every Studio version's registry** – Studio 2026, 2024 and 2022 each keep a separate project list, and previously only one was consulted (which is why a Studio 2026 project could come back as "not found"). Projects registered under more than one version are deduplicated. The same multi-registry search now also backs `get_project_statistics`'s by-name lookup, and the TM/template folders of all three versions are scanned.
+- **New `update_term` and `delete_term` tools** complete the terminology loop: when the AI spots an outdated or wrong pair in your Supervertaler termbase, it can now fix or remove it instead of telling you to do it by hand. Rails: only termbases with the **Write** column ticked (the same gate as `add_term`); the entry must be identified by its **exact** current source and target; every other field of the entry (definition, notes, domain, flags) is preserved on update; and the response spells out exactly what changed, so the chat transcript doubles as your audit trail. Deleting is flagged to the AI as destructive – it's told to act only on your clear request or confirmation. Trados project termbases (`.ttb`/`.sdltb`) remain **read-only by design** – editing a live Studio termbase file from outside risks corrupting it, so those edits belong in Studio.
+- **Term lookups now tell the AI which termbases are actually in use.** `lookup_term` searches every Supervertaler termbase in your database – including ones whose **Read** tick is off – which is useful for "do I have this anywhere?" questions, but was invisible. Hits from inactive termbases are now flagged, so the AI can say "found, but only in an inactive termbase", and a new `activeOnly` option restricts the search to your Read-enabled termbases – handy once you've accumulated many termbases and want lookups limited to the active set (*"only consult my active termbases"*).
+- **`get_segments` can now fetch by grid number** – new `fromNumber`/`toNumber` parameters retrieve exactly the segment(s) you refer to by the number you see in Studio's grid, instead of the AI paging through the document and occasionally landing on the wrong window (which could produce confidently wrong conclusions about "what's in segment N"). Works in merged multi-file documents too: numbers restart per file, so the AI combines the range with the file name – and when it doesn't, the response says the match spans files. The tool now explicitly instructs the AI to use exact-number fetch, never offset-guessing, when you mention a segment number.
+- **New `save_document` tool** – the AI can save the document open in the editor itself (the same as Ctrl+S, covering all files of a merged document) instead of handing you back to Studio to do it. It's instructed to save only when you ask or approve – AI-written translations still land as Draft for your review first – but *"save and then run the analysis"* is now one instruction. The batch-task tools now point the AI at `save_document` for their save-first-then-run flows.
+- **Version handshake between the plugin and the MCP extension.** The extension exe now reports its protocol level to the plugin on every request, so the plugin knows whether the installed extension supports everything it needs. If a future plugin version ever requires a newer extension, you'll hear about it in three places without any new machinery: your AI assistant tells you directly in chat (via the `help` tool and project-status responses), and the **Connect AI assistant** dialog shows the status. Nothing nags today – every current extension remains fully supported; this just puts the plumbing in place so "your extension is outdated" can never again go unnoticed. Older extensions that predate the handshake are detected automatically (they simply don't report a version).
+
+### Changed
+- **The AI bridge starts as soon as Trados Studio is up** – previously it waited for a document to be opened in the editor, so with Studio sitting on the Projects view your AI app saw a dead connection (and a stale tool list). The machine-wide tools (`list_projects`, `list_tms`, `list_project_templates`, the prompt library, `help`) don't need a document at all, and now work the moment Studio is running. Tools that do need one keep answering gracefully ("no document is open in the editor") until you open it.
+
+### Fixed
+- **`list_projects` (and the by-name project lookups) missed every Studio 2026 project**, because Studio 2026 keeps its Documents folder under a *different name* than expected – `Studio 2026 Release`, not `Studio 2026`. The Studio folders are now discovered by enumerating `Documents\Studio *` instead of hardcoding names, so all versions' registries, Translation Memories folders and Project Templates folders are found regardless of how the edition names its folder – current and future.
+
+For the full changelog, see: https://github.com/Supervertaler/Supervertaler-for-Trados/releases
