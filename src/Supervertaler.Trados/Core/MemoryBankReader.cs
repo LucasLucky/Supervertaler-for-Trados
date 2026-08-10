@@ -85,6 +85,13 @@ namespace Supervertaler.Trados.Core
             _vaultDir = memoryBankDir;
         }
 
+        /// <summary>Folder name of the bank this reader is pointed at.</summary>
+        public string BankName => SafeBankName(_vaultDir);
+
+        /// <summary>True when this reader is pointed at the shared overlay bank.</summary>
+        public bool IsSharedBank =>
+            string.Equals(BankName, SharedBankName, StringComparison.OrdinalIgnoreCase);
+
         /// <summary>
         /// Returns true if the memory bank exists on disk and has content folders.
         /// </summary>
@@ -714,6 +721,8 @@ namespace Supervertaler.Trados.Core
                 .ToList();
             if (terms.Count == 0) return hits;
 
+            var bankName = BankName;
+
             foreach (var entry in _index)
             {
                 // Cached and mtime-invalidated, so repeated queries stay cheap
@@ -749,6 +758,7 @@ namespace Supervertaler.Trados.Core
 
                 hits.Add(new KbSearchHit
                 {
+                    Bank = bankName,
                     RelativePath = entry.RelativePath,
                     Folder = entry.Folder,
                     FileName = entry.FileName,
@@ -877,6 +887,14 @@ namespace Supervertaler.Trados.Core
     /// </summary>
     public class KbSearchHit
     {
+        /// <summary>
+        /// Folder name of the bank this hit came from. Set because a search now
+        /// spans the active bank AND <see cref="MemoryBankReader.SharedBankName"/>,
+        /// and "which of my banks did I write this in?" is the first thing the
+        /// reader asks - not least because the two layers can disagree, and the
+        /// active one wins.
+        /// </summary>
+        public string Bank { get; set; }
         public string RelativePath { get; set; }
         public string Folder { get; set; }
         public string FileName { get; set; }

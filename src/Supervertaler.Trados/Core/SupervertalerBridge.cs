@@ -773,11 +773,14 @@ namespace Supervertaler.Trados.Core
     [DataContract]
     public class BridgeSuperMemorySearchHit
     {
-        [DataMember(Name = "path", Order = 0)] public string Path { get; set; }
-        [DataMember(Name = "folder", Order = 1, EmitDefaultValue = false)] public string Folder { get; set; }
-        [DataMember(Name = "title", Order = 2, EmitDefaultValue = false)] public string Title { get; set; }
-        [DataMember(Name = "score", Order = 3)] public int Score { get; set; }
-        [DataMember(Name = "snippet", Order = 4, EmitDefaultValue = false)] public string Snippet { get; set; }
+        /// <summary>Which bank the hit came from – a search spans the active
+        /// bank and "_shared", and the caller must be able to tell them apart.</summary>
+        [DataMember(Name = "bank", Order = 0, EmitDefaultValue = false)] public string Bank { get; set; }
+        [DataMember(Name = "path", Order = 1)] public string Path { get; set; }
+        [DataMember(Name = "folder", Order = 2, EmitDefaultValue = false)] public string Folder { get; set; }
+        [DataMember(Name = "title", Order = 3, EmitDefaultValue = false)] public string Title { get; set; }
+        [DataMember(Name = "score", Order = 4)] public int Score { get; set; }
+        [DataMember(Name = "snippet", Order = 5, EmitDefaultValue = false)] public string Snippet { get; set; }
     }
 
     [DataContract]
@@ -785,17 +788,31 @@ namespace Supervertaler.Trados.Core
     {
         [DataMember(Name = "available", Order = 0)] public bool Available { get; set; }
         [DataMember(Name = "bank", Order = 1, EmitDefaultValue = false)] public string Bank { get; set; }
-        [DataMember(Name = "hits", Order = 2, EmitDefaultValue = false)]
+        /// <summary>Every bank the query actually ran against. Without this a
+        /// zero-hit answer is indistinguishable from "you never wrote that
+        /// down", which is the wrong conclusion to hand an AI.</summary>
+        [DataMember(Name = "banksSearched", Order = 2, EmitDefaultValue = false)]
+        public List<string> BanksSearched { get; set; }
+        [DataMember(Name = "hits", Order = 3, EmitDefaultValue = false)]
         public List<BridgeSuperMemorySearchHit> Hits { get; set; }
-        [DataMember(Name = "note", Order = 3, EmitDefaultValue = false)] public string Note { get; set; }
+        [DataMember(Name = "note", Order = 4, EmitDefaultValue = false)] public string Note { get; set; }
     }
 
     [DataContract]
     public class BridgeSuperMemoryBank
     {
         [DataMember(Name = "name", Order = 0)] public string Name { get; set; }
-        [DataMember(Name = "active", Order = 1)] public bool Active { get; set; }
-        [DataMember(Name = "articles", Order = 2)] public int Articles { get; set; }
+        /// <summary>"bank" for an ordinary bank, "shared" for the _shared
+        /// overlay. The overlay appears in this list because it is on disk like
+        /// any other, but it is not a sibling: it is loaded on top of whichever
+        /// bank is active, so reading its active:false as "unused" is wrong.</summary>
+        [DataMember(Name = "role", Order = 1)] public string Role { get; set; }
+        [DataMember(Name = "active", Order = 2)] public bool Active { get; set; }
+        /// <summary>True for the shared overlay: its content reaches the model
+        /// on every call regardless of which bank is active.</summary>
+        [DataMember(Name = "alwaysLoaded", Order = 3, EmitDefaultValue = false)]
+        public bool AlwaysLoaded { get; set; }
+        [DataMember(Name = "articles", Order = 4)] public int Articles { get; set; }
     }
 
     [DataContract]

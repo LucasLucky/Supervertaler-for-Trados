@@ -167,7 +167,12 @@ namespace Supervertaler.Trados.Controls
                 "Active memory bank." + Environment.NewLine +
                 "Switching is immediate - the next chat turn reads from" + Environment.NewLine +
                 "the new bank; chat history is preserved." + Environment.NewLine +
-                "The _shared bank is always loaded alongside it.");
+                Environment.NewLine +
+                "_shared is not a project bank: it holds your house" + Environment.NewLine +
+                "defaults and is loaded on top of whichever bank is" + Environment.NewLine +
+                "active, so you never need to select it to use it." + Environment.NewLine +
+                "Select it only to edit those defaults - the active" + Environment.NewLine +
+                "bank overrides them wherever the two disagree.");
 
             // ─── Convert legacy bank ────────────────────────────────
             // Hidden unless the active bank is still on the old seven-folder

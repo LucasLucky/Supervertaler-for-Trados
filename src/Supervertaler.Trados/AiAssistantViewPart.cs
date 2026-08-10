@@ -6403,7 +6403,22 @@ namespace Supervertaler.Trados
             // article body, which is too slow to run on the UI thread, and the
             // cached reader is not safe to touch from the listener thread.
             var reader = new MemoryBankReader(ActiveMemoryBankDir);
-            if (!reader.VaultExists)
+
+            // The shared bank is injected into every prompt, so it has to be
+            // searchable too. Without it, knowledge that lives only in
+            // _shared/terminology.md answered "no matches" - which reads as
+            // "you never wrote that down" while the model was being handed that
+            // very text in its system prompt. Skipped when _shared IS the
+            // active bank, so its hits are not returned twice.
+            MemoryBankReader sharedReader = null;
+            if (!UserDataPath.IsSharedBankName(bankName))
+            {
+                var candidate = new MemoryBankReader(
+                    UserDataPath.GetMemoryBankDir(MemoryBankReader.SharedBankName));
+                if (candidate.VaultExists) sharedReader = candidate;
+            }
+
+            if (!reader.VaultExists && sharedReader == null)
             {
                 return new BridgeSuperMemorySearchResponse
                 {
@@ -6414,14 +6429,41 @@ namespace Supervertaler.Trados
             }
 
             var limit = query.Limit > 0 ? query.Limit : 10;
-            var hits = reader.Search(query.Query, limit);
+
+            // Each reader returns its own best `limit`, so merging and taking
+            // `limit` still yields the true overall top-N.
+            var found = new List<KbSearchHit>();
+            var banksSearched = new List<string>();
+            if (reader.VaultExists)
+            {
+                found.AddRange(reader.Search(query.Query, limit));
+                banksSearched.Add(reader.BankName ?? bankName);
+            }
+            if (sharedReader != null)
+            {
+                found.AddRange(sharedReader.Search(query.Query, limit));
+                banksSearched.Add(MemoryBankReader.SharedBankName);
+            }
+
+            // Ties break towards the active bank: where the two layers disagree
+            // the active one overrides the shared defaults, so it should also be
+            // the one the reader sees first.
+            var hits = found
+                .OrderByDescending(h => h.Score)
+                .ThenBy(h => string.Equals(h.Bank, MemoryBankReader.SharedBankName,
+                                           StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                .ThenBy(h => h.RelativePath, StringComparer.OrdinalIgnoreCase)
+                .Take(limit)
+                .ToList();
 
             return new BridgeSuperMemorySearchResponse
             {
                 Available = true,
                 Bank = bankName,
+                BanksSearched = banksSearched,
                 Hits = hits.Select(h => new BridgeSuperMemorySearchHit
                 {
+                    Bank = h.Bank,
                     Path = h.RelativePath,
                     Folder = h.Folder,
                     Title = h.Title,
@@ -6429,7 +6471,9 @@ namespace Supervertaler.Trados
                     Snippet = h.Snippet
                 }).ToList(),
                 Note = hits.Count == 0
-                    ? "No matches. The search covers the bank's brief.md, terminology.md and style.md; reference/ is source material and is deliberately not indexed."
+                    ? "No matches in " + string.Join(" or ", banksSearched)
+                      + ". The search covers each bank's brief.md, terminology.md and style.md; "
+                      + "reference/ is source material and is deliberately not indexed."
                     : null
             };
         }
@@ -6444,6 +6488,7 @@ namespace Supervertaler.Trados
             var names = UserDataPath.ListMemoryBanks() ?? new List<string>();
 
             var banks = new List<BridgeSuperMemoryBank>();
+            var hasShared = false;
             foreach (var name in names)
             {
                 var count = 0;
@@ -6454,10 +6499,19 @@ namespace Supervertaler.Trados
                 }
                 catch { /* a bank we cannot read still deserves a listing */ }
 
+                var isShared = UserDataPath.IsSharedBankName(name);
+                if (isShared) hasShared = true;
+
                 banks.Add(new BridgeSuperMemoryBank
                 {
                     Name = name,
+                    // _shared sits in this list because it is a folder under the
+                    // same root, but it is an overlay, not a sibling. Labelling
+                    // the role stops a client reading its active:false as
+                    // "this knowledge is not in play".
+                    Role = isShared ? "shared" : "bank",
                     Active = string.Equals(name, activeName, StringComparison.OrdinalIgnoreCase),
+                    AlwaysLoaded = isShared,
                     Articles = count
                 });
             }
@@ -6470,7 +6524,12 @@ namespace Supervertaler.Trados
                 Banks = banks,
                 Note = banks.Count == 0
                     ? "No memory banks found under " + UserDataPath.MemoryBanksRoot
-                    : null
+                    : (hasShared
+                        ? "'" + MemoryBankReader.SharedBankName + "' is not one of the user's project banks: "
+                          + "it holds their house defaults and is loaded on top of whichever bank is active, "
+                          + "so its content reaches you even though it reports active:false. The active bank "
+                          + "overrides it wherever the two disagree."
+                        : null)
             };
         }
 

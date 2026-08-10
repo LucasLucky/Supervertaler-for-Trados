@@ -1231,7 +1231,7 @@
     },
     {
       "name": "search_supermemory",
-      "description": "Free-text search across the user's active SuperMemory memory bank. Use this to answer 'what did I decide about X?' or 'have I translated this term before, and why that way?'. Where get_supermemory_context loads what is relevant to the whole project, this finds specific articles by keyword. Searches client profiles, terminology, domain notes and style guides; raw unfiled 00_INBOX material is not indexed. Returns each article's path, title, score and a snippet showing why it matched. Read a full article with the standard filesystem tools if you need more.",
+      "description": "Free-text search across the user's active SuperMemory memory bank AND their '_shared' bank of house defaults, which is loaded on top of whichever bank is active. Use this to answer 'what did I decide about X?' or 'have I translated this term before, and why that way?'. Where get_supermemory_context loads what is relevant to the whole project, this finds specific passages by keyword. Searches each bank's brief, terminology and style files; the reference/ folder holds raw source material and is deliberately not indexed. Returns each hit's bank, path, title, score and a snippet showing why it matched - check the bank field, because where the two disagree the active bank overrides '_shared'. The response also lists every bank actually searched, so a zero-hit answer can be reported accurately. Read a full file with the standard filesystem tools if you need more.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1263,7 +1263,7 @@
     },
     {
       "name": "list_supermemory_banks",
-      "description": "List the user's SuperMemory memory banks and show which one is currently active, with an article count for each. Useful for orientation before searching, and to tell the user which body of knowledge you are actually working from. Banks are usually split by client, domain or language pair. Switching the active bank is done by the user in the Supervertaler panel, not through this tool.",
+      "description": "List the user's SuperMemory memory banks and show which one is currently active, with a file count for each. Useful for orientation before searching, and to tell the user which body of knowledge you are actually working from. Banks are usually split by client, domain or language pair. Each entry carries a role: 'bank' for an ordinary project bank, or 'shared' for the reserved '_shared' bank of house defaults. The shared bank is an overlay, not a sibling - it is loaded on top of whichever bank is active, so its knowledge reaches you even though it reports active:false, and the active bank overrides it wherever they disagree. Switching the active bank is done by the user in the Supervertaler panel, not through this tool.",
       "inputSchema": {
         "type": "object",
         "properties": {}

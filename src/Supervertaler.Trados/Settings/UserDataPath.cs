@@ -156,14 +156,40 @@ namespace Supervertaler.Trados.Settings
         /// <param name="bankName">
         /// Bank identifier. If null, empty or whitespace, falls back to
         /// <see cref="DefaultMemoryBankName"/>. The name is sanitized via
-        /// <see cref="SanitizeBankName"/> to avoid accidental path traversal.
+        /// <see cref="SanitizeBankName"/> to avoid accidental path traversal –
+        /// except for the reserved shared bank, see <see cref="IsSharedBankName"/>.
         /// </param>
         public static string GetMemoryBankDir(string bankName)
         {
+            // The shared overlay bank is the one name sanitisation must NOT
+            // touch. Its leading underscore is exactly what SanitizeBankName
+            // strips - deliberately, so nobody can create a colliding bank from
+            // the New-bank dialog - but running an on-disk name through the
+            // user-input rule turned "_shared" into "shared" and pointed every
+            // caller at a folder that does not exist. Symptoms that fixing this
+            // removes: _shared reporting 0 articles in list_supermemory_banks,
+            // and selecting it in the toolbar silently emptying the active bank.
+            if (IsSharedBankName(bankName))
+                return Path.Combine(MemoryBanksRoot, Core.MemoryBankReader.SharedBankName);
+
             var safe = SanitizeBankName(bankName);
             if (string.IsNullOrEmpty(safe))
                 safe = DefaultMemoryBankName;
             return Path.Combine(MemoryBanksRoot, safe);
+        }
+
+        /// <summary>
+        /// True when the name refers to the reserved shared bank
+        /// (<see cref="Core.MemoryBankReader.SharedBankName"/>), which is loaded
+        /// alongside every other bank rather than being a bank of its own.
+        /// Deliberately does NOT sanitize: the whole point is that this name
+        /// survives the sanitiser unchanged.
+        /// </summary>
+        public static bool IsSharedBankName(string bankName)
+        {
+            return !string.IsNullOrWhiteSpace(bankName) &&
+                   string.Equals(bankName.Trim(), Core.MemoryBankReader.SharedBankName,
+                                 StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
