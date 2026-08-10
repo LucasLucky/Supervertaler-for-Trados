@@ -33,6 +33,15 @@ artifacts/
 dist/
 *.sdlplugin
 
+## SuperMemory benchmark results — NEVER COMMIT
+# benchmark.py scores a real Trados job, so its outputs carry verbatim
+# source and confirmed target text (and the CSV carries every scored
+# segment). This repo is public. The script and its README are tracked;
+# anything it produces is not.
+tools/supermemory_benchmark/*.csv
+tools/supermemory_benchmark/*.md
+!tools/supermemory_benchmark/README.md
+
 ## OS
 Thumbs.db
 ehthumbs.db
