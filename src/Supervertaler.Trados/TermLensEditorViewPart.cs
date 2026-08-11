@@ -155,6 +155,12 @@ namespace Supervertaler.Trados
             _currentInstance = this;
             _uiThreadId = System.Threading.Thread.CurrentThread.ManagedThreadId;
 
+            // Startup notices are marshalled onto this context when the TermLens
+            // pane has no window handle to BeginInvoke through — which is the
+            // normal case now that Initialize is forced whether or not the pane
+            // is ever shown (issues #54, #56).
+            Core.StartupNotices.CaptureUiContext();
+
             // Ctrl-tap filter: pressing and releasing Ctrl alone opens the
             // floating TermLens popup. Faster than the picker dialog and
             // shows the segment in context, so Ctrl-tap is the preferred
@@ -194,20 +200,13 @@ namespace Supervertaler.Trados
                     var update = await UpdateChecker.CheckForUpdateAsync(_settings);
                     if (!update.HasValue) return;
 
-                    // Wait for the control's window handle to be created.
-                    // Initialize() runs before the control is parented in the
-                    // Trados docking framework, so IsHandleCreated may still be
-                    // false.  Poll briefly – the handle is created within a
-                    // second or two once Trados finishes layout.
-                    for (int i = 0; i < 30 && !ctrl.IsHandleCreated; i++)
-                        await System.Threading.Tasks.Task.Delay(500);
-
-                    if (!ctrl.IsHandleCreated) return; // give up after 15 s
-
-                    ctrl.BeginInvoke(new Action(() =>
-                    {
-                        ShowUpdateDialog(update.Value.version, update.Value.url, update.Value.pluginUrl);
-                    }));
+                    // Queued rather than shown directly: StartupNotices waits for
+                    // the pane's handle (Initialize runs before the control is
+                    // parented in the Trados docking framework), owns the dialog
+                    // to Studio's window so it can't open behind it, and holds it
+                    // back until any other notice is off the screen (issue #54).
+                    Core.StartupNotices.Enqueue(ctrl, "update", owner =>
+                        ShowUpdateDialog(update.Value.version, update.Value.url, update.Value.pluginUrl, owner));
                 }
                 catch
                 {
@@ -2491,7 +2490,23 @@ namespace Supervertaler.Trados
         /// </summary>
         public static List<TermEntry> GetCurrentTermbaseTerms()
         {
-            if (_currentInstance == null) return new List<TermEntry>();
+            if (_currentInstance == null)
+            {
+                // Should no longer happen: AppInitializer.ForceTermLensPane runs
+                // Initialize at Studio startup precisely so the AI never has to
+                // ask an uninitialised TermLens for terms (issue #56). Left
+                // audible rather than silent, because the failure mode is a
+                // prompt that goes out with no terminology and says nothing
+                // about it — the one thing that made #56 hard to spot.
+                try
+                {
+                    Core.DiagnosticLog.WriteAlways("TermLens",
+                        "GetCurrentTermbaseTerms called before Initialize – returning NO terms. " +
+                        "The prompt this feeds will carry no terminology.");
+                }
+                catch { }
+                return new List<TermEntry>();
+            }
             try { return _control.Value.GetAllLoadedTerms() ?? new List<TermEntry>(); }
             catch { return new List<TermEntry>(); }
         }
@@ -3236,8 +3251,8 @@ namespace Supervertaler.Trados
         // ─── Update checker dialog ──────────────────────────────────
 
         /// <summary>
-        /// Shows the one-time usage statistics opt-in dialog if the user hasn't been asked yet.
-        /// Waits for the control handle, then shows the dialog on the UI thread.
+        /// Shows the one-time usage statistics opt-in dialog if the user hasn't
+        /// been asked yet, through the shared startup-notice queue.
         /// </summary>
         private void ShowUsageStatisticsOptIn(TermLensControl ctrl)
         {
@@ -3247,54 +3262,41 @@ namespace Supervertaler.Trados
             if (settings.UsageStatisticsAskedV2)
                 return;
 
-            System.Threading.Tasks.Task.Run(async () =>
+            Core.StartupNotices.Enqueue(ctrl, "usage-statistics", owner =>
             {
-                try
+                using (var dlg = new UsageStatisticsDialog())
                 {
-                    // Wait for the control's window handle (same pattern as update checker)
-                    for (int i = 0; i < 30 && !ctrl.IsHandleCreated; i++)
-                        await System.Threading.Tasks.Task.Delay(500);
+                    var result = Core.StartupNotices.ShowOwned(dlg, owner);
+                    settings.UsageStatisticsAsked = true;
+                    settings.UsageStatisticsAskedV2 = true;
+                    // Default-on: anything except an explicit "Turn it off"
+                    // (DialogResult.No) is treated as keeping stats enabled.
+                    // This covers Yes, Enter, Esc, and the X-close button.
+                    settings.UsageStatisticsEnabled = (result != DialogResult.No);
+                    if (settings.UsageStatisticsEnabled && string.IsNullOrEmpty(settings.UsageStatisticsId))
+                        settings.UsageStatisticsId = Guid.NewGuid().ToString("D");
+                    settings.Save();
 
-                    if (!ctrl.IsHandleCreated) return;
-
-                    ctrl.BeginInvoke(new Action(() =>
+                    // Sync the choice into the ViewPart's live _settings so the
+                    // settings form shows the correct checkbox state without
+                    // needing a Trados restart.
+                    if (_settings != null)
                     {
-                        using (var dlg = new UsageStatisticsDialog())
+                        _settings.UsageStatisticsAsked   = settings.UsageStatisticsAsked;
+                        _settings.UsageStatisticsAskedV2 = settings.UsageStatisticsAskedV2;
+                        _settings.UsageStatisticsEnabled = settings.UsageStatisticsEnabled;
+                        _settings.UsageStatisticsId      = settings.UsageStatisticsId;
+                    }
+
+                    // If they opted in, send the first ping now
+                    if (settings.UsageStatisticsEnabled)
+                    {
+                        System.Threading.Tasks.Task.Run(async () =>
                         {
-                            var result = dlg.ShowDialog();
-                            settings.UsageStatisticsAsked = true;
-                            settings.UsageStatisticsAskedV2 = true;
-                            // Default-on: anything except an explicit "Turn it off"
-                            // (DialogResult.No) is treated as keeping stats enabled.
-                            // This covers Yes, Enter, Esc, and the X-close button.
-                            settings.UsageStatisticsEnabled = (result != DialogResult.No);
-                            if (settings.UsageStatisticsEnabled && string.IsNullOrEmpty(settings.UsageStatisticsId))
-                                settings.UsageStatisticsId = Guid.NewGuid().ToString("D");
-                            settings.Save();
-
-                            // Sync the choice into the ViewPart's live _settings so the
-                            // settings form shows the correct checkbox state without
-                            // needing a Trados restart.
-                            if (_settings != null)
-                            {
-                                _settings.UsageStatisticsAsked   = settings.UsageStatisticsAsked;
-                                _settings.UsageStatisticsAskedV2 = settings.UsageStatisticsAskedV2;
-                                _settings.UsageStatisticsEnabled = settings.UsageStatisticsEnabled;
-                                _settings.UsageStatisticsId      = settings.UsageStatisticsId;
-                            }
-
-                            // If they opted in, send the first ping now
-                            if (settings.UsageStatisticsEnabled)
-                            {
-                                System.Threading.Tasks.Task.Run(async () =>
-                                {
-                                    try { await UsageStatistics.SendPingAsync(); } catch { }
-                                });
-                            }
-                        }
-                    }));
+                            try { await UsageStatistics.SendPingAsync(); } catch { }
+                        });
+                    }
                 }
-                catch { }
             });
         }
 
@@ -3302,8 +3304,15 @@ namespace Supervertaler.Trados
         /// Shows the one-question dev survey (issue #43) if the worker has an
         /// active question this user hasn't answered or dismissed. Non-blocking,
         /// fails silent, and never nags: a question is re-asked on at most 3
-        /// startups until answered or "Don't ask again". Anonymous — only the
-        /// existing usage-stats UUID and a coarse licence tier are sent.
+        /// startups until answered, and "Don't ask again" ends surveys for good.
+        /// Anonymous — only the existing usage-stats UUID and a coarse licence
+        /// tier are sent.
+        ///
+        /// Everything persistent here lives in <see cref="Settings.SurveyState"/>,
+        /// not in settings.json. That file is written back wholesale from ~29 call
+        /// sites by holders of a startup copy, which erased the record of an
+        /// answered survey often enough for one user to report the same question
+        /// three times across three builds (issue #55).
         /// </summary>
         private void ShowSurveyPrompt(TermLensControl ctrl)
         {
@@ -3311,78 +3320,55 @@ namespace Supervertaler.Trados
             {
                 try
                 {
+                    if (Settings.SurveyState.IsOptedOut()) return;
+
                     var survey = await SurveyClient.GetActiveSurveyAsync("trados");
                     if (survey == null) return;
 
-                    var settings = TermLensSettings.Load();
-                    if (settings.AnsweredSurveyIds != null &&
-                        settings.AnsweredSurveyIds.Contains(survey.SurveyId))
-                        return;
+                    if (Settings.SurveyState.HasBeenAnswered(survey.SurveyId)) return;
 
                     // Re-ask at most 3 startups until answered / dismissed.
-                    var key = survey.SurveyId.ToString();
-                    int shown = 0;
-                    if (settings.SurveyShownCounts != null &&
-                        settings.SurveyShownCounts.ContainsKey(key))
-                        shown = settings.SurveyShownCounts[key];
-                    if (shown >= 3) return;
-
-                    // Wait for the control's window handle (same pattern as the
-                    // update checker / usage-stats dialogs).
-                    for (int i = 0; i < 30 && !ctrl.IsHandleCreated; i++)
-                        await System.Threading.Tasks.Task.Delay(500);
-                    if (!ctrl.IsHandleCreated) return;
+                    int shown = Settings.SurveyState.ShownCount(survey.SurveyId);
+                    if (shown >= Settings.SurveyState.MaxImpressions) return;
 
                     // Record the impression now, so an unanswered close still
-                    // counts toward the 3-startup cap.
-                    if (settings.SurveyShownCounts == null)
-                        settings.SurveyShownCounts = new System.Collections.Generic.Dictionary<string, int>();
-                    settings.SurveyShownCounts[key] = shown + 1;
-                    settings.Save();
+                    // counts toward the cap.
+                    Settings.SurveyState.RecordShown(survey.SurveyId);
 
-                    ctrl.BeginInvoke(new Action(() =>
+                    Core.StartupNotices.Enqueue(ctrl, "survey", owner =>
                     {
                         using (var dlg = new SurveyDialog(survey.Question, survey.YesLabel, survey.NoLabel, survey.Kind))
                         {
-                            dlg.ShowDialog();
+                            Core.StartupNotices.ShowOwned(dlg, owner);
 
                             var answer = dlg.Answer;               // yes | no | answered | ignored
                             var comment = dlg.Comment;
                             var dontAsk = dlg.DontAskAgain;
                             bool answered = (answer == "yes" || answer == "no" || answer == "answered");
 
-                            // Re-load rather than reusing the copy taken before the
-                            // dialog opened: that copy is as stale as the user was
-                            // slow, and saving it whole would discard anything the
-                            // other startup tasks wrote meanwhile. (It did exactly
-                            // that to the announcement dialog's "already shown"
-                            // record, which reappeared on every launch as a result.)
-                            // Apply only this survey's own fields to a fresh copy.
-                            settings = TermLensSettings.Load();
+                            // "Don't ask again" carries no qualifier on the
+                            // checkbox, so it retires the whole survey mechanism
+                            // rather than this one question — which is what a user
+                            // who ticks it has asked for. Previously the next
+                            // question published simply asked them again.
+                            if (dontAsk) Settings.SurveyState.OptOut();
+
+                            // This question is finished with once answered or
+                            // shown its full allowance.
+                            if (answered || (shown + 1) >= Settings.SurveyState.MaxImpressions)
+                                Settings.SurveyState.MarkAnswered(survey.SurveyId);
 
                             // Ensure an anonymous id exists. Reuse the usage-stats
                             // UUID — it's just a random id, not tied to the stats
-                            // opt-in — generating one here if the user never opted in.
+                            // opt-in — generating one here if the user never opted
+                            // in. This one field does still live in settings.json;
+                            // losing it costs nothing but a new random id.
+                            var settings = TermLensSettings.Load();
                             if (string.IsNullOrEmpty(settings.UsageStatisticsId))
-                                settings.UsageStatisticsId = Guid.NewGuid().ToString("D");
-
-                            // Never show this question again once answered, dismissed
-                            // via "Don't ask again", or shown the full 3 times.
-                            bool stop = answered || dontAsk || (shown + 1) >= 3;
-                            if (stop)
                             {
-                                if (settings.AnsweredSurveyIds == null)
-                                    settings.AnsweredSurveyIds = new System.Collections.Generic.List<int>();
-                                if (!settings.AnsweredSurveyIds.Contains(survey.SurveyId))
-                                    settings.AnsweredSurveyIds.Add(survey.SurveyId);
+                                settings.UsageStatisticsId = Guid.NewGuid().ToString("D");
+                                settings.Save();
                             }
-                            // Keep the impression count recorded before the dialog
-                            // opened, which the re-load above would otherwise drop
-                            // if another task saved in between.
-                            if (settings.SurveyShownCounts == null)
-                                settings.SurveyShownCounts = new System.Collections.Generic.Dictionary<string, int>();
-                            settings.SurveyShownCounts[key] = shown + 1;
-                            settings.Save();
 
                             // Send a response when they actually answered, or when
                             // they closed it but left a comment worth capturing.
@@ -3404,7 +3390,7 @@ namespace Supervertaler.Trados
                                 });
                             }
                         }
-                    }));
+                    });
                 }
                 catch
                 {
@@ -3434,7 +3420,7 @@ namespace Supervertaler.Trados
 
         private void ShowSuperMemoryAnnouncement(TermLensControl ctrl)
         {
-            System.Threading.Tasks.Task.Run(async () =>
+            System.Threading.Tasks.Task.Run(() =>
             {
                 try
                 {
@@ -3447,10 +3433,6 @@ namespace Supervertaler.Trados
 
                     if (Settings.AnnouncementState.HasBeenShown(AnnouncementId))
                         return;
-
-                    for (int i = 0; i < 30 && !ctrl.IsHandleCreated; i++)
-                        await System.Threading.Tasks.Task.Delay(500);
-                    if (!ctrl.IsHandleCreated) return;
 
                     // Record the impression before showing it: closing via Esc/X
                     // still counts, matching the "shown at most once" contract.
@@ -3465,7 +3447,7 @@ namespace Supervertaler.Trados
                     // happened to do that session. See AnnouncementState.
                     Settings.AnnouncementState.MarkShown(AnnouncementId);
 
-                    ctrl.BeginInvoke(new Action(() =>
+                    Core.StartupNotices.Enqueue(ctrl, "announcement", owner =>
                     {
                         using (var dlg = new AnnouncementDialog(
                             introText: "A quick heads-up about SuperMemory.",
@@ -3475,9 +3457,9 @@ namespace Supervertaler.Trados
                             linkUrl: AnnouncementUrl,
                             linkLabel: "Read the full post →"))
                         {
-                            dlg.ShowDialog();
+                            Core.StartupNotices.ShowOwned(dlg, owner);
                         }
-                    }));
+                    });
                 }
                 catch
                 {
@@ -3501,7 +3483,8 @@ namespace Supervertaler.Trados
             catch { return "unknown"; }
         }
 
-        private void ShowUpdateDialog(string newVersion, string releaseUrl, string pluginDownloadUrl)
+        private void ShowUpdateDialog(string newVersion, string releaseUrl, string pluginDownloadUrl,
+            IWin32Window owner = null)
         {
             var currentVersion = UpdateChecker.GetCurrentVersion();
             bool canOneClick = !string.IsNullOrEmpty(pluginDownloadUrl);
@@ -3741,7 +3724,7 @@ namespace Supervertaler.Trados
                 form.AcceptButton = btnInstall;
                 form.CancelButton = btnLater;
 
-                var result = form.ShowDialog();
+                var result = Core.StartupNotices.ShowOwned(form, owner);
 
                 if (result == DialogResult.Ignore)
                 {

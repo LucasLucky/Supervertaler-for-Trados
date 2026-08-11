@@ -29,18 +29,26 @@ namespace Supervertaler.Trados
                 var doc = editorController?.ActiveDocument;
                 if (doc == null) return;
 
-                // Try to get selected text from the active segment
+                // Try to get selected text from the active segment.
+                //
+                // Studio fills exactly one side of doc.Selection - whichever the
+                // caret is in - so a non-empty target string IS the signal that
+                // the user selected in the target, and the term belongs in the
+                // Tgt box. It used to be searched as source text, which finds
+                // nothing: a target term does not appear on the source side
+                // (issue #57).
                 string selectedText = null;
+                bool fromTarget = false;
                 try
                 {
                     var selection = doc.Selection;
                     if (selection != null)
                     {
-                        // Try source selection first, then target
                         var sourceSelection = selection.Source?.ToString();
                         var targetSelection = selection.Target?.ToString();
 
-                        selectedText = !string.IsNullOrWhiteSpace(targetSelection)
+                        fromTarget = !string.IsNullOrWhiteSpace(targetSelection);
+                        selectedText = fromTarget
                             ? targetSelection.Trim()
                             : sourceSelection?.Trim();
                     }
@@ -69,7 +77,9 @@ namespace Supervertaler.Trados
                 var control = SuperSearchViewPart.GetControl();
                 if (control != null)
                 {
-                    control.SetSearchText(selectedText ?? "", autoSearch: !string.IsNullOrWhiteSpace(selectedText));
+                    control.SetSearchText(selectedText ?? "",
+                        autoSearch: !string.IsNullOrWhiteSpace(selectedText),
+                        intoTargetBox: fromTarget);
                 }
             }
             catch { /* silently ignore errors */ }

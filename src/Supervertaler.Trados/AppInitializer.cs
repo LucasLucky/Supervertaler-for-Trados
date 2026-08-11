@@ -71,13 +71,19 @@ namespace Supervertaler.Trados
             // usage logging works even if the pane is never opened this session.
             try { UsageLogger.EnsureSubscribed(); } catch { }
 
-            // Start the Supervertaler bridge (MCP / Workbench) independent of the
-            // Assistant pane. The bridge lives in AiAssistantViewPart, which Trados
-            // instantiates lazily only when its pane is first activated – so a user
-            // who works only in TermLens (or never opens the pane) would have no
-            // bridge, and the MCP connection would silently fail. Here we force the
-            // pane's controller to load once a document is open in the editor, which
-            // runs its Initialize() and starts the bridge regardless of layout.
+            // Execute runs on the UI thread (it shows WinForms dialogs), so this is
+            // a good place to record the context startup notices are marshalled on
+            // when they have no pane handle to go through. Idempotent; the TermLens
+            // ViewPart captures it too, whichever runs first.
+            try { Core.StartupNotices.CaptureUiContext(); } catch { }
+
+            // Start the Supervertaler bridge (MCP / Workbench) and TermLens
+            // independent of their panes. Both live in ViewParts, which Trados
+            // instantiates lazily only when the pane is first activated – so a user
+            // who never opens them would have no bridge (silent MCP failure) and no
+            // terminology in any AI prompt (issue #56). Here we force both
+            // controllers to load, which runs their Initialize() regardless of
+            // layout.
             try { EnsureBridgeViewPartLoads(); } catch { }
 
             // Order matters:
@@ -281,6 +287,43 @@ namespace Supervertaler.Trados
             catch (Exception ex)
             {
                 Core.DiagnosticLog.WriteAlways("BridgeLoader", $"ForcePane ({reason}) threw: " + ex.Message);
+            }
+
+            ForceTermLensPane(reason);
+        }
+
+        /// <summary>
+        /// Force the TermLens pane's controller to instantiate, for the same
+        /// reason and by the same (idempotent) trick as <see cref="ForceBridgePane"/>.
+        ///
+        /// TermLens's Initialize is what sets `_currentInstance`, follows the
+        /// active document and loads the termbases – and every AI path takes its
+        /// glossary from `TermLensEditorViewPart.GetCurrentTermbaseTerms()`,
+        /// which returns an empty list while `_currentInstance` is null. So a
+        /// user who never showed the pane got prompts with **no terminology at
+        /// all**, silently: batch translation, proofreading, AutoPrompt,
+        /// QuickLauncher and the chat alike (issue #56). TermPicker hit the same
+        /// wall in 20.139 and fixed it the same way.
+        ///
+        /// Safe with no document open: Initialize subscribes to
+        /// ActiveDocumentChanged and wires up whenever one arrives.
+        /// </summary>
+        private static void ForceTermLensPane(string reason)
+        {
+            try
+            {
+                var vp = SdlTradosStudio.Application.GetController<TermLensEditorViewPart>();
+                if (vp == null)
+                {
+                    Core.DiagnosticLog.WriteAlways("BridgeLoader", $"ForceTermLens ({reason}): controller is null");
+                    return;
+                }
+                vp.EnsureInitialized();
+                Core.DiagnosticLog.WriteAlways("BridgeLoader", $"ForceTermLens ({reason}): EnsureInitialized() called");
+            }
+            catch (Exception ex)
+            {
+                Core.DiagnosticLog.WriteAlways("BridgeLoader", $"ForceTermLens ({reason}) threw: " + ex.Message);
             }
         }
 

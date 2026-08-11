@@ -1238,12 +1238,27 @@ namespace Supervertaler.Trados.Controls
 
         /// <summary>
         /// Sets the search text and optionally triggers a search.
-        /// Used by the context menu "SuperSearch" action.
+        /// Used by the context menu / Alt+S "SuperSearch" action.
+        ///
+        /// <paramref name="intoTargetBox"/> puts the text in the Tgt box instead
+        /// of Src, for a selection the user made in the target segment: searching
+        /// a target term as if it were source text finds nothing, since it does
+        /// not appear on the source side at all (issue #57).
+        ///
+        /// The box that does NOT receive the text is cleared. Src and Tgt are
+        /// ANDed, so a term left over from the previous search silently reduces
+        /// the new one to zero hits; Alt+S starts a search rather than refining
+        /// the last one.
         /// </summary>
-        public void SetSearchText(string text, bool autoSearch = false)
+        public void SetSearchText(string text, bool autoSearch = false, bool intoTargetBox = false)
         {
-            _txtSearch.Text = text ?? "";
-            _txtSearch.Focus();
+            var box   = intoTargetBox ? _txtSearchTarget : _txtSearch;
+            var other = intoTargetBox ? _txtSearch : _txtSearchTarget;
+
+            box.Text = text ?? "";
+            other.Text = "";
+            box.Focus();
+            box.SelectAll();
             if (autoSearch && !string.IsNullOrWhiteSpace(text))
                 FireSearch();
         }
