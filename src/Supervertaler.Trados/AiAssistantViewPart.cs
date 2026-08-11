@@ -1019,7 +1019,8 @@ namespace Supervertaler.Trados
                     listSuperMemoryBanks: BridgeListSuperMemoryBanks,
                     markReviewed: BridgeMarkReviewed,
                     getCoverage: BridgeGetCoverage,
-                    getTrackedChanges: BridgeGetTrackedChanges);
+                    getTrackedChanges: BridgeGetTrackedChanges,
+                    importTermbase: BridgeImportTermbase);
                 _supervertalerBridge.Start();
             }
             catch (Exception ex)
@@ -4038,6 +4039,280 @@ namespace Supervertaler.Trados
             {
                 return new BridgeResultResponse { Ok = false, Error = "save failed: " + ex.Message };
             }
+        }
+
+        /// <summary>
+        /// Bridge delegate for POST /v1/import-termbase (MCP import_project_termbase).
+        /// Copies a Trados project termbase (.sdltb / .ttb) into a Supervertaler
+        /// termbase — the same operation as Settings → Termbases → "Import
+        /// .sdltb/.ttb…", which was UI-only. Over the bridge the only alternative
+        /// was one <c>add_term</c> round-trip per term (issue #59).
+        ///
+        /// Write gate: an EXISTING destination must be Write-enabled, the same rule
+        /// add_term follows — the Write tick is how a user says which termbases an
+        /// assistant may write to, and a bulk import is the last thing that should
+        /// bypass it. A destination that does not exist yet is created, because
+        /// asking for a new termbase by name is unambiguous consent to fill it; the
+        /// response says so, and the new termbase is NOT Write-enabled, so routine
+        /// add_term calls still won't reach it until the user ticks it.
+        ///
+        /// Re-running is safe: <see cref="TermbaseReader.ImportRows"/> does a
+        /// bidirectional duplicate check per row, so a second run adds nothing and
+        /// reports the count as duplicates.
+        /// </summary>
+        private BridgeImportTermbaseResponse BridgeImportTermbase(BridgeImportTermbaseRequest req)
+        {
+            var ctrl = _control?.Value;
+            if (ctrl == null || ctrl.IsDisposed)
+                return new BridgeImportTermbaseResponse { Ok = false, Error = "ai assistant disposed" };
+            if (ctrl.InvokeRequired)
+                return (BridgeImportTermbaseResponse)ctrl.Invoke(
+                    new Func<BridgeImportTermbaseResponse>(() => BridgeImportTermbase(req)));
+            if (UiThread.InvokeRequired && UiThread.IsAvailable)
+                return UiThread.Invoke(() => BridgeImportTermbase(req));
+
+            try
+            {
+                var dbPath = ResolveSupervertalerDbPath();
+                if (string.IsNullOrEmpty(dbPath) || !File.Exists(dbPath))
+                    return new BridgeImportTermbaseResponse
+                    { Ok = false, Error = "no Supervertaler termbase database is configured" };
+
+                // ── 1. Which project termbase to read ──────────────────────
+                var available = TermLensEditorViewPart.GetMultiTermInfos()
+                                ?? new List<Models.MultiTermTermbaseInfo>();
+                if (available.Count == 0)
+                    return new BridgeImportTermbaseResponse
+                    {
+                        Ok = false,
+                        Error = "the open project has no Trados termbase (.sdltb / .ttb) attached"
+                    };
+
+                Models.MultiTermTermbaseInfo chosen;
+                var wanted = (req.Termbase ?? "").Trim();
+                if (wanted.Length == 0)
+                {
+                    if (available.Count > 1)
+                        return new BridgeImportTermbaseResponse
+                        {
+                            Ok = false,
+                            Error = "the project has more than one Trados termbase – name the one to import in " +
+                                    "'termbase': " + string.Join(", ", available.Select(t => t.Name))
+                        };
+                    chosen = available[0];
+                }
+                else
+                {
+                    chosen = available.FirstOrDefault(t =>
+                                 string.Equals(t.Name, wanted, StringComparison.OrdinalIgnoreCase))
+                             ?? available.FirstOrDefault(t =>
+                                 string.Equals(t.FilePath, wanted, StringComparison.OrdinalIgnoreCase));
+                    if (chosen == null)
+                        return new BridgeImportTermbaseResponse
+                        {
+                            Ok = false,
+                            Error = $"no Trados termbase called '{wanted}' in this project. Available: " +
+                                    string.Join(", ", available.Select(t => t.Name))
+                        };
+                }
+
+                // ── 2. Read it ─────────────────────────────────────────────
+                // Through the WAL-safe snapshot the UI path uses: a .ttb open in
+                // Studio can have uncheckpointed changes, and the original must
+                // never be touched.
+                Models.ImportedTermbase imported;
+                using (var snapshot = Core.TtbImportSnapshot.Prepare(chosen.FilePath))
+                using (var reader = Core.TermbaseReaderFactory.Create(snapshot.ReadPath))
+                {
+                    if (!reader.Open())
+                        return new BridgeImportTermbaseResponse
+                        {
+                            Ok = false,
+                            Error = "could not open the termbase: " + (reader.LastError ?? "unknown error")
+                        };
+                    imported = reader.LoadForImport();
+                }
+
+                if (imported == null || imported.Languages.Count == 0)
+                    return new BridgeImportTermbaseResponse
+                    {
+                        Ok = false,
+                        Error = "the termbase could not be read, or declares no languages. A .sdltb needs the " +
+                                "32-bit MultiTerm/Access engine, available only in the Studio 2024 build; in " +
+                                "Studio 2026 convert it to .ttb first."
+                    };
+                imported.Name = Path.GetFileNameWithoutExtension(chosen.FilePath);
+
+                var languageList = imported.Languages
+                    .Select(l => $"{l.Name} ({Core.LanguageUtils.CanonicalLocale(l.Locale ?? l.Name)})")
+                    .ToList();
+
+                // ── 3. Language pair ───────────────────────────────────────
+                var srcLang = ResolveImportLanguage(imported,
+                    req.SourceLang, chosen.SourceIndexName, GetDocumentSourceLanguage());
+                var tgtLang = ResolveImportLanguage(imported,
+                    req.TargetLang, chosen.TargetIndexName, GetDocumentTargetLanguage());
+
+                if (srcLang == null || tgtLang == null)
+                    return new BridgeImportTermbaseResponse
+                    {
+                        Ok = false,
+                        Error = "could not decide the language pair – pass 'sourceLang' and 'targetLang'",
+                        AvailableLanguages = languageList
+                    };
+                if (srcLang.Id == tgtLang.Id)
+                    return new BridgeImportTermbaseResponse
+                    {
+                        Ok = false,
+                        Error = "source and target resolved to the same language",
+                        AvailableLanguages = languageList
+                    };
+
+                // ── 4. Destination ─────────────────────────────────────────
+                var intoName = req.Into.Trim();
+                long destId = -1;
+                bool created = false;
+                using (var tbReader = new TermbaseReader(dbPath))
+                {
+                    if (tbReader.Open())
+                    {
+                        var hit = (tbReader.GetTermbases() ?? new List<Models.TermbaseInfo>())
+                            .FirstOrDefault(t => string.Equals(t.Name, intoName, StringComparison.OrdinalIgnoreCase));
+                        if (hit != null) destId = hit.Id;
+                    }
+                }
+
+                if (destId >= 0)
+                {
+                    var settings = TermLensSettings.Load();
+                    var writeIds = settings?.WriteTermbaseIds ?? new List<long>();
+                    if (!writeIds.Contains(destId))
+                        return new BridgeImportTermbaseResponse
+                        {
+                            Ok = false,
+                            Error = $"'{intoName}' exists but is not Write-enabled. The user must tick its " +
+                                    "'Write' column on Settings → Termbases, or choose a new name to import " +
+                                    "into a fresh termbase."
+                        };
+                }
+                else if (!req.DryRun)
+                {
+                    destId = TermbaseReader.CreateTermbase(dbPath, intoName,
+                        Core.LanguageUtils.CanonicalLocale(srcLang.Locale ?? srcLang.Name),
+                        Core.LanguageUtils.CanonicalLocale(tgtLang.Locale ?? tgtLang.Name));
+                    created = true;
+                }
+
+                // ── 5. Field map ───────────────────────────────────────────
+                var fieldMap = Core.TermbaseImporter.SuggestFieldMap(imported.DiscoveredFields);
+                var badMappings = new List<string>();
+                if (req.FieldMap != null)
+                {
+                    foreach (var entry in req.FieldMap)
+                    {
+                        if (string.IsNullOrWhiteSpace(entry)) continue;
+                        var eq = entry.LastIndexOf('=');
+                        if (eq <= 0 || eq == entry.Length - 1)
+                        {
+                            badMappings.Add($"'{entry}' is not in the form Field=target");
+                            continue;
+                        }
+                        var name = entry.Substring(0, eq).Trim();
+                        var value = entry.Substring(eq + 1).Trim();
+                        Core.ImportFieldTarget target;
+                        if (Enum.TryParse(value, true, out target))
+                            fieldMap[name] = target;
+                        else
+                            badMappings.Add($"'{value}' is not a known target for field '{name}'");
+                    }
+                }
+
+                // ── 6. Run ─────────────────────────────────────────────────
+                var options = new Core.ImportOptions
+                {
+                    SourceLanguageId = srcLang.Id,
+                    TargetLanguageId = tgtLang.Id,
+                    DestinationTermbaseId = destId,
+                    FieldMap = fieldMap
+                };
+                var summary = Core.TermbaseImporter.Import(imported, options, dbPath, req.DryRun);
+                foreach (var bad in badMappings) summary.Warnings.Add(bad + " – kept the automatic mapping.");
+
+                if (!req.DryRun && summary.Added > 0)
+                {
+                    // Same refresh the UI import does, so the new terms are matched
+                    // immediately instead of after a restart.
+                    try { TermLensEditorViewPart.NotifyTermAdded(); } catch { }
+                }
+
+                return new BridgeImportTermbaseResponse
+                {
+                    Ok = true,
+                    DryRun = req.DryRun,
+                    From = imported.Name,
+                    Format = imported.Format,
+                    Into = intoName,
+                    CreatedDestination = created,
+                    SourceLang = srcLang.Name,
+                    TargetLang = tgtLang.Name,
+                    ConceptsTotal = summary.ConceptsTotal,
+                    RowsBuilt = summary.RowsBuilt,
+                    Added = summary.Added,
+                    Duplicates = summary.Duplicates,
+                    SynonymsAdded = summary.SynonymsAdded,
+                    FieldMap = fieldMap.Select(kv => $"{kv.Key} = {kv.Value}").OrderBy(s => s).ToList(),
+                    AvailableLanguages = languageList,
+                    Warnings = summary.Warnings.Count > 0 ? summary.Warnings : null,
+                    Note = req.DryRun
+                        ? "Dry run – nothing was written. 'added' and 'duplicates' are 0 because whether a row " +
+                          "already exists is decided by the database at write time."
+                        : (created ? $"Created '{intoName}'. It is not Write-enabled, so add_term will not " +
+                                     "write to it until the user ticks its Write column." : null)
+                };
+            }
+            catch (Exception ex)
+            {
+                BridgeLog.Write($"[SupervertalerBridge] BridgeImportTermbase threw: {ex}");
+                return new BridgeImportTermbaseResponse { Ok = false, Error = "import failed: " + ex.Message };
+            }
+        }
+
+        /// <summary>
+        /// Picks the <see cref="Models.ImportLanguage"/> a caller means, trying in
+        /// order: an explicit request value, the index name TermLens already resolved
+        /// for this project, then the document's own language. Matching is by
+        /// canonical locale first, then by name, then by prefix — "en" should find
+        /// "English (United Kingdom)" without the caller having to know the exact
+        /// index name stored in the file.
+        /// </summary>
+        private static Models.ImportLanguage ResolveImportLanguage(
+            Models.ImportedTermbase tb, params string[] candidates)
+        {
+            if (tb?.Languages == null || tb.Languages.Count == 0) return null;
+
+            foreach (var raw in candidates ?? new string[0])
+            {
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                var want = Core.LanguageUtils.CanonicalLocale(raw.Trim()) ?? raw.Trim();
+
+                var hit = tb.Languages.FirstOrDefault(l => string.Equals(
+                              Core.LanguageUtils.CanonicalLocale(l.Locale ?? l.Name), want,
+                              StringComparison.OrdinalIgnoreCase))
+                          ?? tb.Languages.FirstOrDefault(l => string.Equals(
+                              l.Name, raw.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (hit != null) return hit;
+
+                // Prefix: "en" matches "en-GB"; "en-GB" matches a bare "en".
+                var bare = want.Split('-')[0];
+                hit = tb.Languages.FirstOrDefault(l =>
+                {
+                    var loc = Core.LanguageUtils.CanonicalLocale(l.Locale ?? l.Name) ?? "";
+                    return loc.Split('-')[0].Equals(bare, StringComparison.OrdinalIgnoreCase);
+                });
+                if (hit != null) return hit;
+            }
+
+            return null;
         }
 
         /// <summary>

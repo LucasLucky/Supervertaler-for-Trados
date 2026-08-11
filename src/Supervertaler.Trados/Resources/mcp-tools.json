@@ -1294,6 +1294,50 @@
       },
       "fixedQuery": {},
       "fixedBody": {}
+    },
+    {
+      "name": "import_project_termbase",
+      "description": "Copy a Trados project termbase (.sdltb / .ttb) into a Supervertaler termbase, in ONE call. This is the bulk equivalent of the user's Settings > Termbases > 'Import .sdltb/.ttb...' button; without it the only route was one add_term call per term, which for a few hundred terms is hundreds of round-trips. Use it when the user wants a client's or project's Trados glossary available as a Supervertaler termbase (searchable, editable, and eligible for AI prompts once they tick its AI column). WRITE GATE: an EXISTING destination must already be Write-enabled - if it is not, say so and ask the user to tick its Write column rather than trying to work around it. A destination name that does not exist yet is CREATED, because naming a new termbase is unambiguous consent to fill it; the new termbase is not Write-enabled, so later add_term calls will not reach it until the user ticks it. SAFE TO RE-RUN: every row goes through a bidirectional duplicate check, so a second run adds nothing and reports the count under 'duplicates'. The Trados file is opened through a read-only snapshot and is never modified. ONE LANGUAGE PAIR PER CALL: MultiTerm termbases are concept-oriented and often multilingual, while a Supervertaler termbase is bilingual source->target rows. Concepts are flattened to pairs and any extra terms in a language become synonyms. The pair defaults to the open project's languages; check 'availableLanguages' in the response and call again with sourceLang/targetLang for another pair. PREFER dryRun:true FIRST for anything sizeable, and show the user the counts and the field mapping before writing - the whole conversion is a single call, so there is no other moment to check. Only use when the user has asked for this; it creates or fills a termbase.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "into": {
+            "description": "Name of the Supervertaler termbase to import into. Created if it does not exist; if it does exist it must be Write-enabled.",
+            "type": "string"
+          },
+          "termbase": {
+            "description": "Which Trados project termbase to read, by name or full path (see list_resources, kind 'trados-ttb' or 'multiterm'). Omit when the project has exactly one - with several attached, omitting it returns the list rather than guessing.",
+            "type": "string"
+          },
+          "sourceLang": {
+            "description": "Language to take as the source side, as a code ('en', 'en-GB') or the index name stored in the termbase. Defaults to the open project's source language.",
+            "type": "string"
+          },
+          "targetLang": {
+            "description": "Language to take as the target side. Defaults to the open project's target language.",
+            "type": "string"
+          },
+          "fieldMap": {
+            "description": "Optional overrides for how the Trados descriptive fields land, as 'Field=target' strings, e.g. ['Subject=domain','Status=forbiddenflag']. Targets: definition, domain, notes, context, partofspeech, url, client, project, forbiddenflag, appendtonotes, ignore. Fields you do not list keep an automatic mapping by name; unrecognised fields default to appendtonotes so nothing is silently dropped.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dryRun": {
+            "description": "Report what would be imported - concept count, rows built, the effective field mapping, the language pair - without writing anything. 'added' and 'duplicates' are 0 on a dry run because duplicates are decided by the database at write time.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "into"
+        ]
+      },
+      "method": "POST",
+      "path": "/v1/import-termbase",
+      "paramMap": {},
+      "fixedQuery": {},
+      "fixedBody": {}
     }
   ]
 }

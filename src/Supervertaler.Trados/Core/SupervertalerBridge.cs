@@ -223,6 +223,71 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "note", Order = 4, EmitDefaultValue = false)] public string Note { get; set; }
     }
 
+    // ─── Termbase import endpoint types (v1: /import-termbase) ───────────────
+
+    /// <summary>
+    /// Copy a Trados project termbase (.sdltb / .ttb) into a Supervertaler termbase.
+    /// The same operation as Settings → Termbases → "Import .sdltb/.ttb…", which was
+    /// UI-only: over the bridge the alternative was one <c>add_term</c> call per term.
+    /// </summary>
+    [DataContract]
+    public class BridgeImportTermbaseRequest
+    {
+        /// <summary>Project termbase to read, by name or full path. Omit when the
+        /// project has exactly one.</summary>
+        [DataMember(Name = "termbase", EmitDefaultValue = false)] public string Termbase { get; set; }
+
+        /// <summary>Destination Supervertaler termbase name. Created if absent.</summary>
+        [DataMember(Name = "into", IsRequired = true)] public string Into { get; set; }
+
+        /// <summary>Language to take as source; defaults to the project's source language.</summary>
+        [DataMember(Name = "sourceLang", EmitDefaultValue = false)] public string SourceLang { get; set; }
+
+        /// <summary>Language to take as target; defaults to the project's target language.</summary>
+        [DataMember(Name = "targetLang", EmitDefaultValue = false)] public string TargetLang { get; set; }
+
+        /// <summary>
+        /// Field mapping overrides as <c>"MultiTermField=target"</c> strings, e.g.
+        /// <c>"Subject=domain"</c>. Targets: definition, domain, notes, context,
+        /// partofspeech, url, client, project, forbiddenflag, appendtonotes, ignore.
+        /// Fields not listed keep their automatic suggestion.
+        ///
+        /// A list of strings rather than a JSON object because the bridge's
+        /// DataContractJsonSerializer is constructed without
+        /// UseSimpleDictionaryFormat, so a Dictionary would have to be sent in the
+        /// verbose [{"Key":…,"Value":…}] form. Changing that serializer would touch
+        /// every endpoint on the bridge for the sake of one optional argument.
+        /// </summary>
+        [DataMember(Name = "fieldMap", EmitDefaultValue = false)] public List<string> FieldMap { get; set; }
+
+        /// <summary>Report what would be imported without writing anything.</summary>
+        [DataMember(Name = "dryRun", EmitDefaultValue = false)] public bool DryRun { get; set; }
+    }
+
+    [DataContract]
+    public class BridgeImportTermbaseResponse
+    {
+        [DataMember(Name = "ok", Order = 0)] public bool Ok { get; set; }
+        [DataMember(Name = "error", Order = 1, EmitDefaultValue = false)] public string Error { get; set; }
+        [DataMember(Name = "dryRun", Order = 2)] public bool DryRun { get; set; }
+        [DataMember(Name = "from", Order = 3, EmitDefaultValue = false)] public string From { get; set; }
+        [DataMember(Name = "format", Order = 4, EmitDefaultValue = false)] public string Format { get; set; }
+        [DataMember(Name = "into", Order = 5, EmitDefaultValue = false)] public string Into { get; set; }
+        [DataMember(Name = "createdDestination", Order = 6)] public bool CreatedDestination { get; set; }
+        [DataMember(Name = "sourceLang", Order = 7, EmitDefaultValue = false)] public string SourceLang { get; set; }
+        [DataMember(Name = "targetLang", Order = 8, EmitDefaultValue = false)] public string TargetLang { get; set; }
+        [DataMember(Name = "conceptsTotal", Order = 9)] public int ConceptsTotal { get; set; }
+        [DataMember(Name = "rowsBuilt", Order = 10)] public int RowsBuilt { get; set; }
+        [DataMember(Name = "added", Order = 11)] public int Added { get; set; }
+        [DataMember(Name = "duplicates", Order = 12)] public int Duplicates { get; set; }
+        [DataMember(Name = "synonymsAdded", Order = 13)] public int SynonymsAdded { get; set; }
+        /// <summary>The mapping actually used, as "Field = target" strings.</summary>
+        [DataMember(Name = "fieldMap", Order = 14, EmitDefaultValue = false)] public List<string> FieldMap { get; set; }
+        [DataMember(Name = "availableLanguages", Order = 15, EmitDefaultValue = false)] public List<string> AvailableLanguages { get; set; }
+        [DataMember(Name = "warnings", Order = 16, EmitDefaultValue = false)] public List<string> Warnings { get; set; }
+        [DataMember(Name = "note", Order = 17, EmitDefaultValue = false)] public string Note { get; set; }
+    }
+
     // ─── Prompt-library endpoint types (v1: /prompts, /prompt, /save-prompt) ──
 
     [DataContract]
@@ -1255,6 +1320,7 @@ namespace Supervertaler.Trados.Core
         private readonly Func<string> _getDbPath; // resolves supervertaler.db for TM/termbase lookups
         private readonly Func<BridgeUpdateSegmentsRequest, BridgeUpdateSegmentsResponse> _updateSegments;
         private readonly Func<BridgeAddTermRequest, BridgeAddTermResponse> _addTerm;
+        private readonly Func<BridgeImportTermbaseRequest, BridgeImportTermbaseResponse> _importTermbase;
         private readonly Func<BridgeFilesResponse> _getFiles;
         private readonly Func<int, int, BridgeInconsistenciesResponse> _findInconsistencies;
         private readonly Func<BridgeStudioTmQuery, BridgeTmSearchResponse> _searchStudioTm;
@@ -1384,7 +1450,8 @@ namespace Supervertaler.Trados.Core
             Func<BridgeSuperMemoryBanksResponse> listSuperMemoryBanks = null,
             Func<BridgeMarkReviewedRequest, BridgeMarkReviewedResponse> markReviewed = null,
             Func<BridgeCoverageResponse> getCoverage = null,
-            Func<BridgeTrackedChangesQuery, BridgeTrackedChangesResponse> getTrackedChanges = null)
+            Func<BridgeTrackedChangesQuery, BridgeTrackedChangesResponse> getTrackedChanges = null,
+            Func<BridgeImportTermbaseRequest, BridgeImportTermbaseResponse> importTermbase = null)
         {
             _getContext = getContext ?? throw new ArgumentNullException(nameof(getContext));
             _insertText = insertText ?? throw new ArgumentNullException(nameof(insertText));
@@ -1393,6 +1460,7 @@ namespace Supervertaler.Trados.Core
             _getDbPath = getDbPath;
             _updateSegments = updateSegments;
             _addTerm = addTerm;
+            _importTermbase = importTermbase;
             _getFiles = getFiles;
             _findInconsistencies = findInconsistencies;
             _searchStudioTm = searchStudioTm;
@@ -1688,6 +1756,12 @@ namespace Supervertaler.Trados.Core
             if (method == "POST" && path == "/v1/update-segments")
             {
                 HandleUpdateSegments(context);
+                return;
+            }
+
+            if (method == "POST" && path == "/v1/import-termbase")
+            {
+                HandleImportTermbase(context);
                 return;
             }
 
@@ -2791,6 +2865,64 @@ namespace Supervertaler.Trados.Core
                 {
                     Ok = false,
                     Error = "add term failed: " + ex.Message
+                };
+            }
+
+            WriteJson(context, 200, response);
+        }
+
+        private void HandleImportTermbase(HttpListenerContext context)
+        {
+            if (_importTermbase == null)
+            {
+                TryWriteError(context, 501, "import-termbase endpoint not wired");
+                return;
+            }
+
+            BridgeImportTermbaseRequest req;
+            try
+            {
+                using (var reader = new StreamReader(context.Request.InputStream, Encoding.UTF8))
+                {
+                    req = DeserializeJson<BridgeImportTermbaseRequest>(reader.ReadToEnd());
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteJson(context, 400, new BridgeImportTermbaseResponse
+                {
+                    Ok = false,
+                    Error = "malformed body: " + ex.Message
+                });
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(req?.Into))
+            {
+                WriteJson(context, 400, new BridgeImportTermbaseResponse
+                {
+                    Ok = false,
+                    Error = "'into' is required – name the Supervertaler termbase to import into"
+                });
+                return;
+            }
+
+            BridgeImportTermbaseResponse response;
+            try
+            {
+                response = _importTermbase(req) ?? new BridgeImportTermbaseResponse
+                {
+                    Ok = false,
+                    Error = "internal error"
+                };
+            }
+            catch (Exception ex)
+            {
+                BridgeLog.Write($"[SupervertalerBridge] import-termbase threw: {ex.Message}");
+                response = new BridgeImportTermbaseResponse
+                {
+                    Ok = false,
+                    Error = "import failed: " + ex.Message
                 };
             }
 

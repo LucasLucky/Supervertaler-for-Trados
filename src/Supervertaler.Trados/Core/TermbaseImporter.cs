@@ -169,7 +169,17 @@ namespace Supervertaler.Trados.Core
         /// Flattens and writes the import into the destination termbase. Returns a summary
         /// with concept/row/skip counts and write outcome (added / duplicates / synonyms).
         /// </summary>
-        public static ImportSummary Import(ImportedTermbase tb, ImportOptions options, string dbPath)
+        /// <param name="dryRun">
+        /// Flatten and map exactly as a real run would, and report the counts, but write
+        /// nothing. Added for the MCP <c>import_project_termbase</c> tool so an assistant
+        /// can show the user what a conversion would do before it touches their termbase –
+        /// the whole operation is one call, so there is otherwise no point at which to
+        /// look. <see cref="ImportSummary.Added"/> / <see cref="ImportSummary.Duplicates"/>
+        /// stay 0 on a dry run: whether a row is a duplicate is decided by the database,
+        /// and answering that would mean doing the query anyway.
+        /// </param>
+        public static ImportSummary Import(ImportedTermbase tb, ImportOptions options, string dbPath,
+            bool dryRun = false)
         {
             var summary = new ImportSummary();
             var rows = BuildRows(tb, options, summary);
@@ -181,7 +191,7 @@ namespace Supervertaler.Trados.Core
                 summary.Warnings.Add(
                     $"{summary.SkippedNoSourceTerm} concept(s) had no term in the source language and were skipped.");
 
-            if (rows.Count > 0)
+            if (rows.Count > 0 && !dryRun)
             {
                 var write = TermbaseReader.ImportRows(dbPath, options.DestinationTermbaseId, rows);
                 summary.Added = write.Added;
