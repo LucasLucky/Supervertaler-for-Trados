@@ -15,7 +15,8 @@
 - **This is the out-of-the-box state, not a setting anyone chose.** Termbases are not sent to the AI by default, and the change that introduced that default added every termbase that already existed to the "off" list. So unless you have been into the AI column since, the answer is probably that none of yours is enabled.
 - **Three places now tell you.** A **Batch Translate or Batch Proofread** run says so in its log before it sends anything. **AutoPrompt** stops and asks, the same way it already warns when a termbase is too large for it. And an AI assistant connected over the MCP server is told when it asks about the project, so it can warn you rather than quietly producing untermed work.
 - The wording distinguishes the two failures. "No termbase is read-enabled" and "read-enabled but none reaches the AI" need different fixes in different places, and being sent to check a tick that is already on helps nobody.
-- **Where the tick is:** the **AI** column in the termbase grid on **Settings → TermLens**. Not the AI Settings tab, which is where most people look first.
+- **Where the tick is:** the **AI** column in the termbase grid on **Settings → Termbases**, which is also where the AI Settings tab has always pointed.
+- **Also corrected: two older messages named a tab that does not exist.** The read-enabled warning and the `list_resources` note both said "Supervertaler settings > TermLens"; the tab is called **Termbases**. Nobody had reported it, but an instruction naming the wrong tab is worse than none.
 
 ## [18.20.173 / 19.20.173] – 2026-08-11
 

@@ -3208,16 +3208,16 @@ namespace Supervertaler.Trados
                 return $"No termbase is read-enabled for this project ({total} available), so terminology lookups " +
                        "and TermLens will return nothing at all. This is almost always a misconfiguration – tell " +
                        "the user before relying on terminology, and point them at Supervertaler settings > " +
-                       "TermLens to switch the relevant termbases back on.";
+                       "Termbases to switch the relevant termbases back on.";
 
             if (aiEnabled == 0)
                 return $"{readEnabled} termbase(s) are read-enabled, but NONE of them is enabled for AI, so every " +
                        "prompt goes out with an empty glossary while TermLens still shows term matches on screen. " +
                        "Read and AI are separate ticks: the AI one is the 'AI' column in the termbase grid at " +
-                       "Supervertaler settings > TermLens (not the AI Settings tab). Termbases default to NOT " +
-                       "being sent to the AI, so this is the out-of-the-box state rather than something the user " +
-                       "chose. Tell them before relying on terminology – a prompt carrying no glossary is " +
-                       "indistinguishable from a model that ignored one.";
+                       "Supervertaler settings > Termbases. Termbases default to NOT being sent to the AI, so this " +
+                       "is the out-of-the-box state rather than something the user chose. Tell them before relying " +
+                       "on terminology – a prompt carrying no glossary is indistinguishable from a model that " +
+                       "ignored one.";
 
             return null;
         }
@@ -3236,7 +3236,7 @@ namespace Supervertaler.Trados
             {
                 batchControl.AppendLog(
                     $"Warning: {loadedTerms} terms are loaded, but no termbase is enabled for AI – this run will " +
-                    "send NO glossary. Tick the 'AI' column in Settings > TermLens for the termbases you want the " +
+                    "send NO glossary. Tick the 'AI' column in Settings > Termbases for the termbases you want the " +
                     "AI to use (that is a separate tick from Read, and it is off by default).", true);
             }
             catch { /* a warning that cannot be logged must not stop the batch */ }
@@ -3384,7 +3384,7 @@ namespace Supervertaler.Trados
             if (response.Termbases.Count > 0 && !response.Termbases.Any(t => t.ReadEnabled))
                 response.Note = ((response.Note ?? "") + " No termbase is read-enabled, so every terminology " +
                     "lookup will come back empty – say so before relying on terminology. The user can switch " +
-                    "them back on in Supervertaler settings > TermLens.").Trim();
+                    "them back on in Supervertaler settings > Termbases.").Trim();
 
             return response;
         }
@@ -5700,7 +5700,7 @@ namespace Supervertaler.Trados
                         $"{allTerms.Count:N0} terms are loaded, but none of your termbases is enabled for AI, " +
                         "so this prompt will be generated with no glossary at all.\n\n" +
                         "Read and AI are separate ticks. Enable a termbase for AI with the “AI” column in the " +
-                        "termbase grid on Settings → TermLens; termbases are not sent to the AI by default.\n\n" +
+                        "termbase grid on Settings → Termbases; termbases are not sent to the AI by default.\n\n" +
                         "Generate the prompt anyway?";
                     var choiceNoAi = MessageBox.Show(
                         parentNoAi, warnNoAi, "No termbase enabled for AI – AutoPrompt",
