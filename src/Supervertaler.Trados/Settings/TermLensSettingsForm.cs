@@ -1475,8 +1475,13 @@ namespace Supervertaler.Trados.Settings
                 {
                     try
                     {
-                        TermbaseReader.CreateTermbase(dbPath, dlg.TermbaseName,
+                        var newId = TermbaseReader.CreateTermbase(dbPath, dlg.TermbaseName,
                             dlg.SourceLang, dlg.TargetLang);
+                        // Start it not-sent-to-AI (issue #62). Applied to this
+                        // dialog's own settings copy BEFORE the grid is rebuilt, so
+                        // the AI box renders unticked and the OK handler — which
+                        // writes the disable list from the grid — preserves it.
+                        Core.NewTermbaseDefaults.ApplyTo(_settings, newId);
                         UpdateTermbaseInfo(dbPath);
                         PopulateTermbaseList(dbPath);
                     }

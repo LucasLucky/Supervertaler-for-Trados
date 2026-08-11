@@ -7,6 +7,14 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.178 / 19.20.178] – 2026-08-11
+
+### Fixed (a new termbase switched itself on for the AI) — [#62](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/62)
+
+- **Every termbase created since the AI opt-in was introduced has been sent to the AI by default**, which is the opposite of the intent and of what the settings describe. The "AI" column is stored as a list of termbases to *exclude*, and a brand-new termbase was in no list at all – so it counted as included, and the grid then showed its AI box ticked, making it look like a deliberate choice.
+- **Creating a termbase is not consent to send its contents to a model.** A new termbase may be large, unreviewed, or full of material that has no business in a prompt. From this build a new one starts **Read-enabled but not AI-enabled**, whichever way it was created: the **+ Add** button, importing a Trados `.sdltb`/`.ttb` into a new termbase, or an AI assistant creating one through the MCP server. Tick its **AI** column when you want it used.
+- **Existing termbases are left exactly as they are.** The stored list cannot tell "the user switched this on" apart from "this was never recorded", so correcting it in bulk would silently switch off termbases people had chosen on purpose. **If you have created a termbase recently, check its AI column** – it may be on without you having asked for it.
+
 ## [18.20.177 / 19.20.177] – 2026-08-11
 
 ### Fixed (a term containing a pipe was mangled by a TSV export/import round trip) — [#61](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/61)

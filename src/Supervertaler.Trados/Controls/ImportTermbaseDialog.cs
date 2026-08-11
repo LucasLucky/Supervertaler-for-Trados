@@ -427,6 +427,9 @@ namespace Supervertaler.Trados.Controls
                     destId = TermbaseReader.CreateTermbase(_dbPath, name,
                         LanguageUtils.CanonicalLocale(src.Locale ?? src.Name),
                         LanguageUtils.CanonicalLocale(tgt.Locale ?? tgt.Name));
+                    // Importing a client's termbase is not consent to send it to a
+                    // model – it starts not-AI-enabled like any other new one (#62).
+                    NewTermbaseDefaults.Apply(destId);
                 }
                 else
                 {

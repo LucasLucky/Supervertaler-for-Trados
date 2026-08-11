@@ -4200,6 +4200,9 @@ namespace Supervertaler.Trados
                     destId = TermbaseReader.CreateTermbase(dbPath, intoName,
                         Core.LanguageUtils.CanonicalLocale(srcLang.Locale ?? srcLang.Name),
                         Core.LanguageUtils.CanonicalLocale(tgtLang.Locale ?? tgtLang.Name));
+                    // A termbase an assistant created is the LAST one that should
+                    // start feeding prompts unasked (#62).
+                    Core.NewTermbaseDefaults.Apply(destId);
                     created = true;
                 }
 
@@ -4266,8 +4269,10 @@ namespace Supervertaler.Trados
                     Note = req.DryRun
                         ? "Dry run – nothing was written. 'added' and 'duplicates' are 0 because whether a row " +
                           "already exists is decided by the database at write time."
-                        : (created ? $"Created '{intoName}'. It is not Write-enabled, so add_term will not " +
-                                     "write to it until the user ticks its Write column." : null)
+                        : (created ? $"Created '{intoName}'. It is Read-enabled, so its terms show in TermLens " +
+                                     "straight away, but NOT enabled for AI and NOT Write-enabled: its terms " +
+                                     "will not be sent to a model, and add_term will not write to it, until " +
+                                     "the user ticks those columns on Settings → Termbases." : null)
                 };
             }
             catch (Exception ex)
