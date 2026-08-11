@@ -2654,22 +2654,22 @@ namespace Supervertaler.Trados.Core
             if (string.IsNullOrWhiteSpace(cell))
                 return ("", empty);
 
-            var parts = cell.Split('|');
-            var mainTerm = parts[0].Trim();
+            var parts = SplitOnUnescapedPipes(cell);
+            var mainTerm = UnescapePipeSegment(parts[0].Trim());
             var synonyms = new List<(string text, bool forbidden)>();
 
-            for (int i = 1; i < parts.Length; i++)
+            for (int i = 1; i < parts.Count; i++)
             {
                 var part = parts[i].Trim();
                 if (string.IsNullOrEmpty(part)) continue;
 
                 if (part.StartsWith("[!") && part.EndsWith("]") && part.Length > 3)
                 {
-                    synonyms.Add((part.Substring(2, part.Length - 3).Trim(), true));
+                    synonyms.Add((UnescapePipeSegment(part.Substring(2, part.Length - 3).Trim()), true));
                 }
                 else
                 {
-                    synonyms.Add((part, false));
+                    synonyms.Add((UnescapePipeSegment(part), false));
                 }
             }
 
@@ -2677,18 +2677,87 @@ namespace Supervertaler.Trados.Core
         }
 
         /// <summary>
+        /// Splits a cell on pipes that are NOT preceded by an escaping backslash.
+        /// A term may legitimately contain a pipe – "DC| mode" and "CV MANUAL| mode"
+        /// are real entries in a real termbase – and before this the delimiter and
+        /// the character were indistinguishable, so such a term came back from a
+        /// round trip split into a phantom synonym (issue #61).
+        /// </summary>
+        private static List<string> SplitOnUnescapedPipes(string cell)
+        {
+            var parts = new List<string>();
+            var sb = new StringBuilder();
+            for (int i = 0; i < cell.Length; i++)
+            {
+                var c = cell[i];
+                if (c == '\\' && i + 1 < cell.Length)
+                {
+                    // Keep the escape sequence intact for UnescapePipeSegment;
+                    // consuming both characters here is what stops an escaped
+                    // pipe from being seen as a delimiter.
+                    sb.Append(c).Append(cell[i + 1]);
+                    i++;
+                    continue;
+                }
+                if (c == '|') { parts.Add(sb.ToString()); sb.Clear(); continue; }
+                sb.Append(c);
+            }
+            parts.Add(sb.ToString());
+            return parts;
+        }
+
+        /// <summary>Reverses <see cref="EscapePipeSegment"/>: <c>\\</c> → <c>\</c>, <c>\|</c> → <c>|</c>.</summary>
+        private static string UnescapePipeSegment(string segment)
+        {
+            if (string.IsNullOrEmpty(segment) || segment.IndexOf('\\') < 0) return segment ?? "";
+            var sb = new StringBuilder(segment.Length);
+            for (int i = 0; i < segment.Length; i++)
+            {
+                if (segment[i] == '\\' && i + 1 < segment.Length &&
+                    (segment[i + 1] == '|' || segment[i + 1] == '\\'))
+                {
+                    sb.Append(segment[i + 1]);
+                    i++;
+                    continue;
+                }
+                sb.Append(segment[i]);
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Escapes a term's own backslashes and pipes so the pipe layer can tell
+        /// them from its delimiter. Backslash first, so the escape it introduces
+        /// isn't escaped again by the pipe pass.
+        ///
+        /// This nests inside the TSV field escaping applied afterwards, which
+        /// doubles backslashes again; the import unwinds them in the mirror order
+        /// (<c>UnescapeTsvField</c> then <c>UnescapePipeSegment</c>), so the two
+        /// layers compose.
+        /// </summary>
+        private static string EscapePipeSegment(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text ?? "";
+            if (text.IndexOf('\\') < 0 && text.IndexOf('|') < 0) return text;
+            return text.Replace("\\", "\\\\").Replace("|", "\\|");
+        }
+
+        /// <summary>
         /// Builds a pipe-delimited cell: "main|syn1|[!forbidden_syn]"
         /// </summary>
         private static string BuildPipeDelimitedCell(string mainTerm, List<(string text, bool forbidden)> synonyms)
         {
+            // Escape even with no synonyms: a lone term containing a pipe would
+            // otherwise be split on the way back in (issue #61).
             if (synonyms == null || synonyms.Count == 0)
-                return mainTerm;
+                return EscapePipeSegment(mainTerm);
 
-            var sb = new StringBuilder(mainTerm);
+            var sb = new StringBuilder(EscapePipeSegment(mainTerm));
             foreach (var (text, forbidden) in synonyms)
             {
                 sb.Append('|');
-                sb.Append(forbidden ? $"[!{text}]" : text);
+                var escaped = EscapePipeSegment(text);
+                sb.Append(forbidden ? $"[!{escaped}]" : escaped);
             }
             return sb.ToString();
         }

@@ -7,6 +7,16 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.177 / 19.20.177] – 2026-08-11
+
+### Fixed (a term containing a pipe was mangled by a TSV export/import round trip) — [#61](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/61)
+
+- **A term whose own text contains a `|` came back split in two.** The TSV export uses `|` to separate a term from its synonyms, and never escaped the character when it appeared in the term itself – so exporting and re-importing turned `DC| mode` into the term `DC` with a synonym ` mode`. Silently, on both the source and target side, with correct-looking counts. Found in a real project termbase, on two entries.
+- **Pipes and backslashes in a term are now escaped**, so the delimiter and the character can be told apart. Verified across the awkward combinations, including a term containing both.
+- **This does not repair an existing export.** In a file written before this build, a delimiter and a literal pipe are indistinguishable, and no amount of later cleverness can separate them. Re-export anything you intend to keep.
+- **Files written from now on are also slightly different for older builds**: a pre-20.177 Supervertaler reading one will show a stray backslash in an affected term rather than splitting it. Only terms containing a pipe or a backslash are affected at all.
+- **The MultiTerm XML and TBX exports were never affected** – they use XML escaping, and a round trip through them preserves such terms exactly.
+
 ## [18.20.176 / 19.20.176] – 2026-08-11
 
 ### Fixed (MultiTerm XML export named its languages wrongly)
