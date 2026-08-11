@@ -158,7 +158,13 @@ namespace Supervertaler.Trados.Core
         {
             w.WriteStartElement("languageGrp");
             w.WriteStartElement("language");
-            w.WriteAttributeString("type", locale);
+            // 'type' is the INDEX NAME, not a second copy of the locale: MultiTerm
+            // matches its language indexes by that name, and MultiTermConceptXml
+            // documents the pair as <l lang="EN" type="English"/> on the way in.
+            // Writing the locale here produced indexes called "EN"/"NL"; verified
+            // against a MultiTerm XML file that imports cleanly, which uses
+            // type="English" lang="EN" (issue #60).
+            w.WriteAttributeString("type", MultiTermLanguageName(locale));
             w.WriteAttributeString("lang", locale);
             w.WriteEndElement();
 
@@ -193,6 +199,26 @@ namespace Supervertaler.Trados.Core
                 if (row.Forbidden) WriteMtDescrip(w, "Status", "forbidden");
             }
             w.WriteEndElement(); // termGrp
+        }
+
+        /// <summary>
+        /// The human-readable language name MultiTerm uses as an index name:
+        /// "EN" → English, "NL" → Dutch, "EN-GB" → English (United Kingdom).
+        /// Falls back to the locale itself for anything Windows doesn't know, which
+        /// is no worse than what we wrote before and never throws.
+        /// </summary>
+        private static string MultiTermLanguageName(string locale)
+        {
+            if (string.IsNullOrWhiteSpace(locale)) return locale ?? "";
+            try
+            {
+                var culture = System.Globalization.CultureInfo.GetCultureInfo(locale.Trim());
+                if (!string.IsNullOrWhiteSpace(culture?.EnglishName) &&
+                    !culture.EnglishName.StartsWith("Unknown", StringComparison.OrdinalIgnoreCase))
+                    return culture.EnglishName;
+            }
+            catch { /* not a locale Windows recognises */ }
+            return locale;
         }
 
         private static void WriteMtDescrip(XmlWriter w, string type, string value)

@@ -7,6 +7,12 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.176 / 19.20.176] – 2026-08-11
+
+### Fixed (MultiTerm XML export named its languages wrongly)
+
+- **The exported `<language>` element repeated the language code where MultiTerm expects the language name** – `type="EN"` instead of `type="English"`. MultiTerm matches its language indexes by that name, so an import would at best have created indexes called "EN" and "NL". Caught by comparing the export against a MultiTerm XML file known to import cleanly; the two are now identical in that respect. Everything else about the structure already matched exactly.
+
 ## [18.20.175 / 19.20.175] – 2026-08-11
 
 ### Added (get terminology *out* of Supervertaler and into Trados) — [#60](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/60)
