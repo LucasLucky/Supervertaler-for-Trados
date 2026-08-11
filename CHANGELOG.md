@@ -7,6 +7,15 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.179 / 19.20.179] – 2026-08-11
+
+### Fixed (TermLens missed terms wrapped in Markdown, e.g. `**doelstelling**`) — [#63](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/63)
+
+- **A one-word term did not highlight when the segment had Markdown emphasis around it.** In a document where the client writes `**doelstelling**` inside the text – literal asterisks, not Studio tags – the term was in the termbase and TermLens showed nothing. Reported from a live job.
+- **Multi-word terms in the same document did match**, which made it look random: `**duidelijk en concreet**` highlighted while `**doelstelling**` did not, two segments apart. They are found by different means, and only the single-word path was tripped by the asterisks.
+- **Your prompts were never missing those terms.** The AI side matches on word boundaries and reads straight through the asterisks, so Batch Translate, AutoPrompt and the chat had the terminology all along. What was affected is what you can see and click: TermLens chips, TermPicker, and Alt+number insertion – which is worse than it sounds, because a term with no highlight looks like a term you never saved.
+- Markdown emphasis is now trimmed from the ends of a word before it is looked up, covering `**bold**`, `*italic*` and `_italic_`. Terms with an underscore or asterisk inside them, like `snake_case`, are untouched.
+
 ## [18.20.178 / 19.20.178] – 2026-08-11
 
 ### Fixed (a new termbase switched itself on for the AI) — [#62](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/62)

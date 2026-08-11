@@ -14,7 +14,22 @@ namespace Supervertaler.Trados.Core
     /// </summary>
     public class TermMatcher
     {
-        private static readonly char[] PunctChars = ".!?,;:\"'\u201C\u201D\u201E\u00AB\u00BB\u2018\u2019\u201A\u2039\u203A()[]".ToCharArray();
+        // Trimmed from both ends of a token before it is looked up in the index.
+        //
+        // '*' and '_' are here for markdown emphasis written INSIDE a segment, which
+        // happens when a client authors in Markdown and the text reaches Studio as
+        // literal characters rather than as tags. WordPattern deliberately admits '*'
+        // into a token, so "**doelstelling**" tokenises whole; with no '*' here it
+        // could never be stripped back to "doelstelling" and a perfectly good term
+        // silently failed to highlight. Multi-word terms were unaffected and so hid
+        // the problem: they are found by substring search (FindMultiWordMatches), which
+        // does not care what surrounds them \u2014 so "**duidelijk en concreet**" matched
+        // while "**doelstelling**" did not, in the same document.
+        //
+        // Only the ends are trimmed, so a term with an interior underscore or asterisk
+        // is untouched. AI prompts were never affected: PromptGenerator matches on \b
+        // word boundaries, and '*' is a non-word character.
+        private static readonly char[] PunctChars = ".!?,;:\"'\u201C\u201D\u201E\u00AB\u00BB\u2018\u2019\u201A\u2039\u203A()[]*_".ToCharArray();
 
         // Pattern for splitting words: captures words, decimals, percentages, units.
         // Includes subscript digits (₀-₉, U+2080-U+2089) and superscript digits
