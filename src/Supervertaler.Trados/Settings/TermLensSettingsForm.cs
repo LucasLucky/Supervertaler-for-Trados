@@ -828,8 +828,17 @@ namespace Supervertaler.Trados.Settings
 
             var tips = new ToolTip();
             tips.SetToolTip(_btnOpenTermbase, "Open the selected termbase in the built-in termbase editor.");
-            tips.SetToolTip(_btnExport, "Export all terms from the selected termbase to a CSV file.");
-            tips.SetToolTip(_btnImport, "Import terms from a CSV file into the selected termbase.");
+            tips.SetToolTip(_btnExport,
+                "Export all terms from the selected termbase to a tab-separated (.tsv) file,\n" +
+                "with synonyms, definition, domain, notes, client, project and forbidden flag.");
+            tips.SetToolTip(_btnImport,
+                "Import terms from a tab-separated (.tsv) file into the selected termbase.");
+            tips.SetToolTip(btnImportExternal,
+                "Copy terms OUT of a Trados termbase (.sdltb or .ttb) INTO a Supervertaler termbase.\n" +
+                "You choose the language pair, whether to create a new Supervertaler termbase or add\n" +
+                "to an existing one, and which of the Trados fields map to definition, domain, notes\n" +
+                "and so on.\n\n" +
+                "This is a one-way copy: the Trados termbase is read only and is never modified.");
             tips.SetToolTip(_btnRemoveTermbase,
                 "Remove the selected termbase from the database.\nThe termbase and its terms will be permanently deleted.");
             tips.SetToolTip(_btnAddTermbase, "Add a new termbase to the database.");
