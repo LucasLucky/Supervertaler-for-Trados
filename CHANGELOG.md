@@ -7,6 +7,16 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.174 / 19.20.174] – 2026-08-11
+
+### Fixed (nothing told you when your termbases were switched off for the AI) — [#58](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/58)
+
+- **A termbase has two separate ticks — Read and AI — and only the Read one was ever checked.** With Read on and AI off, TermLens shows term matches on screen exactly as usual while every prompt goes out with an empty glossary. Nothing anywhere said so, and a prompt carrying no glossary looks identical to a model that ignored one, so this could run for months unnoticed. Found on the developer's own machine, on a live job with a 221-term glossary attached specifically for it.
+- **This is the out-of-the-box state, not a setting anyone chose.** Termbases are not sent to the AI by default, and the change that introduced that default added every termbase that already existed to the "off" list. So unless you have been into the AI column since, the answer is probably that none of yours is enabled.
+- **Three places now tell you.** A **Batch Translate or Batch Proofread** run says so in its log before it sends anything. **AutoPrompt** stops and asks, the same way it already warns when a termbase is too large for it. And an AI assistant connected over the MCP server is told when it asks about the project, so it can warn you rather than quietly producing untermed work.
+- The wording distinguishes the two failures. "No termbase is read-enabled" and "read-enabled but none reaches the AI" need different fixes in different places, and being sent to check a tick that is already on helps nobody.
+- **Where the tick is:** the **AI** column in the termbase grid on **Settings → TermLens**. Not the AI Settings tab, which is where most people look first.
+
 ## [18.20.173 / 19.20.173] – 2026-08-11
 
 ### Fixed (terminology was silently missing from AI prompts when the TermLens panel had not been opened)

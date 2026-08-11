@@ -3108,10 +3108,10 @@ namespace Supervertaler.Trados
         }
 
         /// <summary>
-        /// Counts termbases and how many of them are read-enabled, across both
-        /// Supervertaler termbases and the Trados project's own. Returns false
-        /// when the state can't be determined – callers then say nothing rather
-        /// than warn on a guess.
+        /// Counts termbases, how many are read-enabled, and how many of those may
+        /// actually be sent to the AI, across both Supervertaler termbases and the
+        /// Trados project's own. Returns false when the state can't be determined –
+        /// callers then say nothing rather than warn on a guess.
         ///
         /// Termbase activation is per project, so a project where everything is
         /// switched off looks identical over the bridge to one with no termbases
@@ -3119,12 +3119,23 @@ namespace Supervertaler.Trados
         /// surface says why. Field report: a whole job was translated with two
         /// relevant termbases silently inactive, and it only came to light
         /// because the translator happened to ask.
+        ///
+        /// <paramref name="aiEnabled"/> counts termbases that are read-enabled AND
+        /// AI-enabled, because both are required for a term to reach a prompt: the
+        /// in-memory index only holds read-enabled termbases, and every AI path
+        /// then filters that by <see cref="AiSettings.IsTermbaseAiEnabled"/>. The
+        /// two ticks being separate is the point – see issue #58, where a machine
+        /// with two read-enabled termbases (one of them a 221-term job-specific
+        /// glossary) had been sending an empty glossary in every prompt.
         /// </summary>
-        private bool TryCountReadEnabledTermbases(out int readEnabled, out int total)
+        private bool TryCountTermbaseActivation(out int total, out int readEnabled, out int aiEnabled)
         {
             readEnabled = 0;
+            aiEnabled = 0;
             total = 0;
             bool known = false;
+
+            var aiCfg = _settings?.AiSettings ?? TermLensSettings.Load()?.AiSettings ?? new AiSettings();
 
             try
             {
@@ -3141,7 +3152,9 @@ namespace Supervertaler.Trados
                             foreach (var tb in tbReader.GetTermbases() ?? new List<Models.TermbaseInfo>())
                             {
                                 total++;
-                                if (!disabled.Contains(tb.Id)) readEnabled++;
+                                if (disabled.Contains(tb.Id)) continue;
+                                readEnabled++;
+                                if (aiCfg.IsTermbaseAiEnabled(tb.Id)) aiEnabled++;
                             }
                             known = true;
                         }
@@ -3160,8 +3173,10 @@ namespace Supervertaler.Trados
                          ?? new List<Models.MultiTermTermbaseInfo>())
                 {
                     total++;
-                    if (info.IsEnabled && info.LoadMode != Models.MultiTermLoadMode.Failed) readEnabled++;
                     known = true;
+                    if (!info.IsEnabled || info.LoadMode == Models.MultiTermLoadMode.Failed) continue;
+                    readEnabled++;
+                    if (aiCfg.IsTermbaseAiEnabled(info.SyntheticId)) aiEnabled++;
                 }
             }
             catch (Exception ex)
@@ -3173,17 +3188,58 @@ namespace Supervertaler.Trados
             return known;
         }
 
-        /// <summary>The "no termbase is read-enabled" warning text, or null when
-        /// at least one is enabled (or the state is unknown).</summary>
+        /// <summary>
+        /// A termbase-setup warning, or null when terminology can actually reach
+        /// the AI (or the state is unknown).
+        ///
+        /// Two distinct failures, deliberately worded differently. Read and AI are
+        /// separate ticks in separate places, and telling someone to check the Read
+        /// tick when Read is already on sends them round in a circle – which is
+        /// exactly what the single old warning would have done, had it fired at all
+        /// for the AI case. It didn't: it only ever tested Read (issue #58).
+        /// </summary>
         private string BridgeTermbaseWarning()
         {
-            int enabled, total;
-            if (!TryCountReadEnabledTermbases(out enabled, out total)) return null;
-            if (total == 0 || enabled > 0) return null;
-            return $"No termbase is read-enabled for this project ({total} available), so terminology lookups " +
-                   "and TermLens will return nothing at all. This is almost always a misconfiguration – tell " +
-                   "the user before relying on terminology, and point them at Supervertaler settings > " +
-                   "TermLens to switch the relevant termbases back on.";
+            int total, readEnabled, aiEnabled;
+            if (!TryCountTermbaseActivation(out total, out readEnabled, out aiEnabled)) return null;
+            if (total == 0) return null;
+
+            if (readEnabled == 0)
+                return $"No termbase is read-enabled for this project ({total} available), so terminology lookups " +
+                       "and TermLens will return nothing at all. This is almost always a misconfiguration – tell " +
+                       "the user before relying on terminology, and point them at Supervertaler settings > " +
+                       "TermLens to switch the relevant termbases back on.";
+
+            if (aiEnabled == 0)
+                return $"{readEnabled} termbase(s) are read-enabled, but NONE of them is enabled for AI, so every " +
+                       "prompt goes out with an empty glossary while TermLens still shows term matches on screen. " +
+                       "Read and AI are separate ticks: the AI one is the 'AI' column in the termbase grid at " +
+                       "Supervertaler settings > TermLens (not the AI Settings tab). Termbases default to NOT " +
+                       "being sent to the AI, so this is the out-of-the-box state rather than something the user " +
+                       "chose. Tell them before relying on terminology – a prompt carrying no glossary is " +
+                       "indistinguishable from a model that ignored one.";
+
+            return null;
+        }
+
+        /// <summary>
+        /// Logs the same "read-enabled but nothing AI-enabled" warning into a batch
+        /// run's own log, for the far larger population who never call the MCP
+        /// bridge. Uses the assembled term lists rather than re-counting termbases:
+        /// terms loaded but none surviving the AI filter is the precise condition,
+        /// and it costs nothing at the point where both lists already exist.
+        /// </summary>
+        private static void WarnIfNoAiTermbases(BatchTranslateControl batchControl, int loadedTerms, int aiTerms)
+        {
+            if (batchControl == null || loadedTerms <= 0 || aiTerms > 0) return;
+            try
+            {
+                batchControl.AppendLog(
+                    $"Warning: {loadedTerms} terms are loaded, but no termbase is enabled for AI – this run will " +
+                    "send NO glossary. Tick the 'AI' column in Settings > TermLens for the termbases you want the " +
+                    "AI to use (that is a separate tick from Read, and it is off by default).", true);
+            }
+            catch { /* a warning that cannot be logged must not stop the batch */ }
         }
 
         /// <summary>
@@ -5631,6 +5687,29 @@ namespace Supervertaler.Trados
                 }
                 catch { /* never break prompt generation on a logging failure */ }
 
+                // The mirror of the large-termbase warning below: terms are loaded and
+                // NONE of them may be sent to the AI, so the generated prompt will carry
+                // no glossary at all. Worth a stop, because AutoPrompt is precisely where
+                // a user assumes their terminology is being read, and an empty glossary
+                // is invisible in the result (issue #58). Read and AI are separate ticks,
+                // and AI is off by default, so this is the out-of-the-box state.
+                if (allTerms.Count > 0 && totalTermCount == 0)
+                {
+                    var parentNoAi = _control.Value.FindForm();
+                    var warnNoAi =
+                        $"{allTerms.Count:N0} terms are loaded, but none of your termbases is enabled for AI, " +
+                        "so this prompt will be generated with no glossary at all.\n\n" +
+                        "Read and AI are separate ticks. Enable a termbase for AI with the “AI” column in the " +
+                        "termbase grid on Settings → TermLens; termbases are not sent to the AI by default.\n\n" +
+                        "Generate the prompt anyway?";
+                    var choiceNoAi = MessageBox.Show(
+                        parentNoAi, warnNoAi, "No termbase enabled for AI – AutoPrompt",
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+                        MessageBoxDefaultButton.Button2);
+                    if (choiceNoAi != DialogResult.Yes)
+                        return;
+                }
+
                 // AutoPrompt works best with a small, project-focused termbase. Warn based on
                 // the SIZE of the termbase(s) enabled for AI (totalTermCount, before TermScan
                 // filtering) – not on how many terms survive filtering. A large or general-
@@ -7880,6 +7959,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 // targets, so there's no reason to drop it.
                 var allTerms = TermLensEditorViewPart.GetCurrentTermbaseTerms();
                 var termbaseTerms = allTerms.Where(t => aiSettings.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
+                WarnIfNoAiTermbases(batchControl, allTerms.Count, termbaseTerms.Count);
                 var selectedPromptPath = batchControl.GetSelectedPromptPath();
                 aiSettings.SelectedPromptPath = selectedPromptPath; _settings.Save();
                 var customPromptContent = ResolveCustomPromptContent(sourceLang, targetLang);
@@ -8198,6 +8278,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 var allTerms = TermLensEditorViewPart.GetCurrentTermbaseTerms();
                 var aiCfgC = _settings?.AiSettings ?? new AiSettings();
                 var termbaseTerms = allTerms.Where(t => aiCfgC.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
+                WarnIfNoAiTermbases(batchControl, allTerms.Count, termbaseTerms.Count);
 
                 // Resolve custom prompt from library selection
                 var selectedPromptPath = batchControl.GetSelectedPromptPath();
@@ -8572,6 +8653,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 var allTerms = TermLensEditorViewPart.GetCurrentTermbaseTerms();
                 var aiCfgB = aiSettings ?? new AiSettings();
                 var termbaseTerms = allTerms.Where(t => aiCfgB.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
+                WarnIfNoAiTermbases(batchControl, allTerms.Count, termbaseTerms.Count);
 
                 // Persist the prompt dropdown selection before resolving
                 var selectedPromptPath = batchControl.GetSelectedPromptPath();
@@ -8698,6 +8780,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 var allTerms = TermLensEditorViewPart.GetCurrentTermbaseTerms();
                 var aiCfgB = aiSettings ?? new AiSettings();
                 var termbaseTerms = allTerms.Where(t => aiCfgB.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
+                WarnIfNoAiTermbases(batchControl, allTerms.Count, termbaseTerms.Count);
 
                 var selectedPromptPath = batchControl.GetSelectedPromptPath();
                 if (aiSettings != null)
@@ -9061,6 +9144,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 var allTerms = TermLensEditorViewPart.GetCurrentTermbaseTerms();
                 var aiCfgC = _settings?.AiSettings ?? new AiSettings();
                 var termbaseTerms = allTerms.Where(t => aiCfgC.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
+                WarnIfNoAiTermbases(batchControl, allTerms.Count, termbaseTerms.Count);
 
                 // Resolve custom prompt from library selection
                 var selectedPromptPath = batchControl.GetSelectedPromptPath();
