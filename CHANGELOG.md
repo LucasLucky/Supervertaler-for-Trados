@@ -7,6 +7,28 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.175 / 19.20.175] – 2026-08-11
+
+### Added (get terminology *out* of Supervertaler and into Trados) — [#60](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/60)
+
+- **Export now offers MultiTerm XML and TBX, alongside the existing TSV.** Until now terminology only travelled one way: a Trados termbase could be imported into Supervertaler, and nothing could go back. Pick the format in the save dialog on **Settings → Termbases → Export**.
+- **MultiTerm XML** is what Glossary Converter and MultiTerm import, so it is the route to a `.sdltb` — and, via Studio 2026's Termbases view, to a `.ttb`. **TBX** is the ISO standard and is read by most other CAT tools too, so it is the better choice if you are not only a Trados shop.
+- **Both carry more than the TSV export does.** Definition, context, part of speech and URL have always been dropped by the TSV export; the two new formats have proper homes for them, so they are kept.
+- **Supervertaler still cannot write a `.sdltb` or `.ttb` directly, and the dialog says so.** Those are a Microsoft Access database and an undocumented SQLite schema respectively; writing either means guessing at a format that is not published, and a termbase Studio half-accepts would be worse than one it refuses. One conversion step outside the plugin is the honest trade.
+- **What a round trip does not preserve:** MultiTerm entries are concept-oriented and can hold many languages, while a Supervertaler termbase is bilingual rows. Going out and back gives you your terms, not your original structure.
+
+### Added (the AI can copy a project termbase into Supervertaler in one step) — [#59](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/59)
+
+- **New `import_project_termbase` MCP tool.** Ask your AI assistant to copy the Trados termbase attached to the open project into a Supervertaler termbase and it now happens in a single step — the same operation as the *Import .sdltb/.ttb…* button, which an assistant previously could not reach at all. Its only option was adding terms one at a time, which for a few hundred terms is not a realistic offer.
+- **It asks first, and it is safe to repeat.** A dry run reports what would be imported — how many entries, which language pair, how each Trados field will be mapped — before anything is written. Running it twice adds nothing the second time: every entry is checked against what is already there.
+- **It respects the Write column.** An existing termbase must be Write-enabled, exactly as when the assistant adds a single term. A name that does not exist yet is created for you, and is deliberately left *not* Write-enabled, so the assistant cannot then add to it without your say-so.
+- **Your Trados termbase is never touched** — it is read through a temporary snapshot, which also means a `.ttb` currently open in Studio is read correctly rather than half-read.
+
+### Changed (Termbases tab wording)
+
+- **The *Import .sdltb/.ttb…* button now has a tooltip**, because nothing said what it imported *into*. It also states that the Trados file is only ever read.
+- The Export and Import tooltips said "CSV file" while both dialogs have always used tab-separated `.tsv`.
+
 ## [18.20.174 / 19.20.174] – 2026-08-11
 
 ### Fixed (nothing told you when your termbases were switched off for the AI) — [#58](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/58)

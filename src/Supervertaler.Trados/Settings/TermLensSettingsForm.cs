@@ -829,8 +829,13 @@ namespace Supervertaler.Trados.Settings
             var tips = new ToolTip();
             tips.SetToolTip(_btnOpenTermbase, "Open the selected termbase in the built-in termbase editor.");
             tips.SetToolTip(_btnExport,
-                "Export all terms from the selected termbase to a tab-separated (.tsv) file,\n" +
-                "with synonyms, definition, domain, notes, client, project and forbidden flag.");
+                "Export all terms from the selected termbase. Pick the format in the save dialog:\n\n" +
+                "  .tsv   — tab-separated; the one that re-imports here unchanged.\n" +
+                "  .xml   — MultiTerm XML; convert to a Trados termbase with Glossary\n" +
+                "           Converter, or import it in MultiTerm.\n" +
+                "  .tbx   — the ISO standard; MultiTerm and most other CAT tools read it.\n\n" +
+                "Supervertaler cannot write .sdltb or .ttb directly, so the last two need\n" +
+                "one conversion step outside the plugin.");
             tips.SetToolTip(_btnImport,
                 "Import terms from a tab-separated (.tsv) file into the selected termbase.");
             tips.SetToolTip(btnImportExternal,
@@ -1799,8 +1804,12 @@ namespace Supervertaler.Trados.Settings
 
             using (var dlg = new SaveFileDialog())
             {
-                dlg.Title = $"Export \"{selected.Name}\" as TSV";
-                dlg.Filter = "Tab-separated files (*.tsv)|*.tsv|All files (*.*)|*.*";
+                dlg.Title = $"Export \"{selected.Name}\"";
+                // Filter order defines FilterIndex below (1-based).
+                dlg.Filter =
+                    "Tab-separated, re-importable here (*.tsv)|*.tsv|" +
+                    "MultiTerm XML — for Trados (*.xml)|*.xml|" +
+                    "TBX — for any CAT tool (*.tbx)|*.tbx";
                 dlg.FileName = $"{selected.Name}.tsv";
 
                 if (dlg.ShowDialog(this) != DialogResult.OK) return;
@@ -1808,11 +1817,42 @@ namespace Supervertaler.Trados.Settings
                 try
                 {
                     Cursor = Cursors.WaitCursor;
-                    int count = TermbaseReader.ExportTsv(dbPath, selected.Id, dlg.FileName);
-                    Cursor = Cursors.Default;
+                    string message;
 
-                    MessageBox.Show($"Exported {count:N0} terms from \"{selected.Name}\".",
-                        "TermLens", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    if (dlg.FilterIndex == 1)
+                    {
+                        int count = TermbaseReader.ExportTsv(dbPath, selected.Id, dlg.FileName);
+                        message = $"Exported {count:N0} terms from \"{selected.Name}\".";
+                    }
+                    else
+                    {
+                        var format = dlg.FilterIndex == 3
+                            ? Core.TermbaseExportFormat.Tbx
+                            : Core.TermbaseExportFormat.MultiTermXml;
+
+                        var res = Core.TermbaseExporter.Export(
+                            dbPath, selected.Id, dlg.FileName, format,
+                            selected.SourceLang, selected.TargetLang, selected.Name);
+
+                        // Neither format is a Trados termbase; both need one
+                        // conversion step. Saying so here is the difference
+                        // between a useful file and a file the user cannot
+                        // work out what to do with.
+                        var next = format == Core.TermbaseExportFormat.Tbx
+                            ? "TBX imports into MultiTerm, and into most other CAT tools."
+                            : "Convert it to a Trados termbase with Glossary Converter, or import it " +
+                              "in MultiTerm. For Studio 2026 (.ttb), convert in Studio's Termbases view.";
+
+                        message =
+                            $"Exported {res.Terms:N0} terms ({res.Concepts:N0} entries) from " +
+                            $"\"{selected.Name}\".\n\n{next}";
+
+                        if (res.Warnings.Count > 0)
+                            message += "\n\n" + string.Join("\n", res.Warnings);
+                    }
+
+                    Cursor = Cursors.Default;
+                    MessageBox.Show(message, "TermLens", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
                 catch (Exception ex)
                 {
