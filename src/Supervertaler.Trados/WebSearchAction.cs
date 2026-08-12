@@ -35,10 +35,11 @@ namespace Supervertaler.Trados
                 if (doc == null) return;
 
                 // Studio fills exactly one side of doc.Selection — whichever the
-                // caret is in. Unlike SuperSearchAction we do not care which side
-                // it came from: every web resource is a source-side lookup, so
-                // either selection is simply "the term to look up".
+                // caret is in. Which side matters: a term taken from the target
+                // is looked up in the target language, so the controller flips the
+                // pair. Searching a Dutch word as if it were English finds nothing.
                 string selectedText = null;
+                bool fromTarget = false;
                 try
                 {
                     var selection = doc.Selection;
@@ -46,7 +47,9 @@ namespace Supervertaler.Trados
                     {
                         var sourceSelection = selection.Source?.ToString();
                         var targetSelection = selection.Target?.ToString();
-                        selectedText = !string.IsNullOrWhiteSpace(targetSelection)
+
+                        fromTarget = !string.IsNullOrWhiteSpace(targetSelection);
+                        selectedText = fromTarget
                             ? targetSelection.Trim()
                             : sourceSelection?.Trim();
                     }
@@ -73,9 +76,11 @@ namespace Supervertaler.Trados
                 var control = SuperSearchViewPart.GetControl();
                 if (control == null) return;
 
-                // A null term leaves whatever is already in the Src box, so the
+                // A null term leaves whatever is already in the boxes, so the
                 // shortcut still works as "search again" with no selection.
-                control.RunWebSearch(string.IsNullOrWhiteSpace(selectedText) ? null : selectedText);
+                control.RunWebSearch(
+                    string.IsNullOrWhiteSpace(selectedText) ? null : selectedText,
+                    fromTarget);
             }
             catch { /* silently ignore errors */ }
         }

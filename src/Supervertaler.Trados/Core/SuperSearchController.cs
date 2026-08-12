@@ -42,6 +42,10 @@ namespace Supervertaler.Trados.Core
         public SuperSearchControl Control => _control;
 
         private EditorController _editorController;
+
+        /// <summary>The single embedded web-results window, created on first use
+        /// and reused for the rest of the session.</summary>
+        private Controls.WebSearchBrowserForm _webForm;
         private IStudioDocument _activeDocument;
 
         // Project root of the last completed discovery, so a document change
@@ -77,6 +81,7 @@ namespace Supervertaler.Trados.Core
             // of this build, so a resource whose URL we fixed since the user last
             // saved is repaired here rather than staying broken forever.
             _control.SetWebResources(settings.GetWebResources());
+            _control.WebResultsInBrowser = settings.WebResultsInBrowser;
 
             _editorController = SdlTradosStudio.Application.GetController<EditorController>();
             if (_editorController != null)
@@ -131,6 +136,7 @@ namespace Supervertaler.Trados.Core
             {
                 var s = TermLensSettings.Load();
                 s.SetWebResources(_control.GetWebResources());
+                s.WebResultsMode = _control.WebResultsInBrowser ? "Browser" : "Embedded";
                 s.Save();
             }
             catch { /* persistence failure must not break the UI */ }
@@ -154,6 +160,17 @@ namespace Supervertaler.Trados.Core
                 }
                 catch { /* ActiveFile is null when the panel has focus */ }
 
+                // A term picked from the target side is looked up in the target
+                // language, so the pair flips: a Dutch word in an EN→NL project
+                // must be searched nl→en, or IATE, Linguee and Reverso all return
+                // nothing and the feature looks broken.
+                if (e.FromTarget)
+                {
+                    var swap = sourceLocale;
+                    sourceLocale = targetLocale;
+                    targetLocale = swap;
+                }
+
                 // Resources that need no language codes still work without a
                 // project open, so an unknown pair is a warning, not a blocker.
                 if (string.IsNullOrEmpty(sourceLocale) || string.IsNullOrEmpty(targetLocale))
@@ -172,6 +189,16 @@ namespace Supervertaler.Trados.Core
                     return;
                 }
 
+                // Embedded mode is opt-in and degrades silently: a missing
+                // WebView2 runtime, or an environment we cannot create, drops
+                // through to the browser rather than failing the search.
+                if (!_control.WebResultsInBrowser && WebView2Support.IsAvailable)
+                {
+                    if (TryShowEmbedded(e.Query, targets)) return;
+                    DiagnosticLog.Log("WebSearch",
+                        "Embedded mode unavailable — falling back to the browser");
+                }
+
                 var single = WebSearchLauncher.OpenAll(targets);
                 _control.SetStatus(single
                     ? $"Opened {targets.Count} web resource(s) for “{e.Query}” in a new browser window."
@@ -181,6 +208,63 @@ namespace Supervertaler.Trados.Core
             {
                 DiagnosticLog.Log("WebSearch", $"Web search failed: {ex}");
                 _control.SetStatus("Web search failed — see the diagnostic log.");
+            }
+        }
+
+        /// <summary>
+        /// Opens the embedded browser window. Returns false if it could not be
+        /// shown at all, so the caller can fall back to the user's browser.
+        ///
+        /// <para>The window is shown non-modally and owned by nothing, so it
+        /// behaves like a second Studio window: the user can maximise it, park it
+        /// on another monitor, and keep translating underneath.</para>
+        /// </summary>
+        private bool TryShowEmbedded(string query, List<WebSearchTarget> targets)
+        {
+            try
+            {
+                // One window for the session, reused. Closing it only hides it,
+                // so the WebView2 environment and any signed-in sessions stay
+                // warm — and searches refresh tabs in place instead of piling up
+                // windows, which is the whole reason embedded mode exists.
+                if (_webForm == null || _webForm.IsDisposed)
+                    _webForm = new WebSearchBrowserForm();
+
+                var form = _webForm;
+                form.Show();
+
+                // Awaited via a continuation rather than blocked on: WebView2's
+                // initialisation needs the message pump we would otherwise hold,
+                // so blocking here would deadlock.
+                form.ShowResultsAsync(query, targets).ContinueWith(t =>
+                {
+                    if (t.IsFaulted || !t.Result)
+                    {
+                        DiagnosticLog.Log("WebSearch",
+                            "Embedded window could not load; opening the browser instead");
+                        try { form.Hide(); } catch { }
+                        WebSearchLauncher.OpenAll(targets);
+                        _control.SetStatus(
+                            $"Embedded view unavailable — opened {targets.Count} resource(s) in your browser.");
+                        return;
+                    }
+
+                    // Raise it only once the tabs exist. WebView2 spins up a
+                    // separate browser process that takes the foreground while it
+                    // initialises; raising before that means it lands behind
+                    // Trados on a warm start, when init is fast enough to win.
+                    form.BringToFrontHard();
+                    _control.SetStatus(
+                        $"Opened {targets.Count} web resource(s) for “{query}” in the embedded browser.");
+                }, TaskScheduler.FromCurrentSynchronizationContext());
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLog.Log("WebSearch",
+                    $"Embedded window failed: {ex.GetType().Name}: {ex.Message}");
+                return false;
             }
         }
 
