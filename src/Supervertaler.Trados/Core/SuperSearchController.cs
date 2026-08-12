@@ -66,9 +66,17 @@ namespace Supervertaler.Trados.Core
             _control.ReplaceAllRequested += OnReplaceAllRequested;
             _control.HelpRequested += (s, e) => HelpSystem.OpenHelp(HelpSystem.Topics.SuperSearch);
             _control.ModeChanged += OnModeChanged;
+            _control.WebResourcesChanged += OnWebResourcesChanged;
+            _control.WebSearchRequested += OnWebSearchRequested;
 
             // Restore the persisted search-source mode (Project files / Files + TMs / TMs only).
-            _control.SetSourceMode(ParseSourceMode(TermLensSettings.Load().SuperSearchMode));
+            var settings = TermLensSettings.Load();
+            _control.SetSourceMode(ParseSourceMode(settings.SuperSearchMode));
+
+            // GetWebResources() reconciles the stored list against the built-ins
+            // of this build, so a resource whose URL we fixed since the user last
+            // saved is repaired here rather than staying broken forever.
+            _control.SetWebResources(settings.GetWebResources());
 
             _editorController = SdlTradosStudio.Application.GetController<EditorController>();
             if (_editorController != null)
@@ -113,6 +121,67 @@ namespace Supervertaler.Trados.Core
                 s.Save();
             }
             catch { /* persistence failure must not break the UI */ }
+        }
+
+        // ─── Web resources ───────────────────────────────────────
+
+        private void OnWebResourcesChanged(object sender, EventArgs e)
+        {
+            try
+            {
+                var s = TermLensSettings.Load();
+                s.SetWebResources(_control.GetWebResources());
+                s.Save();
+            }
+            catch { /* persistence failure must not break the UI */ }
+        }
+
+        /// <summary>
+        /// Resolves the project's language pair and opens the enabled resources.
+        /// Only "Browser" mode exists today; embedded WebView2 tabs will branch
+        /// here on <see cref="TermLensSettings.WebResultsInBrowser"/>.
+        /// </summary>
+        private void OnWebSearchRequested(object sender, WebSearchRequestEventArgs e)
+        {
+            try
+            {
+                string sourceLocale = null, targetLocale = null;
+                try
+                {
+                    var activeFile = _activeDocument?.ActiveFile;
+                    sourceLocale = activeFile?.SourceFile?.Language?.CultureInfo?.Name;
+                    targetLocale = activeFile?.Language?.CultureInfo?.Name;
+                }
+                catch { /* ActiveFile is null when the panel has focus */ }
+
+                // Resources that need no language codes still work without a
+                // project open, so an unknown pair is a warning, not a blocker.
+                if (string.IsNullOrEmpty(sourceLocale) || string.IsNullOrEmpty(targetLocale))
+                {
+                    DiagnosticLog.Log("WebSearch",
+                        $"Language pair unresolved (src='{sourceLocale}', tgt='{targetLocale}') — "
+                        + "language-specific resources may produce odd URLs");
+                }
+
+                var targets = WebSearchUrlBuilder.BuildAll(
+                    e.Resources, e.Query, sourceLocale, targetLocale);
+
+                if (targets.Count == 0)
+                {
+                    _control.SetStatus("No web resources produced a usable URL.");
+                    return;
+                }
+
+                var single = WebSearchLauncher.OpenAll(targets);
+                _control.SetStatus(single
+                    ? $"Opened {targets.Count} web resource(s) for “{e.Query}” in a new browser window."
+                    : $"Opened {targets.Count} web resource(s) for “{e.Query}”.");
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLog.Log("WebSearch", $"Web search failed: {ex}");
+                _control.SetStatus("Web search failed — see the diagnostic log.");
+            }
         }
 
         // ─── Document Events ─────────────────────────────────────

@@ -34,6 +34,8 @@ namespace Supervertaler.Trados.Controls
         private Button _btnFiles;
         private Button _btnTms;
         private Button _btnTbs;
+        private Button _btnWeb;
+        private Button _btnWebGo;
         private Button _btnHelp;
 
         // ─── Replace bar row 2 (hidden by default) ──────────────
@@ -65,6 +67,13 @@ namespace Supervertaler.Trados.Controls
         // happen to share a name stay distinguishable.
         private List<string> _allTermbases = new List<string>();
         private HashSet<string> _excludedTermbases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // ─── Web resources ───────────────────────────────────────
+        // The reconciled resource list, pushed in by the controller from
+        // settings. Unlike files/TMs/termbases this is not a project property,
+        // so it is stored as the resources themselves rather than as an
+        // exclusion set — the user's on/off state lives on WebResource.Enabled.
+        private List<WebResource> _webResources = new List<WebResource>();
 
         // ─── Highlight state ─────────────────────────────────────
         private string _highlightSource;
@@ -113,6 +122,20 @@ namespace Supervertaler.Trados.Controls
         /// <summary>Fired when the user changes the search-source mode dropdown
         /// (Project files / Files + TMs / TMs only). The controller persists it.</summary>
         public event EventHandler ModeChanged;
+
+        /// <summary>
+        /// Raised when the user changes which web resources are enabled, so the
+        /// controller can persist the list. Mirrors <see cref="ModeChanged"/>.
+        /// </summary>
+        public event EventHandler WebResourcesChanged;
+
+        /// <summary>
+        /// Raised when the user asks to run the current query against the
+        /// enabled web resources. The controller resolves the project's language
+        /// pair and decides whether to open a browser window or (later) render
+        /// the results in embedded tabs.
+        /// </summary>
+        public event EventHandler<WebSearchRequestEventArgs> WebSearchRequested;
 
         public SuperSearchControl()
         {
@@ -327,6 +350,24 @@ namespace Supervertaler.Trados.Controls
             _btnTms.Click += (s, e) => ShowTmSelectionDialog();
             Core.ClickThrough.Attach(_btnTms, () => ShowTmSelectionDialog());
             _searchPanel.Controls.Add(_btnTms);
+
+            _btnWeb = CreateButton("Web", bodyFont, 62, 26);
+            var ttWeb = new ToolTip();
+            ttWeb.SetToolTip(_btnWeb, "Choose which web resources to search");
+            _btnWeb.Click += (s, e) => ShowWebSelectionDialog();
+            Core.ClickThrough.Attach(_btnWeb, () => ShowWebSelectionDialog());
+            _searchPanel.Controls.Add(_btnWeb);
+
+            // Separate from the scope button on purpose. Files/TMs/TBs feed the
+            // results grid and run on Search; the web opens pages, so it needs
+            // its own deliberate trigger rather than firing on every search.
+            _btnWebGo = CreateButton("\U0001F310", bodyFont, 30, 26);
+            var ttWebGo = new ToolTip();
+            ttWebGo.SetToolTip(_btnWebGo,
+                "Search the web for the term in the Src box (Ctrl+Alt+L)");
+            _btnWebGo.Click += (s, e) => FireWebSearch();
+            Core.ClickThrough.Attach(_btnWebGo, () => FireWebSearch());
+            _searchPanel.Controls.Add(_btnWebGo);
 
             _btnHelp = new Button
             {
@@ -659,9 +700,11 @@ namespace Supervertaler.Trados.Controls
             int cboY = (h - _cboMode.Height) / 2;            // vertically center combo
             int lblY = (h - _lblSearchSource.Height) / 2;    // vertically center labels
 
-            // Right-anchored controls first (right to left): ? , TMs, Files
+            // Right-anchored controls first (right to left): ?, 🌐, Web, TBs, TMs, Files
             _btnHelp.Location = new Point(w - _btnHelp.Width - 4, btnY);
-            _btnTbs.Location = new Point(_btnHelp.Left - _btnTbs.Width - 4, btnY);
+            _btnWebGo.Location = new Point(_btnHelp.Left - _btnWebGo.Width - 4, btnY);
+            _btnWeb.Location = new Point(_btnWebGo.Left - _btnWeb.Width - 2, btnY);
+            _btnTbs.Location = new Point(_btnWeb.Left - _btnTbs.Width - 4, btnY);
             _btnTms.Location = new Point(_btnTbs.Left - _btnTms.Width - 4, btnY);
             _btnFiles.Location = new Point(_btnTms.Left - _btnFiles.Width - 4, btnY);
 
@@ -1065,6 +1108,159 @@ namespace Supervertaler.Trados.Controls
 
                 dlg.ShowDialog(this);
             }
+        }
+
+        // ─── Web Resource Selection ──────────────────────────────
+
+        /// <summary>
+        /// Sets the web resource list (called by the controller from settings,
+        /// already reconciled against the built-ins).
+        /// </summary>
+        public void SetWebResources(List<WebResource> resources)
+        {
+            _webResources = resources ?? new List<WebResource>();
+            UpdateWebButton();
+        }
+
+        /// <summary>The full resource list, including disabled ones — the
+        /// controller persists this verbatim so ordering and custom entries
+        /// survive.</summary>
+        public List<WebResource> GetWebResources()
+        {
+            return _webResources;
+        }
+
+        /// <summary>Just the resources that should actually be searched.</summary>
+        public List<WebResource> GetEnabledWebResources()
+        {
+            return _webResources.Where(r => r != null && r.Enabled).ToList();
+        }
+
+        private void UpdateWebButton()
+        {
+            int enabled = _webResources.Count(r => r != null && r.Enabled);
+            int total = _webResources.Count;
+            _btnWeb.Text = enabled == total
+                ? $"Web ({total})"
+                : $"Web ({enabled}/{total})";
+            // No point offering the trigger when everything is switched off.
+            _btnWebGo.Enabled = enabled > 0;
+        }
+
+        private void ShowWebSelectionDialog()
+        {
+            if (_webResources.Count == 0)
+            {
+                MessageBox.Show("No web resources are configured.",
+                    "SuperSearch", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            using (var dlg = new Form())
+            {
+                dlg.Text = "SuperSearch — Select Web Resources";
+                dlg.Size = new Size(600, 560);
+                dlg.MinimumSize = new Size(400, 300);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.FormBorderStyle = FormBorderStyle.Sizable;
+                dlg.ShowIcon = false;
+                dlg.ShowInTaskbar = false;
+                dlg.Font = new Font("Segoe UI", 9f);
+
+                var lblInfo = new Label
+                {
+                    Text = "Tick the web resources to search. "
+                         + "They open in one new browser window.",
+                    Dock = DockStyle.Top,
+                    AutoSize = true,
+                    Padding = new Padding(8, 8, 8, 4),
+                    ForeColor = TextColor
+                };
+                dlg.Controls.Add(lblInfo);
+
+                var clb = new CheckedListBox
+                {
+                    Dock = DockStyle.Fill,
+                    CheckOnClick = true,
+                    Font = new Font("Segoe UI", 8.5f),
+                    IntegralHeight = false,
+                    BorderStyle = BorderStyle.FixedSingle
+                };
+
+                foreach (var resource in _webResources)
+                    clb.Items.Add(resource.ToString(), resource.Enabled);
+                dlg.Controls.Add(clb);
+
+                var btnSelectAll = CreateButton("Select All", dlg.Font, 90, 28);
+                btnSelectAll.Click += (s, e) =>
+                {
+                    for (int i = 0; i < clb.Items.Count; i++)
+                        clb.SetItemChecked(i, true);
+                };
+
+                var btnSelectNone = CreateButton("Select None", dlg.Font, 100, 28);
+                btnSelectNone.Click += (s, e) =>
+                {
+                    for (int i = 0; i < clb.Items.Count; i++)
+                        clb.SetItemChecked(i, false);
+                };
+
+                var btnOk = CreateButton("OK", dlg.Font, 70, 28);
+                btnOk.Click += (s, e) =>
+                {
+                    for (int i = 0; i < clb.Items.Count && i < _webResources.Count; i++)
+                        _webResources[i].Enabled = clb.GetItemChecked(i);
+                    UpdateWebButton();
+                    WebResourcesChanged?.Invoke(this, EventArgs.Empty);
+                    dlg.DialogResult = DialogResult.OK;
+                };
+
+                dlg.Controls.Add(BuildPickerBottomBar(btnSelectAll, btnSelectNone, btnOk, HeaderBg));
+                dlg.AcceptButton = btnOk;
+
+                clb.BringToFront();
+
+                dlg.ShowDialog(this);
+            }
+        }
+
+        /// <summary>
+        /// Runs a web search for the given term, or for whatever is in the Src
+        /// box when <paramref name="term"/> is null. Public so the Ctrl+Alt+L
+        /// action can drive it with the editor selection.
+        /// </summary>
+        public void RunWebSearch(string term = null)
+        {
+            if (term != null) _txtSearch.Text = term;
+            FireWebSearch();
+        }
+
+        private void FireWebSearch()
+        {
+            // The web resources are all source-side lookups, so the Src box is
+            // the query even when the user searched from the target side.
+            var query = _txtSearch.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                SetStatus("Type a term in the Src box to search the web.");
+                return;
+            }
+
+            var enabled = GetEnabledWebResources();
+            if (enabled.Count == 0)
+            {
+                MessageBox.Show(
+                    "No web resources are switched on.\n\n"
+                    + "Click the Web button to choose some.",
+                    "SuperSearch", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            WebSearchRequested?.Invoke(this, new WebSearchRequestEventArgs
+            {
+                Query = query,
+                Resources = enabled
+            });
         }
 
         // ─── Public Methods ──────────────────────────────────────
@@ -1689,5 +1885,16 @@ namespace Supervertaler.Trados.Controls
         public bool UseRegex { get; set; }
         public bool WholeWord { get; set; }
         public SearchResult SelectedResult { get; set; }
+    }
+
+    /// <summary>
+    /// A request to run <see cref="Query"/> against <see cref="Resources"/>.
+    /// The language pair is deliberately absent: only the controller can see the
+    /// active document, so it fills that in.
+    /// </summary>
+    public class WebSearchRequestEventArgs : EventArgs
+    {
+        public string Query { get; set; }
+        public List<WebResource> Resources { get; set; }
     }
 }
