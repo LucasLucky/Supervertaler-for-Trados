@@ -5,9 +5,16 @@ Copyright (c) 2026 Michael Beijer (supervertaler.com)
 Permission is hereby granted to any person obtaining a copy of this software
 and associated documentation files (the "Software") to:
 
-  1. View, study, and reference the source code;
-  2. Fork and modify the source code for personal, non-commercial use;
-  3. Build the Software from source for your own personal use.
+  1. View, study, audit, and reference the source code;
+  2. Fork and modify the source code for private study, auditing, and
+     experimentation;
+  3. Build the Software from source in order to inspect or verify it.
+
+These grants exist so that anyone can satisfy themselves that the Software is
+safe and does what it claims. They are NOT a grant of use. Running the
+Software to carry out translation or related professional work, whether paid
+or unpaid, requires a valid licence obtained from the copyright holder. This
+applies equally to a build you made from source and to one you installed.
 
 Grants 2 and 3 are subject to the restrictions below, and in particular do not
 extend to the Licensing Mechanisms.
