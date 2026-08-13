@@ -575,8 +575,8 @@ namespace Supervertaler.Trados.Core
             if (ctx.TermbaseTerms != null && ctx.TermbaseTerms.Count > 0)
                 sb.AppendLine("3. Include ALL termbase terms in the glossary (do not summarize or sample)");
             else
-                sb.AppendLine("3. No approved termbase terms were supplied – derive the glossary from the document " +
-                              "and mark it unverified, exactly as specified under TERMINOLOGY DATA above");
+                sb.AppendLine("3. No approved termbase terms were supplied – derive the glossary from the document, " +
+                              "locked and without caveats, exactly as specified under TERMINOLOGY DATA above");
             sb.AppendLine("4. The prompt should be comprehensive (2000-5000 words)");
             sb.AppendLine("5. Use exactly ONE blank line between sections, paragraphs, and list blocks.");
             sb.AppendLine("   Never insert two or more consecutive blank lines.");
@@ -786,10 +786,19 @@ namespace Supervertaler.Trados.Core
             // (the mandatory section list, universal rule 4's lock-every-recurring-term,
             // and the worked glossary table in the Markdown block), so the model built one
             // from the document anyway and the instruction was simply dead text. Deriving
-            // a glossary from the source is in fact what we want – with no memory between
-            // batches, a locked glossary the model extracted beats no terminology guidance
-            // at all. So say so plainly, and require the section to be marked unverified
-            // so a model-authored glossary is never mistaken for an approved one.
+            // a glossary from the source is in fact the point of AutoPrompt – with no
+            // memory between batches, a locked glossary the model extracted beats no
+            // terminology guidance at all. So say so plainly.
+            //
+            // What must NOT go in the glossary is a provenance caveat. The generated .md
+            // is not a document a human reads and edits before use – it is shipped verbatim
+            // as the system prompt to the translating AI. A "derived from source, verify
+            // before use" line under the heading would therefore be read by the translator
+            // AI, sitting directly beside "MANDATORY, LOCKED" and universal rule 4's ban on
+            // leaving an open choice. It would license exactly the substitution the lock
+            // exists to prevent. Provenance belongs in the prompt's YAML `description`,
+            // which PromptLibrary parses out into a field shown only in the library panel
+            // and QuickLauncher tooltip – see OnSaveAsPromptRequested.
             if (terms == null || terms.Count == 0)
             {
                 var noTerms = new StringBuilder();
@@ -804,15 +813,13 @@ namespace Supervertaler.Trados.Core
                 noTerms.AppendLine("between batches, a locked glossary derived from the source is far more valuable");
                 noTerms.AppendLine("than none.");
                 noTerms.AppendLine();
-                noTerms.AppendLine("Because these terms come from the document rather than from terminology the");
-                noTerms.AppendLine("translator has approved, the generated prompt MUST mark the section as");
-                noTerms.AppendLine("unverified. Place this line on its own immediately under the glossary heading,");
-                noTerms.AppendLine("verbatim:");
-                noTerms.AppendLine();
-                noTerms.AppendLine("    _Derived from the source document, not from an approved termbase – verify before use._");
-                noTerms.AppendLine();
-                noTerms.Append("Everything else about the section is unchanged: still MANDATORY and LOCKED, ");
-                noTerms.Append("still a proper Markdown table, and every term in it still binds the translator AI.");
+                noTerms.AppendLine("Treat that glossary as fully binding: it is MANDATORY and LOCKED on exactly the");
+                noTerms.AppendLine("same terms as one supplied from a termbase. Do NOT hedge it, do NOT mark it");
+                noTerms.AppendLine("provisional or unverified, do NOT add a note about where the terms came from,");
+                noTerms.AppendLine("and do NOT offer alternatives for any entry. The prompt you generate is sent");
+                noTerms.AppendLine("verbatim to the translating AI, and any such caveat would invite exactly the");
+                noTerms.AppendLine("term substitution the lock exists to prevent. Choose each target term with that");
+                noTerms.AppendLine("in mind: commit only to entries you are confident enough to lock.");
                 return noTerms.ToString();
             }
 
