@@ -798,8 +798,11 @@ namespace Supervertaler.Trados
                 var result = System.Windows.Forms.MessageBox.Show(
                     $"This request will send approximately {tokenStr} tokens to {capturedModel}.\n" +
                     $"Estimated input cost: ~${costStr}\n\n" +
-                    "Tip: use GPT-5.4 Mini for everyday queries \u2014 it is much cheaper.\n" +
-                    "Use GPT-5.5 only for AutoPrompt or complex tasks.\n\n" +
+                    // Deliberately names no model: this dialog fires for whichever provider
+                    // is selected, and the tip used to recommend OpenAI models to users on
+                    // Claude, Gemini or Ollama.
+                    "Tip: a smaller, cheaper model from your provider handles everyday queries well.\n" +
+                    "Reserve premium models for AutoPrompt and other complex tasks.\n\n" +
                     "Continue?",
                     "Cost Warning",
                     System.Windows.Forms.MessageBoxButtons.YesNo,
