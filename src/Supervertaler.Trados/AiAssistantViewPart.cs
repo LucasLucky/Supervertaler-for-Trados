@@ -8882,6 +8882,41 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 // Update segment counts (some may now be filled)
                 UpdateBatchSegmentCounts();
 
+                // Persist the run's output. Batch writes land in the in-memory document,
+                // so a finished run stays unsaved until Studio's AutoSave next fires or
+                // the user saves by hand – a long run can complete and still be only in
+                // memory minutes later. One save here closes that window.
+                //
+                // Saving after every batch was considered and rejected: Save() is
+                // synchronous on the UI thread (the Studio API requires it), so it would
+                // freeze Trados at every batch boundary to guard a gap that Studio's own
+                // AutoSave and the backup TMX already cover between them. Once per run
+                // costs one freeze and needs no throttling.
+                //
+                // Runs on cancellation too – segments written before the user stopped are
+                // exactly the ones worth persisting.
+                if (e.Translated > 0)
+                {
+                    var saveSw = System.Diagnostics.Stopwatch.StartNew();
+                    var saveResult = BridgeSaveDocument();
+                    saveSw.Stop();
+
+                    if (saveResult != null && saveResult.Ok)
+                    {
+                        _control.Value.BatchTranslateControl.AppendLog(
+                            $"✓ Project saved ({saveSw.Elapsed.TotalSeconds:F1}s)");
+                    }
+                    else
+                    {
+                        // Never fatal: the translations are in the document either way.
+                        _control.Value.BatchTranslateControl.AppendLog(
+                            "⚠ Could not save the project automatically: " +
+                            (saveResult?.Error ?? "unknown error") +
+                            " – your translations are in the document; save with Ctrl+S.",
+                            true);
+                    }
+                }
+
                 // Final counter-Activate for the last batch. The mid-run fix
                 // in OnBatchProgress only fires while progress messages are
                 // arriving; once the run ends, Trados' Translation Results
