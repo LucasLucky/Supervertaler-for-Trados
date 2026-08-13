@@ -409,6 +409,12 @@ namespace Supervertaler.Trados.Core
             sb.AppendLine("   competing variants once established. Because there is no memory between batches, the prompt");
             sb.AppendLine("   itself must LOCK every recurring term to a single translation - never leave an open choice");
             sb.AppendLine("   (‘X or Y’) for the translator AI to resolve, as consistency cannot carry across batches.\"");
+            sb.AppendLine("   This applies to EVERY term mapping the prompt states, not only the glossary table:");
+            sb.AppendLine("   mappings given in prose style sections are binding in exactly the same way. Never");
+            sb.AppendLine("   write a mapping of the form ‘X → \"a\" / \"b\" per context’ or ‘X → a, or b where");
+            sb.AppendLine("   appropriate’. If a source term truly renders differently in different collocations,");
+            sb.AppendLine("   state each collocation as its own mapping with its own single locked target, and");
+            sb.AppendLine("   name the collocation explicitly so the choice needs no judgement at translation time.");
             sb.AppendLine();
             sb.AppendLine("5. PREFLIGHT SELF-CHECK:");
             sb.AppendLine("   \"Before producing output, internally verify: every word and clause translated, no compression or");
