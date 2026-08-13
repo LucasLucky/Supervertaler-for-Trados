@@ -5968,17 +5968,28 @@ namespace Supervertaler.Trados
                 catch { /* never break prompt generation on a logging failure */ }
 
                 // The mirror of the large-termbase warning below: terms are loaded and
-                // NONE of them may be sent to the AI, so the generated prompt will carry
-                // no glossary at all. Worth a stop, because AutoPrompt is precisely where
-                // a user assumes their terminology is being read, and an empty glossary
-                // is invisible in the result (issue #58). Read and AI are separate ticks,
-                // and AI is off by default, so this is the out-of-the-box state.
+                // NONE of them may be sent to the AI. Note what this does NOT mean: the
+                // generated prompt still gets a glossary. Every domain template lists
+                // "PROJECT-SPECIFIC GLOSSARY (MANDATORY, LOCKED)" among the sections the
+                // prompt MUST contain, universal rule 4 orders it to lock every recurring
+                // term, and the whole document is in the meta-prompt – so the model fills
+                // that table from the source text instead. The one countervailing line
+                // (PromptGenerator.BuildTerminologySection's "should include an empty
+                // section") is a lone "should" against three "MUST"s and loses.
+                //
+                // That is why this stop is worth showing (issue #58): the risk is not an
+                // absent glossary but a model-authored one that is indistinguishable from
+                // a termbase-backed one in the finished .md. Read and AI are separate
+                // ticks, and AI is off by default, so this is the out-of-the-box state.
                 if (allTerms.Count > 0 && totalTermCount == 0)
                 {
                     var parentNoAi = _control.Value.FindForm();
                     var warnNoAi =
                         $"{allTerms.Count:N0} terms are loaded, but none of your termbases is enabled for AI, " +
-                        "so this prompt will be generated with no glossary at all.\n\n" +
+                        "so none of your own terminology will be sent.\n\n" +
+                        "AutoPrompt will still produce a PROJECT-SPECIFIC GLOSSARY section – but the model " +
+                        "will derive it from the document text, not from your approved terms. Review it " +
+                        "before relying on it.\n\n" +
                         "Read and AI are separate ticks. Enable a termbase for AI with the “AI” column in the " +
                         "termbase grid on Settings → Termbases; termbases are not sent to the AI by default.\n\n" +
                         "Generate the prompt anyway?";
