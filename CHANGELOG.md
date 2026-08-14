@@ -9,6 +9,10 @@
 
 ## [18.20.182 / 19.20.182] – 2026-08-15
 
+### Added (ProZ.com's new term search, as an option)
+
+- **ProZ has rebuilt its term search, and both versions are now available.** The classic search stays switched on as before; the new one is listed separately as **ProZ.com (next)** and ships **switched off**, so nothing about your setup changes unless you want it to. Tick it in the **Web** picker to try it, and keep whichever you prefer — or both.
+
 ### Fixed (a term stored back-to-front enforced nothing, and said nothing)
 
 - **A term saved the wrong way round for its termbase is checked against nothing, and until now there was no way to find out.** Every read path orients an entry by the *termbase's* declared direction, so a row whose source column holds the termbase's target language gets indexed under the wrong language: no source segment can ever match it. The entry still sits in the termbase, still answers `lookup_term`, still reads as locked — and `check_terminology` passes over it in silence, however badly the document violates it. The failure is an *absence* of checking, which is the one kind nothing on screen can show you.
@@ -19,10 +23,6 @@
 - **New entries have not been able to acquire this shape since the strict write path landed.** `add_term` orients per termbase, or refuses rather than guessing, so this is legacy damage: on the reporting user's own database, 40 broken rows across two termbases, none newer than June.
 
 ## [18.20.181 / 19.20.181] – 2026-08-14
-
-### Added (ProZ.com's new term search, as an option)
-
-- **ProZ has rebuilt its term search, and both versions are now available.** The classic search stays switched on as before; the new one is listed separately as **ProZ.com (next)** and ships **switched off**, so nothing about your setup changes unless you want it to. Tick it in the **Web** picker to try it, and keep whichever you prefer — or both.
 
 ### Changed (the web-search shortcut is Alt+W, not Ctrl+Alt+L)
 
