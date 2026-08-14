@@ -401,8 +401,25 @@ namespace Supervertaler.Trados.Settings
                 catch { }
             }
 
-            Write("brief.md",
-                "# " + bankName + "\r\n\r\n" +
+            Write("brief.md", SkeletonBody("brief.md", bankName));
+            Write("terminology.md", SkeletonBody("terminology.md", bankName));
+            Write("style.md", SkeletonBody("style.md", bankName));
+
+            WriteReferenceReadme(bankDir);
+        }
+
+        /// <summary>
+        /// The starter body for one skeleton file, or null for a file we do not seed.
+        /// Split out from <see cref="WriteNewBankSkeleton"/> so MemoryBankReader can tell
+        /// an untouched bank from a filled one by comparing against the very text that
+        /// created it – one source of truth, no duplicated template strings to drift.
+        /// </summary>
+        internal static string SkeletonBody(string fileName, string bankName)
+        {
+            switch (fileName)
+            {
+                case "brief.md":
+                    return "# " + bankName + "\r\n\r\n" +
                 "Who this client is and anything standing that applies to all their\r\n" +
                 "work: language pair, register, house preferences, things they have\r\n" +
                 "asked for or rejected before.\r\n\r\n" +
@@ -415,10 +432,10 @@ namespace Supervertaler.Trados.Settings
                 "## Files\r\n\r\n" +
                 "- [terminology.md](terminology.md) - term decisions, one table\r\n" +
                 "- [style.md](style.md) - prose rules and approved boilerplate\r\n" +
-                "- `reference/` - source material, unmodified\r\n");
+                "- `reference/` - source material, unmodified\r\n";
 
-            Write("terminology.md",
-                "# Terminology - " + bankName + "\r\n\r\n" +
+                case "terminology.md":
+                    return "# Terminology - " + bankName + "\r\n\r\n" +
                 "One row per decision. Keep it a table: a table can be scanned and\r\n" +
                 "corrected in seconds, which is the only reason errors get caught.\r\n\r\n" +
                 "**Scope** says how far a row travels - `project`, `client`, or\r\n" +
@@ -427,16 +444,24 @@ namespace Supervertaler.Trados.Settings
                 "or the two drift apart.\r\n\r\n" +
                 "| Source | Target | Scope | Note |\r\n" +
                 "|---|---|---|---|\r\n" +
-                "|  |  |  |  |\r\n");
+                "|  |  |  |  |\r\n";
 
-            Write("style.md",
-                "# Style - " + bankName + "\r\n\r\n" +
+                case "style.md":
+                    return "# Style - " + bankName + "\r\n\r\n" +
                 "Prose rules and approved boilerplate: how things are phrased, rather\r\n" +
                 "than which term is used. Quote the approved wording in full - a rule\r\n" +
                 "you have to reconstruct from a description is a rule that gets\r\n" +
                 "applied inconsistently.\r\n\r\n" +
-                "## 1. \r\n\r\n");
+                "## 1. \r\n\r\n";
 
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>Seeds <c>reference/README.md</c>. Never read by the prompt builder.</summary>
+        private static void WriteReferenceReadme(string bankDir)
+        {
             try
             {
                 var refDir = Path.Combine(bankDir, Core.MemoryBankReader.ReferenceFolder);

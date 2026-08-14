@@ -874,14 +874,33 @@ namespace Supervertaler.Trados.Core
 
         private static string BuildTmSection(List<TmMatch> tmPairs)
         {
+            // Observed on a real run: given 7 pairs, the model emitted 11 and filed its own
+            // renderings under "Additional validated project segments" – one of them carrying
+            // a ⟦TC:⟧ marker, which no human TM contains. This section outranks the glossary
+            // in the terminology hierarchy, so an invented entry is the most authoritative
+            // thing in the prompt while being the least grounded. Saying "include them" was
+            // never the same as saying "and no others"; both branches now say the latter.
             if (tmPairs == null || tmPairs.Count == 0)
-                return "No TM reference translations available. The generated prompt should include an empty " +
-                       "PREVIOUS CORRECT TRANSLATIONS section noting that none are available yet.";
+                return "No TM reference translations are available for this project. The generated prompt " +
+                       "must include a PREVIOUS CORRECT TRANSLATIONS section that says so plainly and lists " +
+                       "no pairs.\n\n" +
+                       "Do NOT invent, reconstruct or supply example pairs to fill it. This section records " +
+                       "human-validated translations only and outranks the glossary, so a fabricated entry " +
+                       "is presented to the translator AI as approved by the translator when nobody has " +
+                       "approved it.";
 
             var sb = new StringBuilder();
             sb.AppendLine($"The following {tmPairs.Count} validated translation pairs come from the project's");
             sb.AppendLine("Translation Memory. Include them in the PREVIOUS CORRECT TRANSLATIONS section.");
             sb.AppendLine("These serve as style anchors – the AI must match their register and terminology choices.");
+            sb.AppendLine();
+            sb.AppendLine($"Include EXACTLY these {tmPairs.Count} pairs and no others. Never invent, extrapolate");
+            sb.AppendLine("or add a pair that is not listed below, and never promote a rendering you chose");
+            sb.AppendLine("yourself into this section – not as an \"additional validated segment\", not as an");
+            sb.AppendLine("example, not in any other guise. These are human-validated translations and they");
+            sb.AppendLine("outrank the glossary, so anything you add here is presented to the translator AI as");
+            sb.AppendLine("approved by the translator when nobody has approved it. A rendering you derived");
+            sb.AppendLine("yourself belongs in the glossary or a style section, never in this one.");
             sb.AppendLine();
 
             foreach (var pair in tmPairs)
