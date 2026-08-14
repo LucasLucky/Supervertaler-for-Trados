@@ -169,6 +169,69 @@ namespace Supervertaler.Trados.Settings
         [DataMember(Name = "superSearchMode")]
         public string SuperSearchMode { get; set; } = "FilesAndTms";
 
+        // ─── SuperSearch: web resources ─────────────────────────────────
+        /// <summary>
+        /// The user's web resource list — built-ins plus any they added, with
+        /// their enabled state and ordering. Never read directly: go through
+        /// <see cref="GetWebResources"/>, which reconciles this against the
+        /// built-ins shipped by the current build.
+        /// <para>The element shape is deliberately identical to the standalone
+        /// SuperLookup app's <c>superlookup-searches.json</c>, so a list can be
+        /// exported from one product and imported into the other unchanged.</para>
+        /// </summary>
+        [DataMember(Name = "webResources")]
+        public List<WebResource> WebResources { get; set; } = new List<WebResource>();
+
+        /// <summary>
+        /// The <see cref="WebResourceCatalog.DefaultsRevision"/> in force when
+        /// <see cref="WebResources"/> was last written. When it lags behind the
+        /// current build, <see cref="GetWebResources"/> refreshes each built-in's
+        /// URL/name/icon from the shipped defaults while keeping the user's
+        /// on/off choices — so a site that changes its URL scheme is fixed by an
+        /// update instead of staying broken forever.
+        /// </summary>
+        [DataMember(Name = "webResourcesRevision")]
+        public int WebResourcesRevision { get; set; } = 0;
+
+        /// <summary>
+        /// Where web results are rendered: "Embedded" (WebView2 tabs inside the
+        /// SuperSearch pane) or "Browser" (one new window in the user's default
+        /// browser). Default: "Embedded". Falls back to "Browser" at runtime when
+        /// the WebView2 Runtime is missing — some users also prefer Browser
+        /// permanently, for their own ad blocker and their logged-in sessions.
+        /// Stored as a string for forward compatibility with future modes.
+        /// </summary>
+        [DataMember(Name = "webResultsMode")]
+        public string WebResultsMode { get; set; } = "Embedded";
+
+        /// <summary>True when web results should open in the user's browser
+        /// rather than in the SuperSearch pane.</summary>
+        public bool WebResultsInBrowser
+        {
+            get { return string.Equals(WebResultsMode, "Browser", StringComparison.OrdinalIgnoreCase); }
+        }
+
+        /// <summary>
+        /// The web resource list to actually use: the stored list reconciled
+        /// against the built-ins of the running build. Cheap enough to call per
+        /// search, but callers that hold it should re-fetch after a settings save.
+        /// </summary>
+        public List<WebResource> GetWebResources()
+        {
+            return WebResourceCatalog.Merge(WebResources, WebResourcesRevision);
+        }
+
+        /// <summary>
+        /// Stores a reconciled list and stamps it with the current defaults
+        /// revision. Call this rather than assigning <see cref="WebResources"/>
+        /// directly, or the next load will re-run the refresh pass.
+        /// </summary>
+        public void SetWebResources(List<WebResource> resources)
+        {
+            WebResources = resources ?? new List<WebResource>();
+            WebResourcesRevision = WebResourceCatalog.DefaultsRevision;
+        }
+
         // ─── Term shortcut style ────────────────────────────────────────
         /// <summary>
         /// How Alt+digit shortcuts work for terms beyond 9.
@@ -484,6 +547,14 @@ namespace Supervertaler.Trados.Settings
                         s.WriteTermbaseIds = new List<long>();
                     if (s.ConfirmedNonMatchingWriteTermbaseNames == null)
                         s.ConfirmedNonMatchingWriteTermbaseNames = new List<string>();
+                    // Absent from any settings file written before web resources
+                    // shipped. Left empty rather than seeded: GetWebResources()
+                    // treats empty as "give me the defaults", so a pre-existing
+                    // user gets the current built-ins on first use.
+                    if (s.WebResources == null)
+                        s.WebResources = new List<WebResource>();
+                    if (string.IsNullOrWhiteSpace(s.WebResultsMode))
+                        s.WebResultsMode = "Embedded";
 
                     // Migrate: chord delay missing from older settings (deserializes as 0)
                     if (s.ChordDelayMs <= 0)

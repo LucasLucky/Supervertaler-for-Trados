@@ -7,6 +7,36 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.180 / 19.20.180] – 2026-08-14
+
+### Added (SuperSearch now searches the web too) — [#64](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/64)
+
+- **Select a term, press Ctrl+Alt+L, and 41 reference sites are one keystroke away** – IATE, Linguee, Reverso, ProZ, Juremy, Glosbe, EUR-Lex, Wikipedia and the rest, with the query and your project's own language pair already filled in. There is nothing to type and no language dropdown to set. Also on the editor right-click menu as **Search the web**, and on a new **🌐** button in the SuperSearch bar.
+- **Web resources are a fourth SuperSearch scope**, sitting beside Files, TMs and TBs. Click **Web (n)** to choose which sites are active; five are on out of the box – Beijerterm, IATE, Linguee, ProZ and Reverso – and the other 36 are one tick away. Your own sites can be added with a URL template.
+- **Results open either in a Supervertaler window or in your own browser**, your choice, from a checkbox in that same dialog. Neither is a fallback for the other and both are worth having: your browser brings your ad blocker and your signed-in sessions, while the Supervertaler window keeps one window and refreshes its tabs in place instead of leaving a trail of browser windows behind.
+- **In the Supervertaler window, tabs load only when you click them.** Eight enabled resources would otherwise mean eight embedded browsers at once inside Studio 2024, which is a 32-bit application with a memory ceiling that Studio itself already presses against.
+- **A term picked from the target side is searched in the target language.** Looking up a Dutch word in an EN→NL project searches nl→en, not en→nl – the latter is how you get a screen of nothing and conclude the site is broken.
+- **Sites that demand a human-verification check are flagged, not fought.** ProZ in particular blocks embedded browsers; when that happens the tab offers to hand the page to your own browser, where you are already signed in and pass instantly. It is an offer, not a jump: nothing drags you out of the editor mid-segment.
+- **Four resources were repaired or removed after checking all 41 against the live sites.** 2lingual, Oxford Collocations and the Financiële Begrippenlijst had all changed their URL schemes and had been quietly returning nothing – the Dutch one addressed an A–Z index page that has never been a term page at all. ChemIndustry is gone: the domain changed hands and now serves an unrelated site.
+- **The resource list is interchangeable with the standalone SuperLookup app**, which uses the same file format, so a list exported from one imports into the other unchanged.
+
+### Fixed (AutoPrompt could invent terminology and present it as yours) — [#58](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/58)
+
+- **A generated prompt could tell the translating AI that wording was "anchored by validated TM segment" when the TM contained no such thing.** Seen on a real run: notes citing validated segments for *stroefheid*, *waterafvoer*, *maalsel* and others against a TM of one title and five headings, and one citing a segment for a word that does not occur in the source at all. This is the worst kind of error to catch by eye, because you read it back as your own earlier decision and stop questioning it. A provenance claim may now only name a source that actually supplied the term — TM wording only for terms literally present in the supplied pairs, house wording only for rules in the knowledge base, termbase wording only for supplied terms — and where an input is absent, the prompt says so explicitly rather than leaving the claim available.
+- **Given 7 validated TM pairs, the model was emitting 11**, filing its own renderings under "additional validated project segments" — one even carrying a tracked-change marker, which no human TM produces. That section outranks the glossary, so an invented entry was the most authoritative and least grounded thing in the prompt. Both branches now say "and no others", and say where a self-derived rendering belongs instead.
+- **A glossary row could carry three candidate translations under a heading marked MANDATORY, LOCKED.** On a 535-segment patent run the Notes column was used to smuggle in an alternative: the locked cell offered *housing (enclosure)* while the note governed the term's only actual occurrence with a third rendering. Batch translation has no memory between batches, so an open choice is resolved differently each time. One locked target per row now, with the model told to split a term into one row per collocation where it genuinely differs. The same rule now covers mappings written in prose, which previously escaped it.
+- **A memory bank you created but never filled in was announced to the model as "hard-won translation decisions and client-specific rules", followed by nothing** — which is exactly how a prompt ends up attributing invented conventions to you. A bank still matching the skeleton it was created from is now treated as absent rather than empty-but-asserted. Anything unrecognised counts as content, so a bank you have edited is never silently dropped.
+- **When no termbase is enabled for the AI, the prompt now says so honestly.** The old warning claimed no glossary would be sent; in fact the model built one from the source text anyway, and the result was indistinguishable from a termbase-backed glossary in the finished prompt. The derived glossary is now explicitly derived, and its provenance is recorded in the saved prompt's metadata — shown in the library panel and QuickLauncher tooltip, where a person reads it, and never sent to the translating AI, where a "verify before use" line would have licensed the very substitution the lock exists to prevent.
+
+### Fixed (a finished Batch Translate run could still be unsaved)
+
+- **Batch translations went into the in-memory document and stayed there** until Studio's AutoSave next fired or you saved by hand — so a 27-batch job could finish and still exist only in memory minutes later. The project is now saved once when a run completes, including when you cancel it, which is when keeping the partial output matters most. If the save fails you are told to press Ctrl+S; the translations are in the document either way.
+- **Saving after every batch was considered and rejected**: Studio's save is synchronous on the UI thread, so it would freeze Trados at every batch boundary to close a gap that AutoSave and the every-10-segments backup TMX already cover.
+
+### Fixed (the cost warning recommended models your provider may not have)
+
+- **The cost tip named GPT-5.4 Mini and GPT-5.5 whatever provider you were using**, so a user on Claude, Gemini or Ollama was advised to switch to a model that does not exist for them. It no longer names a model.
+
 ## [18.20.179 / 19.20.179] – 2026-08-11
 
 ### Fixed (TermLens missed terms wrapped in Markdown, e.g. `**doelstelling**`) — [#63](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/63)

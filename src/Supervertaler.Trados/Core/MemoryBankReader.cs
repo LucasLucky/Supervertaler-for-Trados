@@ -234,12 +234,90 @@ namespace Supervertaler.Trados.Core
                 if (!File.Exists(path)) return null;
                 var text = File.ReadAllText(path);
                 if (string.IsNullOrWhiteSpace(text)) return null;
+
+                // A bank the user created but never filled in is not content. Its files are
+                // ~1.8 KB of headings and instructions, so the old IsNullOrWhiteSpace check
+                // passed and the prompt builder announced "hard-won translation decisions"
+                // over a set of blank slots – an invitation to invent house conventions and
+                // attribute them to the translator. Treat an untouched file as absent.
+                if (IsSkeletonOnly(text, fileName, BankNameOf(bankDir))) return null;
+
                 relativePath = fileName;
                 return text.Trim();
             }
             catch
             {
                 return null;
+            }
+        }
+
+        /// <summary>The bank name is the folder name – the skeleton embeds it in each file.</summary>
+        private static string BankNameOf(string bankDir)
+        {
+            try { return Path.GetFileName(bankDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)); }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// True when every substantive line of <paramref name="text"/> also appears in the
+        /// skeleton this file was created from – i.e. the user has added nothing.
+        /// </summary>
+        /// <remarks>
+        /// Compares against <see cref="Settings.UserDataPath.SkeletonBody"/> rather than
+        /// guessing structurally, because a structural rule ("is there a filled table row?")
+        /// has to tell instructional prose from real prose, and its failure mode is dropping
+        /// content the user did write. This comparison fails the other way: anything it does
+        /// not recognise is treated as content and included. That also covers skeleton text
+        /// changing in a later release – banks seeded by an older skeleton stop matching and
+        /// are simply included again, which is the pre-guard behaviour, not a new break.
+        ///
+        /// Deleting the instructions without adding anything still counts as untouched: the
+        /// remaining lines are a subset of the skeleton's.
+        /// </remarks>
+        private static bool IsSkeletonOnly(string text, string fileName, string bankName)
+        {
+            if (string.IsNullOrEmpty(bankName)) return false;
+
+            var skeleton = Settings.UserDataPath.SkeletonBody(fileName, bankName);
+            if (string.IsNullOrEmpty(skeleton)) return false;   // a file we never seeded
+
+            var skeletonLines = new HashSet<string>(SubstantiveLines(skeleton), StringComparer.Ordinal);
+            foreach (var line in SubstantiveLines(text))
+            {
+                if (!skeletonLines.Contains(line))
+                    return false;                                // something the skeleton never had
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Lines that could carry meaning: drops blanks, bare bullets, table separators and
+        /// all-blank table rows. Headings are deliberately KEPT – the skeleton's "## 1." slot
+        /// is filled by writing into the heading itself ("## 1. Never abbreviate"), so
+        /// discarding headings would hide exactly the edit this check exists to notice.
+        /// </summary>
+        private static IEnumerable<string> SubstantiveLines(string text)
+        {
+            if (string.IsNullOrEmpty(text)) yield break;
+
+            foreach (var raw in text.Replace("\r\n", "\n").Split('\n'))
+            {
+                var line = raw.Trim();
+                if (line.Length == 0) continue;
+                if (line == "-" || line == "*" || line == "+") continue;
+
+                if (line.StartsWith("|", StringComparison.Ordinal))
+                {
+                    // Separator ("|---|---|") or an empty row ("|  |  |  |") carries nothing.
+                    bool empty = true;
+                    foreach (var ch in line)
+                    {
+                        if (ch != '|' && ch != '-' && ch != ':' && !char.IsWhiteSpace(ch)) { empty = false; break; }
+                    }
+                    if (empty) continue;
+                }
+
+                yield return line;
             }
         }
 

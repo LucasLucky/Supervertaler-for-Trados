@@ -409,6 +409,12 @@ namespace Supervertaler.Trados.Core
             sb.AppendLine("   competing variants once established. Because there is no memory between batches, the prompt");
             sb.AppendLine("   itself must LOCK every recurring term to a single translation - never leave an open choice");
             sb.AppendLine("   (‘X or Y’) for the translator AI to resolve, as consistency cannot carry across batches.\"");
+            sb.AppendLine("   This applies to EVERY term mapping the prompt states, not only the glossary table:");
+            sb.AppendLine("   mappings given in prose style sections are binding in exactly the same way. Never");
+            sb.AppendLine("   write a mapping of the form ‘X → \"a\" / \"b\" per context’ or ‘X → a, or b where");
+            sb.AppendLine("   appropriate’. If a source term truly renders differently in different collocations,");
+            sb.AppendLine("   state each collocation as its own mapping with its own single locked target, and");
+            sb.AppendLine("   name the collocation explicitly so the choice needs no judgement at translation time.");
             sb.AppendLine();
             sb.AppendLine("5. PREFLIGHT SELF-CHECK:");
             sb.AppendLine("   \"Before producing output, internally verify: every word and clause translated, no compression or");
@@ -456,6 +462,54 @@ namespace Supervertaler.Trados.Core
                 sb.AppendLine(ctx.KbContext);
                 sb.AppendLine();
             }
+
+            // Provenance discipline. Observed after the TM section was locked down: the model
+            // stopped inventing entries in PREVIOUS CORRECT TRANSLATIONS and started writing
+            // "Anchored by validated TM segment" in glossary Notes cells for terms the TM
+            // never contained. The fabrication did not stop, it moved – from inventing an
+            // entry to mislabelling one. A note is a claim, so the rule has to govern claims
+            // wherever they appear, not just the section they were last seen in.
+            var hasTermData = ctx.TermbaseTerms != null && ctx.TermbaseTerms.Count > 0;
+            var hasTmData = ctx.TmPairs != null && ctx.TmPairs.Count > 0;
+            var hasKbData = !string.IsNullOrWhiteSpace(ctx.KbContext);
+
+            sb.AppendLine("=== ATTRIBUTION OF TERMINOLOGY DECISIONS ===");
+            sb.AppendLine();
+            sb.AppendLine("The prompt you generate may record where a rendering came from – in a glossary");
+            sb.AppendLine("Notes cell, in a style rule, anywhere. Every such note is a claim about provenance");
+            sb.AppendLine("and must be true. Cite a source ONLY when that source, exactly as supplied above,");
+            sb.AppendLine("actually contains the term or rule.");
+            sb.AppendLine();
+            sb.Append("- \"TM\", \"validated\", \"validated segment\", \"per the TM\", \"anchored by the validated ");
+            sb.AppendLine("title\"");
+            sb.AppendLine("  and equivalents: permitted ONLY for a term that literally appears in the pairs under");
+            sb.AppendLine(hasTmData
+                ? $"  REFERENCE TRANSLATIONS FROM TM above. Those {ctx.TmPairs.Count} pairs are the entire TM you"
+                : "  REFERENCE TRANSLATIONS FROM TM above. NO TM pairs were supplied for this project, so no");
+            sb.AppendLine(hasTmData
+                ? "  have been shown; a term absent from them has no TM provenance, however plausible."
+                : "  note of this kind is permitted anywhere in the generated prompt.");
+            sb.AppendLine();
+            sb.Append("- \"house default\", \"approved\", \"established convention\", \"the translator's own\" ");
+            sb.AppendLine("and");
+            sb.AppendLine(hasKbData
+                ? "  equivalents: permitted ONLY for a rule that appears in the KNOWLEDGE BASE section above."
+                : "  equivalents: NO knowledge base was supplied, so no note of this kind is permitted.");
+            sb.AppendLine();
+            sb.AppendLine(hasTermData
+                ? "- \"termbase\", \"approved terminology\": permitted ONLY for a term listed under TERMINOLOGY DATA."
+                : "- \"termbase\", \"approved terminology\": NO termbase terms were supplied, so these are barred.");
+            sb.AppendLine();
+            sb.AppendLine("For every other rendering – anything you decided yourself, from the document or from");
+            sb.AppendLine("domain knowledge – state the rule with NO provenance note at all. A note that gives a");
+            sb.AppendLine("reason or forbids an alternative is always fine (\"Never 'apparatus'\", \"UK spelling\");");
+            sb.AppendLine("what is barred is claiming an authority that did not supply it.");
+            sb.AppendLine();
+            sb.AppendLine("Attributing your own inference to the translator is worse than leaving it unattributed.");
+            sb.AppendLine("The translator reads it back as their own earlier decision and will not re-examine it,");
+            sb.AppendLine("so a wrong lock that looks approved is the hardest kind to catch. When in doubt about");
+            sb.AppendLine("where something came from, omit the note and keep the rule.");
+            sb.AppendLine();
 
             // Translator-comment methodology — required in every generated prompt
             sb.AppendLine("=== TRANSLATOR-COMMENT METHODOLOGY (REQUIRED IN EVERY GENERATED PROMPT) ===");
@@ -572,7 +626,11 @@ namespace Supervertaler.Trados.Core
             sb.AppendLine("=== OUTPUT INSTRUCTIONS ===");
             sb.AppendLine("1. The prompt content must be ready to use – NO placeholders like [Translation] or [Source Language]");
             sb.AppendLine($"2. Use actual values: {ctx.SourceLang} and {ctx.TargetLang}");
-            sb.AppendLine("3. Include ALL termbase terms in the glossary (do not summarize or sample)");
+            if (ctx.TermbaseTerms != null && ctx.TermbaseTerms.Count > 0)
+                sb.AppendLine("3. Include ALL termbase terms in the glossary (do not summarize or sample)");
+            else
+                sb.AppendLine("3. No approved termbase terms were supplied – derive the glossary from the document, " +
+                              "locked and without caveats, exactly as specified under TERMINOLOGY DATA above");
             sb.AppendLine("4. The prompt should be comprehensive (2000-5000 words)");
             sb.AppendLine("5. Use exactly ONE blank line between sections, paragraphs, and list blocks.");
             sb.AppendLine("   Never insert two or more consecutive blank lines.");
@@ -599,6 +657,22 @@ namespace Supervertaler.Trados.Core
             sb.AppendLine("    | Dutch (source) | English (locked target) | Notes |");
             sb.AppendLine("    |---|---|---|");
             sb.AppendLine("    | inrichting | device | EPO standard; never \"apparatus\" |");
+            sb.AppendLine();
+            sb.AppendLine("  The locked-target cell is the SINGLE binding rendering for that source term:");
+            sb.AppendLine("  exactly one target per row. Never put alternatives in it (\"housing (enclosure)\",");
+            sb.AppendLine("  \"casing / housing\"), and never defer the choice to context.");
+            sb.AppendLine();
+            sb.AppendLine("  The Notes cell explains or forbids – it must NEVER introduce a second target.");
+            sb.AppendLine("  Correct: `EPO standard; never \"apparatus\"`. NOT allowed: `= \"casing\" where paired");
+            sb.AppendLine("  with X`, which silently overrides the locked cell and reopens the very choice the");
+            sb.AppendLine("  lock exists to close. The translator AI has no memory between batches and cannot");
+            sb.AppendLine("  resolve such a choice consistently.");
+            sb.AppendLine();
+            sb.AppendLine("  Where a source term genuinely needs different renderings in different collocations,");
+            sb.AppendLine("  give each collocation its OWN row with its own locked target – e.g. a row for the");
+            sb.AppendLine("  bare term and a separate row for the fixed phrase it appears in – rather than one");
+            sb.AppendLine("  row plus a caveat. Check each row you write against the document: if the locked");
+            sb.AppendLine("  target does not fit every occurrence, split the row.");
             sb.AppendLine();
             sb.AppendLine("- Use `---` horizontal rules to separate major sections where it aids scanability.");
             sb.AppendLine("- Use fenced code blocks (```) only for actual code / file-path / API-name examples; do");
@@ -777,9 +851,47 @@ namespace Supervertaler.Trados.Core
 
         private static string BuildTerminologySection(List<TermEntry> terms)
         {
+            // No approved terms. The old instruction here asked for an EMPTY glossary
+            // section – a lone "should" against three "MUST"s elsewhere in the meta-prompt
+            // (the mandatory section list, universal rule 4's lock-every-recurring-term,
+            // and the worked glossary table in the Markdown block), so the model built one
+            // from the document anyway and the instruction was simply dead text. Deriving
+            // a glossary from the source is in fact the point of AutoPrompt – with no
+            // memory between batches, a locked glossary the model extracted beats no
+            // terminology guidance at all. So say so plainly.
+            //
+            // What must NOT go in the glossary is a provenance caveat. The generated .md
+            // is not a document a human reads and edits before use – it is shipped verbatim
+            // as the system prompt to the translating AI. A "derived from source, verify
+            // before use" line under the heading would therefore be read by the translator
+            // AI, sitting directly beside "MANDATORY, LOCKED" and universal rule 4's ban on
+            // leaving an open choice. It would license exactly the substitution the lock
+            // exists to prevent. Provenance belongs in the prompt's YAML `description`,
+            // which PromptLibrary parses out into a field shown only in the library panel
+            // and QuickLauncher tooltip – see OnSaveAsPromptRequested.
             if (terms == null || terms.Count == 0)
-                return "No termbase terms available. The generated prompt should include an empty " +
-                       "PROJECT-SPECIFIC GLOSSARY section with instructions to add terms later.";
+            {
+                var noTerms = new StringBuilder();
+                noTerms.AppendLine("No approved termbase terms were supplied for this project – none of the");
+                noTerms.AppendLine("translator's termbases is enabled for AI.");
+                noTerms.AppendLine();
+                noTerms.AppendLine("Do NOT emit an empty glossary. Build the PROJECT-SPECIFIC GLOSSARY section by");
+                noTerms.AppendLine("identifying the recurring, project-defining terminology in the document content");
+                noTerms.AppendLine("above: the terms whose translation must stay identical across every batch");
+                noTerms.AppendLine("(components, processes, materials, terms of art, and any term whose obvious");
+                noTerms.AppendLine("dictionary equivalent would be wrong in this domain). Because there is no memory");
+                noTerms.AppendLine("between batches, a locked glossary derived from the source is far more valuable");
+                noTerms.AppendLine("than none.");
+                noTerms.AppendLine();
+                noTerms.AppendLine("Treat that glossary as fully binding: it is MANDATORY and LOCKED on exactly the");
+                noTerms.AppendLine("same terms as one supplied from a termbase. Do NOT hedge it, do NOT mark it");
+                noTerms.AppendLine("provisional or unverified, do NOT add a note about where the terms came from,");
+                noTerms.AppendLine("and do NOT offer alternatives for any entry. The prompt you generate is sent");
+                noTerms.AppendLine("verbatim to the translating AI, and any such caveat would invite exactly the");
+                noTerms.AppendLine("term substitution the lock exists to prevent. Choose each target term with that");
+                noTerms.AppendLine("in mind: commit only to entries you are confident enough to lock.");
+                return noTerms.ToString();
+            }
 
             var sb = new StringBuilder();
             sb.AppendLine($"The following {terms.Count} terms are from the project's termbase(s).");
@@ -810,14 +922,33 @@ namespace Supervertaler.Trados.Core
 
         private static string BuildTmSection(List<TmMatch> tmPairs)
         {
+            // Observed on a real run: given 7 pairs, the model emitted 11 and filed its own
+            // renderings under "Additional validated project segments" – one of them carrying
+            // a ⟦TC:⟧ marker, which no human TM contains. This section outranks the glossary
+            // in the terminology hierarchy, so an invented entry is the most authoritative
+            // thing in the prompt while being the least grounded. Saying "include them" was
+            // never the same as saying "and no others"; both branches now say the latter.
             if (tmPairs == null || tmPairs.Count == 0)
-                return "No TM reference translations available. The generated prompt should include an empty " +
-                       "PREVIOUS CORRECT TRANSLATIONS section noting that none are available yet.";
+                return "No TM reference translations are available for this project. The generated prompt " +
+                       "must include a PREVIOUS CORRECT TRANSLATIONS section that says so plainly and lists " +
+                       "no pairs.\n\n" +
+                       "Do NOT invent, reconstruct or supply example pairs to fill it. This section records " +
+                       "human-validated translations only and outranks the glossary, so a fabricated entry " +
+                       "is presented to the translator AI as approved by the translator when nobody has " +
+                       "approved it.";
 
             var sb = new StringBuilder();
             sb.AppendLine($"The following {tmPairs.Count} validated translation pairs come from the project's");
             sb.AppendLine("Translation Memory. Include them in the PREVIOUS CORRECT TRANSLATIONS section.");
             sb.AppendLine("These serve as style anchors – the AI must match their register and terminology choices.");
+            sb.AppendLine();
+            sb.AppendLine($"Include EXACTLY these {tmPairs.Count} pairs and no others. Never invent, extrapolate");
+            sb.AppendLine("or add a pair that is not listed below, and never promote a rendering you chose");
+            sb.AppendLine("yourself into this section – not as an \"additional validated segment\", not as an");
+            sb.AppendLine("example, not in any other guise. These are human-validated translations and they");
+            sb.AppendLine("outrank the glossary, so anything you add here is presented to the translator AI as");
+            sb.AppendLine("approved by the translator when nobody has approved it. A rendering you derived");
+            sb.AppendLine("yourself belongs in the glossary or a style section, never in this one.");
             sb.AppendLine();
 
             foreach (var pair in tmPairs)

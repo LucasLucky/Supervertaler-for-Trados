@@ -798,8 +798,11 @@ namespace Supervertaler.Trados
                 var result = System.Windows.Forms.MessageBox.Show(
                     $"This request will send approximately {tokenStr} tokens to {capturedModel}.\n" +
                     $"Estimated input cost: ~${costStr}\n\n" +
-                    "Tip: use GPT-5.4 Mini for everyday queries \u2014 it is much cheaper.\n" +
-                    "Use GPT-5.5 only for AutoPrompt or complex tasks.\n\n" +
+                    // Deliberately names no model: this dialog fires for whichever provider
+                    // is selected, and the tip used to recommend OpenAI models to users on
+                    // Claude, Gemini or Ollama.
+                    "Tip: a smaller, cheaper model from your provider handles everyday queries well.\n" +
+                    "Reserve premium models for AutoPrompt and other complex tasks.\n\n" +
                     "Continue?",
                     "Cost Warning",
                     System.Windows.Forms.MessageBoxButtons.YesNo,
@@ -5869,6 +5872,14 @@ namespace Supervertaler.Trados
 
         // ─── AutoPrompt ──────────────────────────────────────────────
 
+        /// <summary>
+        /// True when the most recent AutoPrompt run had no termbase enabled for AI, so the
+        /// generated prompt's glossary was derived from the document rather than from
+        /// approved terminology. Surfaced only in the saved prompt's YAML description –
+        /// never in the prompt body, which goes verbatim to the translating AI.
+        /// </summary>
+        private bool _lastAutoPromptGlossaryDerived;
+
         private void OnGeneratePromptRequested(object sender, EventArgs e)
         {
             SafeInvoke(() =>
@@ -5968,17 +5979,28 @@ namespace Supervertaler.Trados
                 catch { /* never break prompt generation on a logging failure */ }
 
                 // The mirror of the large-termbase warning below: terms are loaded and
-                // NONE of them may be sent to the AI, so the generated prompt will carry
-                // no glossary at all. Worth a stop, because AutoPrompt is precisely where
-                // a user assumes their terminology is being read, and an empty glossary
-                // is invisible in the result (issue #58). Read and AI are separate ticks,
-                // and AI is off by default, so this is the out-of-the-box state.
+                // NONE of them may be sent to the AI. Note what this does NOT mean: the
+                // generated prompt still gets a glossary. Every domain template lists
+                // "PROJECT-SPECIFIC GLOSSARY (MANDATORY, LOCKED)" among the sections the
+                // prompt MUST contain, universal rule 4 orders it to lock every recurring
+                // term, and the whole document is in the meta-prompt – so the model fills
+                // that table from the source text instead. The one countervailing line
+                // (PromptGenerator.BuildTerminologySection's "should include an empty
+                // section") is a lone "should" against three "MUST"s and loses.
+                //
+                // That is why this stop is worth showing (issue #58): the risk is not an
+                // absent glossary but a model-authored one that is indistinguishable from
+                // a termbase-backed one in the finished .md. Read and AI are separate
+                // ticks, and AI is off by default, so this is the out-of-the-box state.
                 if (allTerms.Count > 0 && totalTermCount == 0)
                 {
                     var parentNoAi = _control.Value.FindForm();
                     var warnNoAi =
                         $"{allTerms.Count:N0} terms are loaded, but none of your termbases is enabled for AI, " +
-                        "so this prompt will be generated with no glossary at all.\n\n" +
+                        "so none of your own terminology will be sent.\n\n" +
+                        "AutoPrompt will still produce a PROJECT-SPECIFIC GLOSSARY section – but the model " +
+                        "will derive it from the document text, not from your approved terms. Review it " +
+                        "before relying on it.\n\n" +
                         "Read and AI are separate ticks. Enable a termbase for AI with the “AI” column in the " +
                         "termbase grid on Settings → Termbases; termbases are not sent to the AI by default.\n\n" +
                         "Generate the prompt anyway?";
@@ -6106,6 +6128,13 @@ namespace Supervertaler.Trados
                     KbContext = kbContext,
                     UserContextHint = userContextHint
                 };
+
+                // Record how this run's glossary will be sourced, so the saved prompt can
+                // carry that provenance in its YAML `description` (library panel and
+                // QuickLauncher tooltip only). It deliberately does NOT go into the prompt
+                // body: that is shipped verbatim to the translating AI, where a caveat
+                // beside a LOCKED glossary would undermine it. See BuildTerminologySection.
+                _lastAutoPromptGlossaryDerived = termbaseTerms.Count == 0;
 
                 var metaPrompt = PromptGenerator.BuildMetaPrompt(ctx);
                 var displayText = PromptGenerator.BuildDisplayMessage(ctx);
@@ -6324,12 +6353,19 @@ namespace Supervertaler.Trados
                     if (string.IsNullOrWhiteSpace(name))
                         return;
 
+                    // Provenance lives here, in YAML frontmatter, not in the prompt body:
+                    // PromptLibrary parses `description` into a field shown in the library
+                    // panel and the QuickLauncher tooltip, so it reaches the translator
+                    // without ever being sent to the translating AI.
                     var template = new PromptTemplate
                     {
                         Name = name,
                         Category = "Translate",
                         Content = content,
-                        Description = "Generated by AutoPrompt"
+                        Description = _lastAutoPromptGlossaryDerived
+                            ? "Generated by AutoPrompt – glossary derived from the document " +
+                              "(no termbase was enabled for AI)"
+                            : "Generated by AutoPrompt"
                     };
 
                     _promptLibrary.SavePrompt(template);
@@ -8845,6 +8881,41 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
 
                 // Update segment counts (some may now be filled)
                 UpdateBatchSegmentCounts();
+
+                // Persist the run's output. Batch writes land in the in-memory document,
+                // so a finished run stays unsaved until Studio's AutoSave next fires or
+                // the user saves by hand – a long run can complete and still be only in
+                // memory minutes later. One save here closes that window.
+                //
+                // Saving after every batch was considered and rejected: Save() is
+                // synchronous on the UI thread (the Studio API requires it), so it would
+                // freeze Trados at every batch boundary to guard a gap that Studio's own
+                // AutoSave and the backup TMX already cover between them. Once per run
+                // costs one freeze and needs no throttling.
+                //
+                // Runs on cancellation too – segments written before the user stopped are
+                // exactly the ones worth persisting.
+                if (e.Translated > 0)
+                {
+                    var saveSw = System.Diagnostics.Stopwatch.StartNew();
+                    var saveResult = BridgeSaveDocument();
+                    saveSw.Stop();
+
+                    if (saveResult != null && saveResult.Ok)
+                    {
+                        _control.Value.BatchTranslateControl.AppendLog(
+                            $"✓ Project saved ({saveSw.Elapsed.TotalSeconds:F1}s)");
+                    }
+                    else
+                    {
+                        // Never fatal: the translations are in the document either way.
+                        _control.Value.BatchTranslateControl.AppendLog(
+                            "⚠ Could not save the project automatically: " +
+                            (saveResult?.Error ?? "unknown error") +
+                            " – your translations are in the document; save with Ctrl+S.",
+                            true);
+                    }
+                }
 
                 // Final counter-Activate for the last batch. The mid-run fix
                 // in OnBatchProgress only fires while progress messages are
