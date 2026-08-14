@@ -2864,6 +2864,13 @@ namespace Supervertaler.Trados
             else // terminology
             {
                 Dictionary<string, List<Models.TermEntry>> index;
+                // Entries whose stored direction contradicts their termbase's.
+                // Any of them that is genuinely reversed is indexed under the
+                // wrong language and so was never matched by any source segment
+                // – silence about it here means "not looked at", not "not
+                // violated". Reported alongside the findings rather than left
+                // to pass for a clean result.
+                List<Models.TermbaseDirectionMismatch> mismatched = null;
                 try
                 {
                     var settings = TermLensSettings.Load();
@@ -2890,6 +2897,8 @@ namespace Supervertaler.Trados
                         }
                         catch { }
                         index = reader.LoadAllTerms(disabled, settings.CaseSensitiveMatching, projSrcLang);
+                        try { mismatched = reader.GetDirectionMismatchedTerms(disabled); }
+                        catch { /* reporting aid only – never fail the check for it */ }
                     }
 
                     // Also include the Trados project's own termbases (.ttb /
@@ -3059,6 +3068,26 @@ namespace Supervertaler.Trados
                     .ToList();
                 if (groups.Count > q.Limit) response.Truncated = true;
 
+                // Honour the same termbases=[...] restriction the findings use,
+                // so a check narrowed to one client termbase isn't told about
+                // unrelated damage elsewhere in the database.
+                if (mismatched != null && mismatched.Count > 0)
+                {
+                    var reportable = mismatched
+                        .Where(m => tbFilter == null
+                                    || tbFilter.Contains(m.TermbaseName ?? "")
+                                    || tbFilter.Contains(m.TermbaseId.ToString()))
+                        .Select(m => new BridgeQaDirectionMismatch
+                        {
+                            Termbase = m.TermbaseName,
+                            DeclaredDirection = m.DeclaredDirection,
+                            Entries = m.Count,
+                            Samples = m.Samples
+                        })
+                        .ToList();
+                    if (reportable.Count > 0) response.DirectionMismatches = reportable;
+                }
+
                 if (response.IssuesFound == 0)
                     response.Note = "Every termbase term found in a source segment has its expected translation " +
                         "in the target. (Longest-match-wins span matching; entries shorter than 3 characters " +
@@ -3074,6 +3103,24 @@ namespace Supervertaler.Trados
                         "residual false positives are rarer but still possible. Pass termbases=[...] " +
                         "(names or ids from list_resources) to restrict the check to a curated client " +
                         "termbase.";
+
+                if (response.DirectionMismatches != null)
+                {
+                    int flagged = response.DirectionMismatches.Sum(m => m.Entries);
+                    response.Note = (response.Note ?? "") +
+                        $" SEPARATELY: {flagged} entr(ies) have a stored direction that contradicts their " +
+                        "termbase's – see directionMismatches. Read the sampled pairs. Any whose TEXT is the " +
+                        "wrong way round (source column holding the termbase's target language) is indexed " +
+                        "under the wrong language, so no source segment can match it and THIS CHECK SAID " +
+                        "NOTHING ABOUT IT – not because the document honours the term, but because the term " +
+                        "was never looked at. Those entries still appear in the termbase and still answer " +
+                        "lookup_term, so nothing else signals it either, and a term locked precisely because " +
+                        "it was a known defect source is exactly the kind that ends up here. Entries where " +
+                        "only the language labels are wrong, and the terms are correctly oriented, were " +
+                        "checked normally and need nothing beyond a label fix – both kinds are in this list " +
+                        "and only the pairs themselves tell you which is which, so do not report them all as " +
+                        "broken.";
+                }
             }
 
             response.Returned = q.Type == "terminology"

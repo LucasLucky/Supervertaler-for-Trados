@@ -290,4 +290,23 @@ namespace Supervertaler.Trados.Models
         /// </summary>
         public int CaseSensitive { get; set; } = -1;
     }
+
+    /// <summary>
+    /// One termbase's tally of rows whose own language tags contradict the
+    /// termbase's declared direction. Where the text is reversed too, the row
+    /// is indexed under the wrong language and matches nothing in either
+    /// project direction, without ever reporting an error; where only the tags
+    /// are wrong, it works fine. Both are counted here – the pairs themselves
+    /// are what tells them apart.
+    /// </summary>
+    public class TermbaseDirectionMismatch
+    {
+        public long TermbaseId { get; set; }
+        public string TermbaseName { get; set; }
+        /// <summary>The termbase's declared direction, e.g. "en → nl".</summary>
+        public string DeclaredDirection { get; set; }
+        public int Count { get; set; }
+        /// <summary>A few affected rows, as stored: "source_term → target_term".</summary>
+        public List<string> Samples { get; set; } = new List<string>();
+    }
 }

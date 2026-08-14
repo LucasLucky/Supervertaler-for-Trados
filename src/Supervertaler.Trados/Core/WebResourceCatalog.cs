@@ -56,6 +56,13 @@ namespace Supervertaler.Trados.Core
             R("iate", "🇪🇺", "IATE", "https://iate.europa.eu/search/byUrl?term={query}&sl={sl}&tl={tl}", "iso2"),
             R("linguee", "📗", "Linguee", "https://www.linguee.com/{sl_full}-{tl_full}/search?source=auto&query={query}", "full_lower"),
             R("proz", "💬", "ProZ.com", "https://www.proz.com/search/?term={query}&from={sl}&to={tl}&results_per_page=25&es=1", "iso3"),
+            // ProZ's rebuilt term search, under /next/. Added alongside the
+            // classic one rather than replacing it: both work today, they present
+            // the same KudoZ and glossary data differently, and which one a
+            // translator prefers is taste. Ships disabled so nobody's working
+            // setup changes under them — tick it in the Web picker to try it.
+            // Same iso3 (ISO 639-2/B) codes as the classic search: dut, eng.
+            R("proz_next", "💬", "ProZ.com (next)", "https://www.proz.com/next/search-fast?q={query}&sl={sl}&tl={tl}", "iso3"),
             R("reverso", "🔄", "Reverso", "https://context.reverso.net/translation/{sl_full}-{tl_full}/{query}", "full_lower"),
             R("juremy", "⚖️", "Juremy", "https://juremy.com/search?src={sl}&dst={tl}&q={query}&opts=ia&tool=iws", "iso639_3"),
             R("babelnet", "🌐", "BabelNet", "https://babelnet.org/search?word={query}&lang={sl_upper}&transLang={tl_upper}", "iso2"),

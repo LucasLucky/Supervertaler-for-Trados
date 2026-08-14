@@ -117,6 +117,111 @@ namespace Supervertaler.Trados.Core
         }
 
         /// <summary>
+        /// Every termbase's DECLARED direction, keyed by id. This is the
+        /// canonical direction each entry inherits – see the rationale in
+        /// <see cref="LoadAllTerms"/> for why the per-entry lang columns are
+        /// not used for orientation decisions.
+        /// </summary>
+        public Dictionary<long, (string src, string tgt)> GetTermbaseDirections()
+        {
+            var result = new Dictionary<long, (string src, string tgt)>();
+            if (_connection == null) return result;
+
+            using (var cmd = new SqliteCommand("SELECT id, source_lang, target_lang FROM termbases", _connection))
+            using (var reader = cmd.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    var id = reader.GetInt64(0);
+                    var src = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                    var tgt = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                    result[id] = (src, tgt);
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Finds entries whose own source_lang names the termbase's target side
+        /// and vice versa. Where the TEXT is reversed too, the row is indexed
+        /// under the wrong language and can never match a source segment – it
+        /// stays in the termbase, still answers lookups, and silently checks
+        /// nothing. Where only the tags are wrong, the row works fine. Both
+        /// shapes come back from here, because separating them needs the text's
+        /// actual language and the plugin does not guess at that – see
+        /// <see cref="LanguageUtils.EntryDirectionContradictsTermbase"/>.
+        ///
+        /// Reported rather than repaired for the same reason; the repair lives
+        /// in <c>tools/repair_termbase_directions.py</c> (and its LLM-backed
+        /// sibling), which can weigh the text as well as the tags.
+        ///
+        /// The SQL prunes to rows whose tags differ from their termbase's at
+        /// all – on a real database that is a handful out of tens of thousands –
+        /// and the language comparison itself is done in C# so it goes through
+        /// the same name/BCP-47 normalisation as every other direction decision.
+        /// </summary>
+        /// <param name="disabledTermbaseIds">Termbase IDs to skip (Read tick off).</param>
+        /// <param name="maxSamplesPerTermbase">How many affected rows to quote per termbase.</param>
+        public List<TermbaseDirectionMismatch> GetDirectionMismatchedTerms(
+            HashSet<long> disabledTermbaseIds = null, int maxSamplesPerTermbase = 5)
+        {
+            var result = new List<TermbaseDirectionMismatch>();
+            if (_connection == null) return result;
+
+            const string sql = @"
+                SELECT t.source_term, t.target_term, t.source_lang, t.target_lang,
+                       tb.id AS tb_id, tb.name AS tb_name,
+                       tb.source_lang AS tb_src, tb.target_lang AS tb_tgt
+                FROM termbase_terms t
+                JOIN termbases tb ON CAST(t.termbase_id AS INTEGER) = tb.id
+                WHERE COALESCE(t.source_lang, '') <> ''
+                  AND COALESCE(t.target_lang, '') <> ''
+                  AND LOWER(t.source_lang) <> LOWER(COALESCE(tb.source_lang, ''))
+                ORDER BY tb.name, t.id";
+
+            var byTermbase = new Dictionary<long, TermbaseDirectionMismatch>();
+            using (var cmd = new SqliteCommand(sql, _connection))
+            using (var reader = cmd.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    var tbId = reader.GetInt64(reader.GetOrdinal("tb_id"));
+                    if (disabledTermbaseIds != null && disabledTermbaseIds.Contains(tbId)) continue;
+
+                    var tbSrc = GetStringByName(reader, "tb_src");
+                    var tbTgt = GetStringByName(reader, "tb_tgt");
+                    var srcTerm = GetStringByName(reader, "source_term");
+                    var tgtTerm = GetStringByName(reader, "target_term");
+                    if (!LanguageUtils.EntryDirectionContradictsTermbase(
+                            srcTerm, tgtTerm,
+                            GetStringByName(reader, "source_lang"),
+                            GetStringByName(reader, "target_lang"),
+                            tbSrc, tbTgt))
+                        continue;
+
+                    TermbaseDirectionMismatch group;
+                    if (!byTermbase.TryGetValue(tbId, out group))
+                    {
+                        group = new TermbaseDirectionMismatch
+                        {
+                            TermbaseId = tbId,
+                            TermbaseName = GetStringByName(reader, "tb_name"),
+                            DeclaredDirection = $"{tbSrc} → {tbTgt}"
+                        };
+                        byTermbase[tbId] = group;
+                        result.Add(group);
+                    }
+
+                    group.Count++;
+                    if (group.Samples.Count < maxSamplesPerTermbase)
+                        group.Samples.Add(srcTerm + " → " + tgtTerm);
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// Searches for terms matching the given word/phrase across all active termbases.
         /// Mirrors Supervertaler's search_termbases() logic.
         ///
@@ -283,18 +388,7 @@ namespace Supervertaler.Trados.Core
             // Historically the inversion-decision used entry.source_lang, which is a copy
             // that legacy write bugs (pre-v4.19.13) could get wrong. Using the termbase's
             // declared direction here is resilient to those corrupted per-entry tags.
-            var termbaseDirection = new Dictionary<long, (string src, string tgt)>();
-            using (var dirCmd = new SqliteCommand("SELECT id, source_lang, target_lang FROM termbases", _connection))
-            using (var dirReader = dirCmd.ExecuteReader())
-            {
-                while (dirReader.Read())
-                {
-                    var tbId = dirReader.GetInt64(0);
-                    var src = dirReader.IsDBNull(1) ? "" : dirReader.GetString(1);
-                    var tgt = dirReader.IsDBNull(2) ? "" : dirReader.GetString(2);
-                    termbaseDirection[tbId] = (src, tgt);
-                }
-            }
+            var termbaseDirection = GetTermbaseDirections();
 
             var ntCol = _hasNonTranslatableColumn ? ", t.is_nontranslatable" : "";
             var uuidCol = _hasTermUuidColumn ? ", t.term_uuid" : "";

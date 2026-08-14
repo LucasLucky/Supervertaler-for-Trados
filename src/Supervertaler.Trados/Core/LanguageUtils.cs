@@ -181,6 +181,73 @@ namespace Supervertaler.Trados.Core
             return TermbaseDirection.Unrelated;
         }
 
+        /// <summary>
+        /// True when a term row's OWN stored language tags say the opposite of
+        /// the termbase it lives in – its source_lang naming the termbase's
+        /// TARGET side and its target_lang the termbase's SOURCE side.
+        ///
+        /// This reports a CONTRADICTION, not a verdict, and the distinction
+        /// matters because the two cases behind it have opposite consequences:
+        ///
+        ///   • the TEXT is reversed too (a pre-v18.20.x write that dropped a
+        ///     project-direction pair into an opposite-direction termbase
+        ///     without swapping it). Every read path orients by the termbase's
+        ///     DECLARED direction – see <see cref="Core.TermbaseReader.LoadAllTerms"/> –
+        ///     so the row is indexed under the wrong language and matches no
+        ///     source segment in either project direction. It stays in the
+        ///     termbase, answers lookups, and silently checks nothing.
+        ///
+        ///   • only the TAGS are wrong and the text is correctly oriented. That
+        ///     row matches perfectly today, precisely because the read path
+        ///     ignores these tags. Nothing is wrong with it beyond the label.
+        ///
+        /// Telling them apart needs the text's actual language, which this
+        /// cannot see and the plugin deliberately never guesses (the same
+        /// refusal as in the write path: term pairs are routinely identical
+        /// across languages, so a detector would guess, and a wrong silent
+        /// answer is worse than an honest "check this"). Both cases are worth
+        /// surfacing – one is broken, the other is mislabelled – but the caller
+        /// must be told it is a contradiction to inspect, never that the entry
+        /// is definitely dead.
+        ///
+        /// Deliberately never an automatic repair: these tags are exactly the
+        /// field the read path stopped trusting in v4.19.21, and flipping the
+        /// second case would turn a cosmetic mislabelling into a genuinely
+        /// broken entry. Both tags must agree the row is inverted – one alone
+        /// is an ordinary tagging slip.
+        ///
+        /// A row whose two terms are the SAME string is excluded, even with
+        /// contradicting tags. Orientation is moot there: the index key is the
+        /// same either way, so the entry matches exactly as it should and there
+        /// is nothing for the user to repair. On the database this was built
+        /// against that is 68 of 108 rows – brand names, units and formulae –
+        /// so reporting them would have buried the 40 real ones.
+        /// </summary>
+        public static bool EntryDirectionContradictsTermbase(
+            string sourceTerm, string targetTerm,
+            string entrySourceLang, string entryTargetLang,
+            string termbaseSourceLang, string termbaseTargetLang)
+        {
+            // Untagged rows (bulk imports leave both NULL) say nothing about
+            // direction, and a termbase with no declared pair has nothing to
+            // contradict.
+            if (string.IsNullOrWhiteSpace(entrySourceLang) || string.IsNullOrWhiteSpace(entryTargetLang))
+                return false;
+            if (string.IsNullOrWhiteSpace(termbaseSourceLang) || string.IsNullOrWhiteSpace(termbaseTargetLang))
+                return false;
+
+            // Same text both sides – reversing it changes nothing, so the entry
+            // is not broken however its tags read.
+            if (string.Equals((sourceTerm ?? "").Trim(), (targetTerm ?? "").Trim(),
+                    StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            return CompareTermbaseDirection(entrySourceLang, termbaseSourceLang, termbaseTargetLang)
+                       == TermbaseDirection.Inverted
+                && CompareTermbaseDirection(entryTargetLang, termbaseSourceLang, termbaseTargetLang)
+                       == TermbaseDirection.Aligned;
+        }
+
         private static bool LanguagePrefixMatches(string a, string b)
         {
             if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
@@ -230,6 +297,45 @@ namespace Supervertaler.Trados.Core
                     return $"CompareTermbaseDirection('{c.Proj}', '{c.TbSrc}', '{c.TbTgt}') = {got}, expected {c.Expected}";
                 }
             }
+
+            // EntryDirectionContradictsTermbase: srcTerm, tgtTerm, entrySrc, entryTgt, tbSrc, tbTgt, expected.
+            var mismatchCases = new[]
+            {
+                // The shape this exists to catch: an NL→EN pair written into an
+                // EN→NL termbase, tags honest, text reversed.
+                new MismatchCase("bezinksel", "sediment", "nl", "en", "en", "nl", true),
+                new MismatchCase("gras", "grass", "Dutch", "English", "English", "Dutch", true),
+                // Correctly oriented rows – the overwhelming majority.
+                new MismatchCase("sediment", "bezinksel", "en", "nl", "en", "nl", false),
+                // Same text both sides: orientation is moot, the entry matches
+                // either way. Must NOT be reported.
+                new MismatchCase("DNV", "DNV", "nl", "en", "en", "nl", false),
+                new MismatchCase("m³/h", " M³/H ", "nl", "en", "en", "nl", false),
+                // Untagged rows (bulk import) and undeclared termbases: unknown,
+                // not wrong.
+                new MismatchCase("a", "b", null, null, "en", "nl", false),
+                new MismatchCase("a", "b", "", "nl", "en", "nl", false),
+                new MismatchCase("a", "b", "nl", "en", "",   "",   false),
+                // One tag alone is a slip, not a reversed write.
+                new MismatchCase("a", "b", "nl", "nl", "en", "nl", false),
+                // A row belonging to neither of the termbase's languages is a
+                // different fault; don't claim it is reversed.
+                new MismatchCase("a", "b", "de", "fr", "en", "nl", false),
+                // Same-language pairs must still resolve by region.
+                new MismatchCase("colour", "color", "en-GB", "en-US", "en-US", "en-GB", true),
+                new MismatchCase("color", "colour", "en-US", "en-GB", "en-US", "en-GB", false),
+            };
+            foreach (var c in mismatchCases)
+            {
+                var got = EntryDirectionContradictsTermbase(
+                    c.SrcTerm, c.TgtTerm, c.EntrySrc, c.EntryTgt, c.TbSrc, c.TbTgt);
+                if (got != c.Expected)
+                {
+                    return $"EntryDirectionContradictsTermbase('{c.SrcTerm}', '{c.TgtTerm}', " +
+                           $"'{c.EntrySrc}', '{c.EntryTgt}', '{c.TbSrc}', '{c.TbTgt}') = {got}, " +
+                           $"expected {c.Expected}";
+                }
+            }
             return null;
         }
 
@@ -242,6 +348,24 @@ namespace Supervertaler.Trados.Core
             public SelfTestCase(string proj, string tbSrc, string tbTgt, TermbaseDirection expected)
             {
                 Proj = proj; TbSrc = tbSrc; TbTgt = tbTgt; Expected = expected;
+            }
+        }
+
+        private struct MismatchCase
+        {
+            public string SrcTerm;
+            public string TgtTerm;
+            public string EntrySrc;
+            public string EntryTgt;
+            public string TbSrc;
+            public string TbTgt;
+            public bool Expected;
+            public MismatchCase(string srcTerm, string tgtTerm, string entrySrc, string entryTgt,
+                string tbSrc, string tbTgt, bool expected)
+            {
+                SrcTerm = srcTerm; TgtTerm = tgtTerm;
+                EntrySrc = entrySrc; EntryTgt = entryTgt;
+                TbSrc = tbSrc; TbTgt = tbTgt; Expected = expected;
             }
         }
 

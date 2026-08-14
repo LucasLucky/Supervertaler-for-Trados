@@ -172,6 +172,17 @@ namespace Supervertaler.Trados.Core
         /// flag – a job-specific decision, as opposed to a shared background
         /// termbase. Mirrors TermLens's pink-vs-blue chip distinction.</summary>
         [DataMember(Name = "isProjectTermbase", Order = 11, EmitDefaultValue = false)] public bool IsProjectTermbase { get; set; }
+        /// <summary>True when this entry's own stored languages contradict its
+        /// termbase's declared direction. Either the TEXT is stored the wrong
+        /// way round – in which case the row is indexed under the wrong
+        /// language, matches no source segment, and check_terminology can never
+        /// report it however badly the document violates it – or only the tags
+        /// are wrong and the entry works fine. Which one it is can only be
+        /// settled by looking at the two terms, so this flag says "inspect
+        /// this", not "this is dead". The hit otherwise looks perfectly
+        /// sensible (its text and its lang tags agree with each other), which
+        /// is why the flag exists: without it there is nothing to notice.</summary>
+        [DataMember(Name = "directionMismatch", Order = 12, EmitDefaultValue = false)] public bool DirectionMismatch { get; set; }
     }
 
     [DataContract]
@@ -665,6 +676,28 @@ namespace Supervertaler.Trados.Core
         public List<BridgeQaTermGroup> TermGroups { get; set; }
         [DataMember(Name = "termsAffected", Order = 9, EmitDefaultValue = false)]
         public int TermsAffected { get; set; }
+        /// <summary>Terminology check only: entries whose stored direction
+        /// contradicts their termbase's. Absent when there are none. These are
+        /// not findings about the document – they are entries whose orientation
+        /// wants checking, because any of them that is genuinely reversed was
+        /// invisible to this check.</summary>
+        [DataMember(Name = "directionMismatches", Order = 10, EmitDefaultValue = false)]
+        public List<BridgeQaDirectionMismatch> DirectionMismatches { get; set; }
+    }
+
+    /// <summary>One termbase's tally of entries whose stored direction
+    /// contradicts the termbase's declared one – some reversed and therefore
+    /// unmatchable, some merely mislabelled and working fine.</summary>
+    [DataContract]
+    public class BridgeQaDirectionMismatch
+    {
+        [DataMember(Name = "termbase", Order = 0)] public string Termbase { get; set; }
+        [DataMember(Name = "declaredDirection", Order = 1, EmitDefaultValue = false)]
+        public string DeclaredDirection { get; set; }
+        [DataMember(Name = "entries", Order = 2)] public int Entries { get; set; }
+        /// <summary>A few of them, as stored: "source_term → target_term".</summary>
+        [DataMember(Name = "samples", Order = 3, EmitDefaultValue = false)]
+        public List<string> Samples { get; set; }
     }
 
     [DataContract]
@@ -2529,11 +2562,30 @@ namespace Supervertaler.Trados.Core
                     }
                     catch { disabledTbs = new HashSet<long>(); }
 
+                    // Declared direction per termbase, to spot entries stored the
+                    // wrong way round. The hit's source/target and its lang tags
+                    // agree with each other even when the row is reversed, so the
+                    // only way to see the fault is to compare against what the
+                    // termbase itself declares.
+                    Dictionary<long, (string src, string tgt)> tbDirections;
+                    try { tbDirections = reader.GetTermbaseDirections(); }
+                    catch { tbDirections = new Dictionary<long, (string src, string tgt)>(); }
+
                     int excludedInactive = 0;
+                    int reversedHits = 0;
                     foreach (var entry in entries)
                     {
                         var inactive = disabledTbs.Contains(entry.TermbaseId);
                         if (inactive && activeOnly) { excludedInactive++; continue; }
+
+                        bool reversed = false;
+                        (string src, string tgt) declared;
+                        if (tbDirections.TryGetValue(entry.TermbaseId, out declared))
+                            reversed = LanguageUtils.EntryDirectionContradictsTermbase(
+                                entry.SourceTerm, entry.TargetTerm,
+                                entry.SourceLang, entry.TargetLang, declared.src, declared.tgt);
+                        if (reversed) reversedHits++;
+
                         response.Hits.Add(new BridgeTermbaseHit
                         {
                             Source = entry.SourceTerm ?? "",
@@ -2547,12 +2599,26 @@ namespace Supervertaler.Trados.Core
                             MatchedField = ComputeMatchedField(q, entry.SourceTerm, entry.TargetTerm),
                             SourceLang = entry.SourceLang,
                             TargetLang = entry.TargetLang,
-                            IsProjectTermbase = entry.TermbaseId == projectTbId
+                            IsProjectTermbase = entry.TermbaseId == projectTbId,
+                            DirectionMismatch = reversed
                         });
                     }
                     if (excludedInactive > 0)
                         response.Note = ((response.Note ?? "") +
                             $" {excludedInactive} hit(s) from inactive (Read-unticked) termbases were excluded (activeOnly).").Trim();
+                    if (reversedHits > 0)
+                        response.Note = ((response.Note ?? "") +
+                            $" {reversedHits} hit(s) carry directionMismatch: the entry's own stored languages " +
+                            "contradict its termbase's declared direction. Read the two terms and decide which " +
+                            "case it is. If the TEXT is the wrong way round (the source column holding the " +
+                            "termbase's target language), the entry is indexed under the wrong language – it " +
+                            "matches no source segment, check_terminology can never report it however badly the " +
+                            "document violates it, and a term that looks present and locked is enforcing nothing; " +
+                            "repair it by re-adding the pair the right way round for that termbase. If only the " +
+                            "language labels are wrong and the terms themselves are correctly oriented, the entry " +
+                            "works exactly as it should and only the labels need correcting. Do not assume the " +
+                            "first case: both occur, and on a real termbase the harmless one was a real share of " +
+                            "the flags.").Trim();
                     foreach (var entry in studioHits)
                     {
                         var notes = entry.Notes;
