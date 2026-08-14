@@ -120,12 +120,16 @@ namespace Supervertaler.Trados.Core
         /// </summary>
         public static void CaptureHostMainWindow()
         {
+            // Keep the first good answer. Re-sampling later is the whole danger:
+            // once one of our own windows exists it can be the one returned.
+            if (_hostMainWindow != IntPtr.Zero) return;
+
             try
             {
                 _hostMainWindow = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
                 DiagnosticLog.Log("Foreground",
                     _hostMainWindow == IntPtr.Zero
-                        ? "Host main window not found at start-up"
+                        ? "Host main window not available yet"
                         : $"Host main window captured: 0x{_hostMainWindow.ToInt64():X}");
             }
             catch (Exception ex)

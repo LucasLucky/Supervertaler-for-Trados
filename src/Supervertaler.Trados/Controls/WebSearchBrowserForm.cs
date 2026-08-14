@@ -46,6 +46,7 @@ namespace Supervertaler.Trados.Controls
             public WebView2 View;          // null until the tab is first selected
             public bool NeedsNavigate = true;
             public Panel Banner;           // the bot-check hand-off offer, if shown
+            public bool RaiseWhenLoaded;   // re-assert the window once this load finishes
             public readonly HashSet<string> BouncedUrls =
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
@@ -195,6 +196,7 @@ namespace Supervertaler.Trados.Controls
                 if (state.NeedsNavigate)
                 {
                     state.NeedsNavigate = false;
+                    state.RaiseWhenLoaded = true;
                     RemoveBanner(state);   // a stale wall notice must not outlive its page
                     state.View.CoreWebView2.Navigate(state.Target.Url);
                 }
@@ -219,6 +221,17 @@ namespace Supervertaler.Trados.Controls
             {
                 var core = state.View?.CoreWebView2;
                 if (core == null) return;
+
+                // The load is only NOW finished. Navigate() returned the moment
+                // the request was queued, so the raise that followed it happened
+                // while the WebView2 browser process was still starting — and that
+                // process takes the foreground as it goes. Re-asserting here is
+                // the first point at which nothing is left to steal it back.
+                if (state.RaiseWhenLoaded)
+                {
+                    state.RaiseWhenLoaded = false;
+                    BringToFrontHard();
+                }
 
                 var url = core.Source;
                 if (string.IsNullOrEmpty(url) || state.BouncedUrls.Contains(url)) return;
@@ -381,10 +394,17 @@ namespace Supervertaler.Trados.Controls
         /// </summary>
         private void EnsureOwnedByHost()
         {
+            // Retried until it takes, rather than attempted once: the host handle
+            // may not have been available the first time round, and Hide()/Show()
+            // cycles are cheap to re-assert against.
             if (_ownerSet || !IsHandleCreated) return;
             var host = ForegroundWindow.HostMainWindow();
             if (host == IntPtr.Zero) return;
             _ownerSet = ForegroundWindow.SetOwner(Handle, host);
+            DiagnosticLog.Log("Foreground",
+                _ownerSet
+                    ? $"Web window 0x{Handle.ToInt64():X} now owned by host 0x{host.ToInt64():X}"
+                    : $"Failed to set owner for web window 0x{Handle.ToInt64():X}");
         }
 
         /// <summary>

@@ -227,6 +227,13 @@ namespace Supervertaler.Trados.Core
                 // so the WebView2 environment and any signed-in sessions stay
                 // warm — and searches refresh tabs in place instead of piling up
                 // windows, which is the whole reason embedded mode exists.
+                // Sample the host window BEFORE our own form exists. AppInitializer
+                // tries first, but it runs while Studio is still starting up and
+                // the main window may not be there yet — and once our form does
+                // exist, MainWindowHandle can return ours instead, which is how a
+                // window ends up owning itself and therefore owning nothing.
+                ForegroundWindow.CaptureHostMainWindow();
+
                 if (_webForm == null || _webForm.IsDisposed)
                     _webForm = new WebSearchBrowserForm();
 
