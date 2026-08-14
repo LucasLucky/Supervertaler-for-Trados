@@ -7,6 +7,19 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.180 / 19.20.180] – 2026-08-14
+
+### Added (SuperSearch now searches the web too) — [#64](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/64)
+
+- **Select a term, press Ctrl+Alt+L, and 41 reference sites are one keystroke away** – IATE, Linguee, Reverso, ProZ, Juremy, Glosbe, EUR-Lex, Wikipedia and the rest, with the query and your project's own language pair already filled in. There is nothing to type and no language dropdown to set. Also on the editor right-click menu as **Search the web**, and on a new **🌐** button in the SuperSearch bar.
+- **Web resources are a fourth SuperSearch scope**, sitting beside Files, TMs and TBs. Click **Web (n)** to choose which sites are active; five are on out of the box – Beijerterm, IATE, Linguee, ProZ and Reverso – and the other 36 are one tick away. Your own sites can be added with a URL template.
+- **Results open either in a Supervertaler window or in your own browser**, your choice, from a checkbox in that same dialog. Neither is a fallback for the other and both are worth having: your browser brings your ad blocker and your signed-in sessions, while the Supervertaler window keeps one window and refreshes its tabs in place instead of leaving a trail of browser windows behind.
+- **In the Supervertaler window, tabs load only when you click them.** Eight enabled resources would otherwise mean eight embedded browsers at once inside Studio 2024, which is a 32-bit application with a memory ceiling that Studio itself already presses against.
+- **A term picked from the target side is searched in the target language.** Looking up a Dutch word in an EN→NL project searches nl→en, not en→nl – the latter is how you get a screen of nothing and conclude the site is broken.
+- **Sites that demand a human-verification check are flagged, not fought.** ProZ in particular blocks embedded browsers; when that happens the tab offers to hand the page to your own browser, where you are already signed in and pass instantly. It is an offer, not a jump: nothing drags you out of the editor mid-segment.
+- **Four resources were repaired or removed after checking all 41 against the live sites.** 2lingual, Oxford Collocations and the Financiële Begrippenlijst had all changed their URL schemes and had been quietly returning nothing – the Dutch one addressed an A–Z index page that has never been a term page at all. ChemIndustry is gone: the domain changed hands and now serves an unrelated site.
+- **The resource list is interchangeable with the standalone SuperLookup app**, which uses the same file format, so a list exported from one imports into the other unchanged.
+
 ## [18.20.179 / 19.20.179] – 2026-08-11
 
 ### Fixed (TermLens missed terms wrapped in Markdown, e.g. `**doelstelling**`) — [#63](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/63)
