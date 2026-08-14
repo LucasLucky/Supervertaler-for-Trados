@@ -82,6 +82,14 @@ namespace Supervertaler.Trados.Core
         public static bool SetOwner(IntPtr child, IntPtr owner)
         {
             if (child == IntPtr.Zero || owner == IntPtr.Zero) return false;
+            // A window cannot own itself; Windows rejects the call and the child
+            // silently keeps no owner at all.
+            if (child == owner)
+            {
+                DiagnosticLog.Log("Foreground",
+                    "Refusing to make a window its own owner — host handle was misdetected");
+                return false;
+            }
             try
             {
                 if (IntPtr.Size == 8)
@@ -97,11 +105,43 @@ namespace Supervertaler.Trados.Core
             }
         }
 
-        /// <summary>The Trados main window, or IntPtr.Zero if it cannot be found.</summary>
+        private static IntPtr _hostMainWindow;
+
+        /// <summary>
+        /// Records the Trados main window. Must be called at plugin start-up,
+        /// before any of our own windows exist.
+        ///
+        /// <para><c>Process.MainWindowHandle</c> is not "the main window" — it is
+        /// the first top-level visible window the OS enumerates for the process.
+        /// Once one of our forms is open, that can be <i>ours</i>, and asking a
+        /// window to own itself silently leaves it with no owner at all. Sampling
+        /// once at start-up, when only Trados' own windows exist, avoids the
+        /// question entirely.</para>
+        /// </summary>
+        public static void CaptureHostMainWindow()
+        {
+            try
+            {
+                _hostMainWindow = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+                DiagnosticLog.Log("Foreground",
+                    _hostMainWindow == IntPtr.Zero
+                        ? "Host main window not found at start-up"
+                        : $"Host main window captured: 0x{_hostMainWindow.ToInt64():X}");
+            }
+            catch (Exception ex)
+            {
+                _hostMainWindow = IntPtr.Zero;
+                DiagnosticLog.Log("Foreground", $"Could not capture host main window: {ex.Message}");
+            }
+        }
+
+        /// <summary>The Trados main window, or IntPtr.Zero if it is not known.</summary>
         public static IntPtr HostMainWindow()
         {
-            try { return System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle; }
-            catch { return IntPtr.Zero; }
+            // Late fallback for the case where start-up capture never ran. Still
+            // better than nothing: SetOwner rejects a self-owning handle.
+            if (_hostMainWindow == IntPtr.Zero) CaptureHostMainWindow();
+            return _hostMainWindow;
         }
 
         /// <summary>

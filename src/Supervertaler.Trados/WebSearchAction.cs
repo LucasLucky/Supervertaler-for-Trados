@@ -4,6 +4,8 @@ using Sdl.Desktop.IntegrationApi;
 using Sdl.Desktop.IntegrationApi.Extensions;
 using Sdl.TranslationStudioAutomation.IntegrationApi;
 using Sdl.TranslationStudioAutomation.IntegrationApi.Presentation.DefaultLocations;
+using Supervertaler.Trados.Core;
+using Supervertaler.Trados.Settings;
 
 namespace Supervertaler.Trados
 {
@@ -52,6 +54,14 @@ namespace Supervertaler.Trados
                         selectedText = fromTarget
                             ? targetSelection.Trim()
                             : sourceSelection?.Trim();
+
+                        // Studio often reports a PARTIAL selection — double-clicking
+                        // "UITVINDING" can come back as "VINDING" — so expand to word
+                        // boundaries against the segment, exactly as the term-add
+                        // actions do. Looking up "vinding" instead of "uitvinding"
+                        // silently returns the wrong results rather than none, which
+                        // is the worse failure.
+                        selectedText = ExpandSelection(doc, selectedText, fromTarget);
                     }
                 }
                 catch { /* selection API may not be available in all contexts */ }
@@ -83,6 +93,43 @@ namespace Supervertaler.Trados
                     fromTarget);
             }
             catch { /* silently ignore errors */ }
+        }
+
+        /// <summary>
+        /// Grows a partial selection out to whole words against the segment it
+        /// came from.
+        ///
+        /// <para>Auto-expansion is suppressed for no-space scripts, honouring the
+        /// side the term came from: expanding to the whitespace token in Korean
+        /// or Japanese swallows an attached particle, and in Chinese it can
+        /// swallow the whole segment.</para>
+        /// </summary>
+        private static string ExpandSelection(IStudioDocument doc, string selection, bool fromTarget)
+        {
+            if (string.IsNullOrWhiteSpace(selection)) return selection;
+
+            try
+            {
+                var pair = doc.ActiveSegmentPair;
+                if (pair == null) return selection;
+
+                var segment = fromTarget ? pair.Target : pair.Source;
+                if (segment == null) return selection;
+
+                var fullText = SegmentTagHandler.GetFinalText(segment);
+                if (string.IsNullOrEmpty(fullText)) return selection;
+
+                var language = fromTarget
+                    ? TermLensEditorViewPart.GetCurrentProjectTargetLanguage()
+                    : TermLensEditorViewPart.GetCurrentProjectSourceLanguage();
+                var autoExpand = !TermLensSettings.Load().ResolveSuffixTolerant(language);
+
+                return SelectionExpander.ExpandToWordBoundaries(fullText, selection, autoExpand);
+            }
+            catch
+            {
+                return selection;
+            }
         }
     }
 }

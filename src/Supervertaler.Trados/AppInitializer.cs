@@ -77,6 +77,12 @@ namespace Supervertaler.Trados
             // ViewPart captures it too, whichever runs first.
             try { Core.StartupNotices.CaptureUiContext(); } catch { }
 
+            // Sample the Trados main window now, while ours is the only plugin
+            // code running and none of our forms exist yet. SuperSearch's embedded
+            // web window is owned by it, which is what keeps that window above
+            // Trados instead of sinking behind it.
+            try { Core.ForegroundWindow.CaptureHostMainWindow(); } catch { }
+
             // Start the Supervertaler bridge (MCP / Workbench) and TermLens
             // independent of their panes. Both live in ViewParts, which Trados
             // instantiates lazily only when the pane is first activated – so a user
