@@ -38,8 +38,9 @@
 
 ### Fixed (a finished Batch Translate run could still be unsaved)
 
-- **Batch translations went into the in-memory document and stayed there** until Studio's AutoSave next fired or you saved by hand — so a 27-batch job could finish and still exist only in memory minutes later. The project is now saved once when a run completes, including when you cancel it, which is when keeping the partial output matters most. If the save fails you are told to press Ctrl+S; the translations are in the document either way.
-- **Saving after every batch was considered and rejected**: Studio's save is synchronous on the UI thread, so it would freeze Trados at every batch boundary to close a gap that AutoSave and the every-10-segments backup TMX already cover.
+- **Batch translations went into the in-memory document and stayed there** until you saved by hand — so a 27-batch job could finish and exist only in memory for as long as the document stayed open. The project is now saved once when a run completes, including when you cancel it, which is when keeping the partial output matters most. If the save fails you are told to press Ctrl+S; the translations are in the document either way.
+- **Studio's AutoSave does not close this gap, despite the name.** Measured on a live project: with AutoSave set to 5 minutes, an edited document went three and a half hours without its `.sdlxliff` being touched. AutoSave keeps a *crash-recovery copy* under `AppData\Roaming\Trados\Trados Studio\Studio19\AutoSave\`, from which Studio offers to restore after a crash — it never writes the project file. So until something performs a real save, the file on disk stays stale, and anything reading the file rather than Studio's memory — batch tasks, exports, external tools — sees the old content.
+- **Saving after every batch was considered and rejected**: Studio's save is synchronous on the UI thread, so it would freeze Trados at every batch boundary to close a gap that the every-10-segments backup TMX already covers between runs.
 
 ### Fixed (the cost warning recommended models your provider may not have)
 
