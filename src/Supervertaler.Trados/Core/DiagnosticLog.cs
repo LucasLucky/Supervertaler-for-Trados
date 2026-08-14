@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text;
 using Supervertaler.Trados.Settings;
@@ -30,17 +30,82 @@ namespace Supervertaler.Trados.Core
         /// <summary>Absolute path to the diagnostic log file.</summary>
         public static string LogFilePath => Path.Combine(LogDir, "diagnostic.log");
 
+        /// <summary>Path to the single retained previous log.</summary>
+        public static string PreviousLogFilePath => Path.Combine(LogDir, "diagnostic.previous.log");
+
+        /// <summary>
+        /// Roll the log once it passes this. Left generous because the file exists
+        /// to be reproduced into and sent, and a truncated log is worth less than a
+        /// large one — but unbounded is not a third option: this file was found at
+        /// 148 MB, sitting in the user's shared data folder, which for many people
+        /// is synced to OneDrive or Google Drive.
+        /// </summary>
+        private const long MaxBytes = 8L * 1024 * 1024;
+
+        /// <summary>
+        /// Bytes appended since the last size check. Checking the file length on
+        /// every write would put a stat call in front of every log line; this keeps
+        /// it to roughly one per 64 KB written.
+        /// </summary>
+        private static long _bytesSinceCheck;
+        private const long CheckEvery = 64L * 1024;
+
         /// <summary>Append one timestamped, categorised line. No-op when disabled.</summary>
         public static void Log(string category, string message)
         {
             if (!Enabled) return;
+            Append($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [{category}] {message}{Environment.NewLine}");
+        }
+
+        /// <summary>
+        /// The single write path, so rotation cannot be bypassed by one caller.
+        /// </summary>
+        private static void Append(string line)
+        {
             try
             {
                 Directory.CreateDirectory(LogDir);
-                var line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [{category}] {message}{Environment.NewLine}";
-                lock (_lock) File.AppendAllText(LogFilePath, line, Encoding.UTF8);
+                lock (_lock)
+                {
+                    _bytesSinceCheck += line.Length;
+                    if (_bytesSinceCheck >= CheckEvery)
+                    {
+                        _bytesSinceCheck = 0;
+                        RotateIfOversizedNoLock();
+                    }
+                    File.AppendAllText(LogFilePath, line, Encoding.UTF8);
+                }
             }
             catch { /* logging must never throw */ }
+        }
+
+        /// <summary>
+        /// Moves the log aside once it exceeds <see cref="MaxBytes"/>, keeping one
+        /// previous generation. Two files bounded at 8 MB each, rather than one
+        /// unbounded — a rolled log still covers the recent past, which is what
+        /// troubleshooting actually needs.
+        ///
+        /// <para>Caller must hold <see cref="_lock"/>.</para>
+        /// </summary>
+        private static void RotateIfOversizedNoLock()
+        {
+            try
+            {
+                var info = new FileInfo(LogFilePath);
+                if (!info.Exists || info.Length < MaxBytes) return;
+
+                // Delete-then-move rather than File.Move(overwrite:) — that overload
+                // does not exist on .NET Framework 4.8.
+                if (File.Exists(PreviousLogFilePath)) File.Delete(PreviousLogFilePath);
+                File.Move(LogFilePath, PreviousLogFilePath);
+
+                File.AppendAllText(LogFilePath,
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [Log] Previous log reached "
+                    + $"{info.Length / (1024 * 1024)} MB and was rolled to "
+                    + $"{Path.GetFileName(PreviousLogFilePath)}.{Environment.NewLine}",
+                    Encoding.UTF8);
+            }
+            catch { /* a failed rotation must not cost the caller their log line */ }
         }
 
         /// <summary>
@@ -50,13 +115,7 @@ namespace Supervertaler.Trados.Core
         /// </summary>
         public static void WriteAlways(string category, string message)
         {
-            try
-            {
-                Directory.CreateDirectory(LogDir);
-                var line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [{category}] {message}{Environment.NewLine}";
-                lock (_lock) File.AppendAllText(LogFilePath, line, Encoding.UTF8);
-            }
-            catch { /* logging must never throw */ }
+            Append($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [{category}] {message}{Environment.NewLine}");
         }
 
         /// <summary>
@@ -80,8 +139,7 @@ namespace Supervertaler.Trados.Core
                 sb.AppendLine("  Source: " + source);
                 sb.AppendLine("  " + detail);
                 sb.AppendLine("########################################################");
-                Directory.CreateDirectory(LogDir);
-                lock (_lock) File.AppendAllText(LogFilePath, sb.ToString(), Encoding.UTF8);
+                Append(sb.ToString());
             }
             catch { /* logging must never throw */ }
         }
@@ -103,7 +161,7 @@ namespace Supervertaler.Trados.Core
                 if (!string.IsNullOrWhiteSpace(versionInfo))
                     sb.AppendLine("  " + versionInfo.Replace("\n", "\n  "));
                 sb.AppendLine("========================================================");
-                lock (_lock) File.AppendAllText(LogFilePath, sb.ToString(), Encoding.UTF8);
+                Append(sb.ToString());
             }
             catch { }
         }
@@ -117,6 +175,11 @@ namespace Supervertaler.Trados.Core
                 {
                     if (File.Exists(LogFilePath))
                         File.WriteAllText(LogFilePath, string.Empty, Encoding.UTF8);
+                    // Otherwise "clear the log" leaves the rolled generation behind,
+                    // which is the larger of the two files.
+                    if (File.Exists(PreviousLogFilePath))
+                        File.Delete(PreviousLogFilePath);
+                    _bytesSinceCheck = 0;
                 }
             }
             catch { }
