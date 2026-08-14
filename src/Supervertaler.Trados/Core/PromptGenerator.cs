@@ -463,6 +463,54 @@ namespace Supervertaler.Trados.Core
                 sb.AppendLine();
             }
 
+            // Provenance discipline. Observed after the TM section was locked down: the model
+            // stopped inventing entries in PREVIOUS CORRECT TRANSLATIONS and started writing
+            // "Anchored by validated TM segment" in glossary Notes cells for terms the TM
+            // never contained. The fabrication did not stop, it moved – from inventing an
+            // entry to mislabelling one. A note is a claim, so the rule has to govern claims
+            // wherever they appear, not just the section they were last seen in.
+            var hasTermData = ctx.TermbaseTerms != null && ctx.TermbaseTerms.Count > 0;
+            var hasTmData = ctx.TmPairs != null && ctx.TmPairs.Count > 0;
+            var hasKbData = !string.IsNullOrWhiteSpace(ctx.KbContext);
+
+            sb.AppendLine("=== ATTRIBUTION OF TERMINOLOGY DECISIONS ===");
+            sb.AppendLine();
+            sb.AppendLine("The prompt you generate may record where a rendering came from – in a glossary");
+            sb.AppendLine("Notes cell, in a style rule, anywhere. Every such note is a claim about provenance");
+            sb.AppendLine("and must be true. Cite a source ONLY when that source, exactly as supplied above,");
+            sb.AppendLine("actually contains the term or rule.");
+            sb.AppendLine();
+            sb.Append("- \"TM\", \"validated\", \"validated segment\", \"per the TM\", \"anchored by the validated ");
+            sb.AppendLine("title\"");
+            sb.AppendLine("  and equivalents: permitted ONLY for a term that literally appears in the pairs under");
+            sb.AppendLine(hasTmData
+                ? $"  REFERENCE TRANSLATIONS FROM TM above. Those {ctx.TmPairs.Count} pairs are the entire TM you"
+                : "  REFERENCE TRANSLATIONS FROM TM above. NO TM pairs were supplied for this project, so no");
+            sb.AppendLine(hasTmData
+                ? "  have been shown; a term absent from them has no TM provenance, however plausible."
+                : "  note of this kind is permitted anywhere in the generated prompt.");
+            sb.AppendLine();
+            sb.Append("- \"house default\", \"approved\", \"established convention\", \"the translator's own\" ");
+            sb.AppendLine("and");
+            sb.AppendLine(hasKbData
+                ? "  equivalents: permitted ONLY for a rule that appears in the KNOWLEDGE BASE section above."
+                : "  equivalents: NO knowledge base was supplied, so no note of this kind is permitted.");
+            sb.AppendLine();
+            sb.AppendLine(hasTermData
+                ? "- \"termbase\", \"approved terminology\": permitted ONLY for a term listed under TERMINOLOGY DATA."
+                : "- \"termbase\", \"approved terminology\": NO termbase terms were supplied, so these are barred.");
+            sb.AppendLine();
+            sb.AppendLine("For every other rendering – anything you decided yourself, from the document or from");
+            sb.AppendLine("domain knowledge – state the rule with NO provenance note at all. A note that gives a");
+            sb.AppendLine("reason or forbids an alternative is always fine (\"Never 'apparatus'\", \"UK spelling\");");
+            sb.AppendLine("what is barred is claiming an authority that did not supply it.");
+            sb.AppendLine();
+            sb.AppendLine("Attributing your own inference to the translator is worse than leaving it unattributed.");
+            sb.AppendLine("The translator reads it back as their own earlier decision and will not re-examine it,");
+            sb.AppendLine("so a wrong lock that looks approved is the hardest kind to catch. When in doubt about");
+            sb.AppendLine("where something came from, omit the note and keep the rule.");
+            sb.AppendLine();
+
             // Translator-comment methodology — required in every generated prompt
             sb.AppendLine("=== TRANSLATOR-COMMENT METHODOLOGY (REQUIRED IN EVERY GENERATED PROMPT) ===");
             sb.AppendLine();
