@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 > **Versioning change (2026-07-02):** from this release on, the plugin's major
 > version tracks the Trados Studio major it targets – **Studio 2024 = 18**,
@@ -7,12 +7,19 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.181 / 19.20.181] – 2026-08-14
+
+### Changed (the web-search shortcut is Alt+W, not Ctrl+Alt+L)
+
+- **Ctrl+Alt+L was the wrong choice and never reached the App Store.** That combination belongs to **Supervertaler Workbench**, which registers it as a *global* hotkey for its own SuperLookup — global meaning it fires wherever you happen to be typing, including inside Trados. Anyone running Workbench alongside Studio, which is the normal way to use them, would have triggered both at once.
+- **Alt+W is the shortcut instead**, pairing with SuperSearch's existing **Alt+S**: S searches your own material, W searches the web. Alt+S is unchanged, and both can be rebound in Studio's keyboard shortcut settings.
+
 ## [18.20.180 / 19.20.180] – 2026-08-14
 
 ### Added (SuperSearch now searches the web too) — [#64](https://github.com/Supervertaler/Supervertaler-for-Trados/issues/64)
 
-- **Select a term, press Ctrl+Alt+L, and 41 reference sites are one keystroke away** – IATE, Linguee, Reverso, ProZ, Juremy, Glosbe, EUR-Lex, Wikipedia and the rest, with the query and your project's own language pair already filled in. There is nothing to type and no language dropdown to set. Also on the editor right-click menu as **Search the web**, and on a new **🌐** button in the SuperSearch bar.
-- **Ctrl+Alt+L is a new, second shortcut – Alt+S is unchanged.** Alt+S still searches your project files, TMs and termbases into the results grid, exactly as before. Ctrl+Alt+L is the web half. Neither affects the other, and both can be rebound in Studio's keyboard shortcut settings.
+- **Select a term, press Alt+W, and 41 reference sites are one keystroke away** – IATE, Linguee, Reverso, ProZ, Juremy, Glosbe, EUR-Lex, Wikipedia and the rest, with the query and your project's own language pair already filled in. There is nothing to type and no language dropdown to set. Also on the editor right-click menu as **Search the web**, and on a new **🌐** button in the SuperSearch bar.
+- **Alt+W is a new, second shortcut – Alt+S is unchanged.** Alt+S still searches your project files, TMs and termbases into the results grid, exactly as before. Alt+W is the web half. Neither affects the other, and both can be rebound in Studio's keyboard shortcut settings. *(This shipped as Ctrl+Alt+L and was corrected in 20.181 below — see that entry.)*
 - **Web resources are a fourth SuperSearch scope**, sitting beside Files, TMs and TBs. Click **Web (n)** to choose which sites are active; five are on out of the box – Beijerterm, IATE, Linguee, ProZ and Reverso – and the other 36 are one tick away. Your own sites can be added with a URL template.
 - **Results open either in a Supervertaler window or in your own browser**, your choice, from a checkbox in that same dialog. Neither is a fallback for the other and both are worth having: your browser brings your ad blocker and your signed-in sessions, while the Supervertaler window keeps one window and refreshes its tabs in place instead of leaving a trail of browser windows behind.
 - **In the Supervertaler window, tabs load only when you click them.** Eight enabled resources would otherwise mean eight embedded browsers at once inside Studio 2024, which is a 32-bit application with a memory ceiling that Studio itself already presses against.

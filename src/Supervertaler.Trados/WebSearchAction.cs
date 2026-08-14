@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Windows.Forms;
 using Sdl.Desktop.IntegrationApi;
 using Sdl.Desktop.IntegrationApi.Extensions;
@@ -15,9 +15,15 @@ namespace Supervertaler.Trados
     /// SuperSearch web resource — IATE, Linguee, Reverso and the rest — using the
     /// project's own language pair, so there is nothing to type or configure.
     ///
-    /// <para>Ctrl+Alt+L matches the Supervertaler Workbench binding. The
-    /// standalone SuperLookup app deliberately took Ctrl+Shift+L instead, so a
-    /// user running both on one machine gets no clash.</para>
+    /// <para>Alt+W pairs with SuperSearch's own Alt+S — S searches your
+    /// material, W searches the web.</para>
+    ///
+    /// <para>NOT Ctrl+Alt+L, which was the first choice and was wrong: that combo
+    /// belongs to Supervertaler Workbench, which claims it as a GLOBAL hotkey for
+    /// its own SuperLookup. A global hook fires wherever the user is typing, so a
+    /// translator running Workbench alongside Trados — the normal case — would
+    /// have triggered both at once. The standalone SuperLookup app's comment about
+    /// "leaving Ctrl+Alt+L free" means reserved FOR Workbench, not available.</para>
     /// </summary>
     [Action("Supervertaler_WebSearch", typeof(EditorController),
         Name = "Search the web",
@@ -25,7 +31,7 @@ namespace Supervertaler.Trados
     [ActionLayout(
         typeof(TranslationStudioDefaultContextMenus.EditorDocumentContextMenuLocation), 11,
         DisplayType.Default, "", true)]
-    [Shortcut(Keys.Control | Keys.Alt | Keys.L)]
+    [Shortcut(Keys.Alt | Keys.W)]
     public class WebSearchAction : AbstractAction
     {
         protected override void Execute()
