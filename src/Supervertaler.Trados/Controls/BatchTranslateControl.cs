@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
@@ -967,6 +967,7 @@ namespace Supervertaler.Trados.Controls
 
             int selectedIdx = 0;
             int projectMatchIdx = 0;
+            int activeIdx = 0;
             if (prompts != null)
             {
                 foreach (var p in prompts)
@@ -988,6 +989,7 @@ namespace Supervertaler.Trados.Controls
 
                     _promptList.Add(p);
                     _cmbPrompt.Items.Add(isActive ? p.Name + "  \u2714" : p.Name);
+                    if (isActive) activeIdx = _cmbPrompt.Items.Count - 1;
 
                     if (!string.IsNullOrEmpty(selectedRelativePath) &&
                         string.Equals(
@@ -1007,8 +1009,20 @@ namespace Supervertaler.Trados.Controls
                 }
             }
 
-            // Fall back to project-name match if no prompt was matched by path
-            if (selectedIdx == 0 && projectMatchIdx > 0)
+            // The active prompt wins, whenever there is one.
+            //
+            // The tick and the closed-box text used to be worked out
+            // independently: the tick from the active prompt, the text from a
+            // path lookup or a project-name guess. So one control could give two
+            // answers at once — "BARI" showing in the box, the tick against
+            // "TRAX v5" once opened. The tick means active, and active is what a
+            // run should use, so the box has to agree with it.
+            //
+            // The project-name fallback stays, but only when nothing is active:
+            // it is a guess, and a guess must not outrank a choice.
+            if (activeIdx > 0)
+                selectedIdx = activeIdx;
+            else if (selectedIdx == 0 && projectMatchIdx > 0)
                 selectedIdx = projectMatchIdx;
 
             _cmbPrompt.SelectedIndex = selectedIdx;
