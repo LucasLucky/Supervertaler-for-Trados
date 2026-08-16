@@ -46,6 +46,29 @@ namespace Supervertaler.Trados.Core
 
         public static string ServerExePath => Path.Combine(ServerDir, ExeName);
 
+        /// <summary>
+        /// True when ChatGPT desktop appears to be installed. On Windows it
+        /// ships as the Store package <c>OpenAI.Codex</c>, so the usual
+        /// Program Files check finds nothing; the package folder under
+        /// LocalAppData is the reliable marker. An existing Codex config counts
+        /// too, since the CLI and the IDE extension share it.
+        /// </summary>
+        public static bool IsChatGptInstalled()
+        {
+            try
+            {
+                var packages = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Packages");
+                if (Directory.Exists(packages) &&
+                    Directory.GetDirectories(packages, "OpenAI.Codex*").Length > 0)
+                    return true;
+
+                return File.Exists(ConfigPath);
+            }
+            catch { return false; }
+        }
+
         /// <summary>True when the config already registers our server.</summary>
         public static bool IsConfigured()
         {

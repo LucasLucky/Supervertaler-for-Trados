@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -14,9 +14,11 @@ namespace Supervertaler.Trados.Controls
     /// MCP-capable AI app (Claude Desktop, ChatGPT desktop, …) to the live
     /// Trados session via the Supervertaler MCP Server.
     ///
-    /// Deliberately does NOT edit other apps' config files: the supported
-    /// path is the .mcpb extension (installed via Claude Desktop's
-    /// Desktop), with a copy-paste JSON snippet for other MCP clients.
+    /// Claude Desktop installs itself from a .mcpb bundle, so for that app this
+    /// dialog only hands over the file. ChatGPT has no equivalent, so there the
+    /// plugin does edit the app's config — see <see cref="Core.ChatGptMcpSetup"/>,
+    /// which backs the file up and touches only its own block. Any other client
+    /// gets a copy-paste snippet.
     /// </summary>
     public class McpConnectDialog : Form
     {
@@ -28,13 +30,31 @@ namespace Supervertaler.Trados.Controls
         public McpConnectDialog()
         {
             Text = "Connect AI assistant – Supervertaler MCP Server";
-            FormBorderStyle = FormBorderStyle.FixedDialog;
+            // Sizable rather than FixedDialog: this dialog has gained a section
+            // per supported AI app, and a fixed height means each new one pushes
+            // the buttons below the fold. It still scrolls, but scrolling to
+            // reach a button you did not know was there is a poor default.
+            FormBorderStyle = FormBorderStyle.Sizable;
             MaximizeBox = false;
             MinimizeBox = false;
             StartPosition = FormStartPosition.CenterParent;
             AutoScaleMode = AutoScaleMode.Dpi;
             Font = SystemFonts.MessageBoxFont;
-            ClientSize = new Size(UiScale.Pixels(560), UiScale.Pixels(430));
+
+            var preferred = new Size(UiScale.Pixels(560), UiScale.Pixels(660));
+            MinimumSize = new Size(UiScale.Pixels(460), UiScale.Pixels(360));
+            // Never taller than the screen it opens on. UiScale multiplies the
+            // height, so on a small laptop at 150% the preferred size would
+            // otherwise run off the bottom and hide the very buttons this
+            // change exists to reveal.
+            try
+            {
+                var workingArea = Screen.FromPoint(Cursor.Position).WorkingArea;
+                preferred.Height = Math.Min(preferred.Height, (int)(workingArea.Height * 0.9));
+                preferred.Width = Math.Min(preferred.Width, (int)(workingArea.Width * 0.9));
+            }
+            catch { /* fall back to the unclamped preferred size */ }
+            ClientSize = preferred;
 
             var root = new TableLayoutPanel
             {
@@ -95,6 +115,33 @@ namespace Supervertaler.Trados.Controls
                     ? "Supervertaler bridge is running in this Trados session."
                     : "Supervertaler bridge not running yet – it starts when you open a document " +
                       "in the editor."));
+
+            // Version handshake: only shown once an AI app has actually connected
+            // this session (LastSeenExeVersion > 0). Outdated = the exe predates a
+            // feature this plugin needs; the AI also relays the same nudge in chat.
+            if (Core.SupervertalerBridge.LastSeenExeVersion > 0)
+            {
+                if (Core.SupervertalerBridge.ExeOutdated)
+                {
+                    var old = StatusLine(false,
+                        "Your MCP extension is outdated for this plugin version – download the latest " +
+                        "below and reinstall it in your AI app.");
+                    old.ForeColor = Color.FromArgb(190, 110, 0);
+                    root.Controls.Add(old);
+                }
+                else
+                {
+                    root.Controls.Add(StatusLine(true,
+                        "An AI app connected this session – server version is up to date. (Which app is not reported back to the plugin.)"));
+                }
+            }
+
+            // Everything from here down is per-app. Without the sub-headings the
+            // list reads as one verdict, so a user with ChatGPT set up and no
+            // Claude sees four Claude-specific lines and no mention of the app
+            // they actually use.
+            root.Controls.Add(SubHeader("Claude Desktop"));
+
             root.Controls.Add(StatusLine(claudeInstalled,
                 claudeInstalled ? "Claude Desktop detected on this computer."
                                 : "Claude Desktop not detected (claude.ai/download)."));
@@ -125,25 +172,20 @@ namespace Supervertaler.Trados.Controls
                     "Supervertaler MCP Server extension not installed yet."));
             }
 
-            // Version handshake: only shown once an AI app has actually connected
-            // this session (LastSeenExeVersion > 0). Outdated = the exe predates a
-            // feature this plugin needs; the AI also relays the same nudge in chat.
-            if (Core.SupervertalerBridge.LastSeenExeVersion > 0)
-            {
-                if (Core.SupervertalerBridge.ExeOutdated)
-                {
-                    var old = StatusLine(false,
-                        "Your MCP extension is outdated for this plugin version – download the latest " +
-                        "below and reinstall it in your AI app.");
-                    old.ForeColor = Color.FromArgb(190, 110, 0);
-                    root.Controls.Add(old);
-                }
-                else
-                {
-                    root.Controls.Add(StatusLine(true,
-                        "An AI app has connected this session – extension version is up to date."));
-                }
-            }
+            // ── ChatGPT desktop status ────────────────────────────────────
+            root.Controls.Add(SubHeader("ChatGPT desktop"));
+
+            bool chatGptInstalled = Core.ChatGptMcpSetup.IsChatGptInstalled();
+            bool chatGptConfigured = Core.ChatGptMcpSetup.IsConfigured();
+
+            root.Controls.Add(StatusLine(chatGptInstalled,
+                chatGptInstalled ? "ChatGPT desktop detected on this computer."
+                                 : "ChatGPT desktop not detected."));
+            root.Controls.Add(StatusLine(chatGptConfigured,
+                chatGptConfigured
+                    ? "Supervertaler MCP Server is registered in ChatGPT's configuration."
+                    : "Not registered with ChatGPT yet – use the button below."));
+
 
             // ── Claude Desktop (recommended) ─────────────────────────────
             root.Controls.Add(SectionHeader("Claude Desktop (recommended)"));
@@ -185,9 +227,6 @@ namespace Supervertaler.Trados.Controls
 
             var chatGptStatus = new Label
             {
-                Text = Core.ChatGptMcpSetup.IsConfigured()
-                    ? "Already set up. Running this again refreshes the server and its path."
-                    : "Not set up yet.",
                 AutoSize = true,
                 ForeColor = Color.FromArgb(110, 110, 110),
                 Margin = new Padding(0, 0, 0, UiScale.Pixels(6))
@@ -196,10 +235,24 @@ namespace Supervertaler.Trados.Controls
 
             var btnChatGpt = new Button
             {
-                Text = "Set up ChatGPT desktop",
                 AutoSize = true,
                 Margin = new Padding(0, 0, 0, UiScale.Pixels(10))
             };
+
+            // Label and status are set together: a button reading "Set up
+            // ChatGPT desktop" directly under "Already set up" reads as an
+            // instruction the user has somehow failed to follow.
+            Action refreshChatGptState = () =>
+            {
+                var configured = Core.ChatGptMcpSetup.IsConfigured();
+                chatGptStatus.Text = configured
+                    ? "Already set up. Re-running refreshes the server and its path."
+                    : "Not set up yet.";
+                btnChatGpt.Text = configured
+                    ? "Re-run setup"
+                    : "Set up ChatGPT desktop";
+            };
+            refreshChatGptState();
             btnChatGpt.Click += async (s, e) =>
             {
                 var original = btnChatGpt.Text;
@@ -209,9 +262,8 @@ namespace Supervertaler.Trados.Controls
                     var result = await Core.ChatGptMcpSetup.RunAsync(
                         msg => { try { btnChatGpt.Text = msg; } catch { } });
 
-                    chatGptStatus.Text = Core.ChatGptMcpSetup.IsConfigured()
-                        ? "Already set up. Running this again refreshes the server and its path."
-                        : "Not set up yet.";
+                    refreshChatGptState();
+                    original = btnChatGpt.Text;   // may have flipped to "Re-run setup"
 
                     var body = result.Message;
                     if (result.Success && result.BackupPath != null)
@@ -286,6 +338,21 @@ namespace Supervertaler.Trados.Controls
             CancelButton = btnClose;
 
             Controls.Add(root);
+        }
+
+        /// <summary>A per-app heading inside the Status block. Lighter than
+        /// <see cref="SectionHeader"/> so the groups read as subordinate to it
+        /// rather than as new sections of the dialog.</summary>
+        private static Label SubHeader(string text)
+        {
+            return new Label
+            {
+                Text = text,
+                AutoSize = true,
+                Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold),
+                ForeColor = Color.FromArgb(90, 90, 90),
+                Margin = new Padding(UiScale.Pixels(2), UiScale.Pixels(6), 0, UiScale.Pixels(2))
+            };
         }
 
         private static Label SectionHeader(string text)
