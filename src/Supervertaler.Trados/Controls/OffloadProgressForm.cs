@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
@@ -24,6 +24,7 @@ namespace Supervertaler.Trados.Controls
 
         public OffloadProgressForm(string fileName)
         {
+            Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
             Text = "Translate via Workbench";
             FormBorderStyle = FormBorderStyle.FixedDialog;
             StartPosition = FormStartPosition.CenterScreen;

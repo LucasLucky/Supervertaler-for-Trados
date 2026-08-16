@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
@@ -23,6 +23,7 @@ namespace Supervertaler.Trados.Controls
 
         public UsageReportForm()
         {
+            Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
             Text = "Token Usage & Costs";
             Width = 860;
             Height = 540;

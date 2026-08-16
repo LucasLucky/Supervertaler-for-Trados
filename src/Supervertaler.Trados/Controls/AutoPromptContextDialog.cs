@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Windows.Forms;
 
@@ -36,6 +36,7 @@ namespace Supervertaler.Trados.Controls
 
         public AutoPromptContextDialog(string detectedDomain, string description)
         {
+            Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
             Text = "AutoPrompt – confirm context";
             FormBorderStyle = FormBorderStyle.FixedDialog;
             StartPosition = FormStartPosition.CenterParent;

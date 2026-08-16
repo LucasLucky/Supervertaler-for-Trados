@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Windows.Forms;
 
@@ -34,6 +34,7 @@ namespace Supervertaler.Trados.Controls
         /// </summary>
         public ReimportProgressForm(string title, string statusText, int total)
         {
+            Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
             Text = title;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             StartPosition = FormStartPosition.CenterParent;

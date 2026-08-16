@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -26,6 +26,7 @@ namespace Supervertaler.Trados.Controls
         public AutoPromptBusyForm(Func<Task<string>> work)
         {
             _work = work;
+            Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
 
             Text = "AutoPrompt";
             FormBorderStyle = FormBorderStyle.FixedDialog;

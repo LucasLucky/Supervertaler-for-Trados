@@ -29,6 +29,7 @@ namespace Supervertaler.Trados.Controls
 
         public McpConnectDialog()
         {
+            Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
             Text = "Connect AI assistant – Supervertaler MCP Server";
             // Sizable rather than FixedDialog: this dialog has gained a section
             // per supported AI app, and a fixed height means each new one pushes
