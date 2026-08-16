@@ -38,6 +38,13 @@ namespace Supervertaler.Trados.Controls
         /// rather than just the first name in a list.</summary>
         private const string ActiveSuffix = "  (active)";
 
+        /// <summary>Display suffix on <c>_shared</c>. Every other name in the list
+        /// is one client; this one is loaded alongside whichever bank is active,
+        /// so it needs to say so at the point of choosing rather than only after
+        /// the fact. Kept to three words — a warning long enough to need reading
+        /// is one that gets skipped.</summary>
+        private const string SharedSuffix = "  (applies to all banks)";
+
         /// <summary>The source-language term.</summary>
         public string Term => _txtTerm?.Text?.Trim() ?? "";
 
@@ -74,8 +81,13 @@ namespace Supervertaler.Trados.Controls
             {
                 var text = _cmbBank?.SelectedItem as string;
                 if (string.IsNullOrEmpty(text)) return null;
-                if (text.EndsWith(ActiveSuffix, StringComparison.Ordinal))
-                    text = text.Substring(0, text.Length - ActiveSuffix.Length);
+
+                // Strip any display annotation. Splitting on the double space is
+                // safe rather than clever: UserDataPath.SanitizeBankName allows
+                // only [a-z0-9-_], so a real bank name can contain neither a
+                // space nor a bracket, and any "  (" is therefore ours.
+                var marker = text.IndexOf("  (", StringComparison.Ordinal);
+                if (marker > 0) text = text.Substring(0, marker);
                 return text.Trim();
             }
         }
@@ -363,7 +375,7 @@ namespace Supervertaler.Trados.Controls
             foreach (var b in others)
                 _cmbBank.Items.Add(b);
 
-            _cmbBank.Items.Add(shared);
+            _cmbBank.Items.Add(shared + SharedSuffix);
 
             if (_cmbBank.Items.Count > 0)
                 _cmbBank.SelectedIndex = 0;
@@ -390,13 +402,13 @@ namespace Supervertaler.Trados.Controls
 
             _lblDestination.Text = "→ " + target + "  in  " + bank;
 
+            // Amber only — the combo entry already carries the words, and saying
+            // it twice on two adjacent lines reads as a nag rather than a fact.
             var isShared = string.Equals(bank, Core.MemoryBankReader.SharedBankName,
                 StringComparison.OrdinalIgnoreCase);
             _lblDestination.ForeColor = isShared
-                ? Color.FromArgb(180, 120, 0)   // amber: applies to every job, not just this client
+                ? Color.FromArgb(180, 120, 0)   // applies to every job, not just this client
                 : Color.FromArgb(0, 90, 158);
-            if (isShared)
-                _lblDestination.Text += "   (applies to every bank)";
         }
     }
 }

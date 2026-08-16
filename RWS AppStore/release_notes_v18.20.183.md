@@ -5,8 +5,8 @@ version numbers so the App Store never sees a collision):
 
 | Build | Version number | Min studio | Max studio | Checksum (SHA-256) |
 |-------|----------------|------------|------------|--------------------|
-| Studio 2024 | `18.20.183.0` | `18.0` | `18.9` | `2148a0a04cb3d9910d4bfb6463fef0433afb3e46c3ccd9990b13f80977520846` |
-| Studio 2026 | `19.20.183.0` | `19.0` | `19.0.9` | `da9e25a6849aff66e02167a953b51a4ed53cc26eda8b59d2247ec1fcaefa250a` |
+| Studio 2024 | `18.20.183.0` | `18.0` | `18.9` | `3a5b1ff34b5b5f8bfbfa9769244f962d8fdf049f15121adfc3152b4952f3612e` |
+| Studio 2026 | `19.20.183.0` | `19.0` | `19.0.9` | `f640381e17c98eb4858b1408b4e512c04fc21c81c17115e887fa2b69cd4403d6` |
 
 ---
 
@@ -46,7 +46,7 @@ Everything else is below.
 - **Your Trados termbase is never touched** — it is read through a temporary snapshot, which also means a `.ttb` currently open in Studio is read correctly rather than half-read.
 
 ### Changed
-- **The Quick Add dialog now asks which memory bank to write to**, with the active one preselected, every other bank listed, and **_shared** at the bottom for something true of your work rather than of one client. Until now it wrote to the active bank silently and named it only in the confirmation afterwards — so a term could land in the wrong client's terminology and the first sign of it would be a delivery. **_shared** could not be reached from the dialog at all; it had to be edited by hand.
+- **The Quick Add dialog now asks which memory bank to write to**, with the active one preselected, every other bank listed, and **_shared** at the bottom, labelled *(applies to all banks)* because it is the one entry that is not a single client. Until now it wrote to the active bank silently and named it only in the confirmation afterwards — so a term could land in the wrong client's terminology and the first sign of it would be a delivery. **_shared** could not be reached from the dialog at all; it had to be edited by hand.
 - **It also names the exact file before you commit**, under the picker: *terminology.md in BRANTS BARI-001-BE-EP*, or *reference/* if you tick the second mode. Choosing _shared is marked in amber, because a rule put there applies to every job you do.
 - **The two mode labels were describing the old memory-bank layout.** They said your entry became "a structured article in **02_TERMINOLOGY**", or a "raw note ... (**00_INBOX**)". Neither folder has been written to since the bank redesign: entries go into **terminology.md**, and notes into **reference/**. The labels now say what actually happens, and what the difference is for — whether the AI ever reads it.
 - **The second mode no longer claims your note will be processed by AI.** It offered to save "for AI processing", to be "compiled by Process Inbox" — a command that does not exist in this plugin. The reference folder is deliberately never read into a prompt: it is the record of where knowledge came from, so a claim the AI makes can be checked against its source. The checkbox is now **"Save as background reference instead"** and says plainly that nothing reads it automatically. It is still worth using for something you want to keep but cannot yet write as a term pair — the confirmation tells you how to promote it when you can.
