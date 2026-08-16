@@ -107,6 +107,26 @@ namespace Supervertaler.Trados.Settings
         [DataMember(Name = "activePromptPath")]
         public string ActivePromptPath { get; set; } = "";
 
+        // ─── Reference drawings ─────────────────────────────────────
+
+        /// <summary>
+        /// Folder holding this project's reference drawings. Empty means "work it
+        /// out by convention" — <see cref="Core.ReferenceImages.Resolve"/> looks
+        /// for an <c>Images\</c> or <c>Figures\</c> folder near the project, which
+        /// is where they land when extracted from the application PDF.
+        ///
+        /// <para>Per project rather than global because drawings belong to a
+        /// filing, and per project rather than per bank because a bank can outlive
+        /// the Studio project that produced it. The distilled <c>figures.md</c>
+        /// that gets written FROM these images is bank-scoped; the images
+        /// themselves are not.</para>
+        ///
+        /// <para>Stored even when it matches the convention, so that a folder
+        /// renamed later does not silently change which drawings a job used.</para>
+        /// </summary>
+        [DataMember(Name = "referenceImagesFolder")]
+        public string ReferenceImagesFolder { get; set; } = "";
+
         // ─── Static helpers ─────────────────────────────────────────
 
         /// <summary>
