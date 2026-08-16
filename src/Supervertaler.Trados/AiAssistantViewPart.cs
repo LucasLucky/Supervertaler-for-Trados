@@ -42,7 +42,14 @@ namespace Supervertaler.Trados
 
         private EditorController _editorController;
         private IStudioDocument _activeDocument;
-        private TermLensSettings _settings;
+        /// <summary>
+        /// The shared settings instance. A property, not a field: this pane used
+        /// to hold its own copy, and a copy is how a memory bank switched here
+        /// came back to its old value when Settings was opened from TermLens —
+        /// whichever stale copy saved last won. See
+        /// docs/design/settings-single-source-of-truth.md.
+        /// </summary>
+        private TermLensSettings _settings => SettingsService.Current;
 
         // Cached language pair – ActiveFile can be null when the AI panel has focus
         private string _cachedSourceLang;
@@ -184,9 +191,10 @@ namespace Supervertaler.Trados
                 }));
             };
 
-            // Load settings and wire up gear button even when unlicensed,
-            // so users can open Settings → License to activate.
-            _settings = TermLensSettings.Load();
+            // Settings load themselves on first touch via SettingsService.
+            // Kept as a statement so the gear button is still wired up below
+            // even when unlicensed, letting users reach Settings → License.
+            var _ = _settings;
             _promptLibrary = TermLensEditorViewPart.GetPromptLibrary() ?? new PromptLibrary();
             _promptLibrary.EnsureDefaultPrompts();
             _control.Value.SettingsRequested += OnSettingsRequested;
@@ -481,7 +489,7 @@ namespace Supervertaler.Trados
                 if (aiSettings == null) return;
 
                 aiSettings.SetProviderAndModel(providerKey, modelId);
-                _settings.Save();
+                SettingsService.Save();
 
                 UpdateProviderDisplay();
                 UpdateBatchProviderDisplay();
@@ -503,7 +511,7 @@ namespace Supervertaler.Trados
         private void OnChatFontSizeChanged(object sender, EventArgs e)
         {
             _settings.ChatFontSize = _control.Value.ChatFontSize;
-            _settings.Save();
+            SettingsService.Save();
         }
 
         // ─── Settings ───────────────────────────────────────────────
@@ -527,18 +535,15 @@ namespace Supervertaler.Trados
 
                     if (form.SettingsImported)
                     {
-                        // User imported settings from file – reload from disk
-                        var fresh = TermLensSettings.Load();
-                        _settings.AiSettings = fresh.AiSettings;
-                        _settings.TermbasePath = fresh.TermbasePath;
-                        _settings.AutoLoadOnStartup = fresh.AutoLoadOnStartup;
-                        _settings.PanelFontSize = fresh.PanelFontSize;
-                        _settings.TermShortcutStyle = fresh.TermShortcutStyle;
-                        _settings.ChordDelayMs = fresh.ChordDelayMs;
-                        _settings.DisabledTermbaseIds = fresh.DisabledTermbaseIds;
-                        _settings.WriteTermbaseIds = fresh.WriteTermbaseIds;
-                        _settings.ProjectTermbaseId = fresh.ProjectTermbaseId;
-                        _settings.DisabledMultiTermIds = fresh.DisabledMultiTermIds;
+                        // Import replaces the file wholesale, so re-read it.
+                        //
+                        // This used to copy ten named fields out of a fresh
+                        // Load() into a private copy — a workaround for the
+                        // staleness the shared instance removes. It could not
+                        // work: it ran AFTER the dialog had already saved the
+                        // stale object, so it only re-synced memory to a file
+                        // that had just been reverted.
+                        SettingsService.Reload();
                     }
 
                     // Always refresh the prompt dropdown – prompt deletions happen
@@ -7156,10 +7161,13 @@ namespace Supervertaler.Trados
             try
             {
                 // 1. Persist the new active bank to settings
-                if (_settings == null) _settings = TermLensSettings.Load();
-                if (_settings.AiSettings == null) _settings.AiSettings = new AiSettings();
-                _settings.AiSettings.ActiveMemoryBankName = newName;
-                _settings.Save();
+                // Under one lock, so the read-modify-write cannot interleave
+                // with another writer — the shape of the defect this replaced.
+                SettingsService.Update(s =>
+                {
+                    if (s.AiSettings == null) s.AiSettings = new AiSettings();
+                    s.AiSettings.ActiveMemoryBankName = newName;
+                });
 
                 // 2. Invalidate the cached reader – the next LoadKbContextForPrompt
                 //    call will lazily recreate it against the new bank directory.
@@ -8364,7 +8372,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 var termbaseTerms = allTerms.Where(t => aiSettings.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
                 WarnIfNoAiTermbases(batchControl, allTerms.Count, termbaseTerms.Count);
                 var selectedPromptPath = batchControl.GetSelectedPromptPath();
-                aiSettings.SelectedPromptPath = selectedPromptPath; _settings.Save();
+                aiSettings.SelectedPromptPath = selectedPromptPath; SettingsService.Save();
                 var customPromptContent = ResolveCustomPromptContent(sourceLang, targetLang);
                 var customSystemPrompt = aiSettings.CustomSystemPrompt;
                 List<string> docSegments = aiSettings.IncludeDocumentContext ? CollectDocumentContext().Item1 : null;
@@ -8572,7 +8580,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     if (dlg.ShowDialog() == DialogResult.OK && File.Exists(dlg.FileName))
                     {
                         aiSettings.WorkbenchExePath = dlg.FileName;
-                        try { _settings.Save(); } catch { }
+                        try { SettingsService.Save(); } catch { }
                         return dlg.FileName;
                     }
                 }
@@ -8686,7 +8694,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 // Resolve custom prompt from library selection
                 var selectedPromptPath = batchControl.GetSelectedPromptPath();
                 aiSettings.SelectedPromptPath = selectedPromptPath;
-                _settings.Save();
+                SettingsService.Save();
 
                 var customPromptContent = ResolveCustomPromptContent(sourceLang, targetLang);
                 var customSystemPrompt = aiSettings.CustomSystemPrompt;
@@ -9097,7 +9105,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 var selectedPromptPath = batchControl.GetSelectedPromptPath();
                 if (aiSettings != null)
                     aiSettings.SelectedPromptPath = selectedPromptPath;
-                _settings.Save();
+                SettingsService.Save();
 
                 // Resolve custom prompt
                 var customPromptContent = ResolveCustomPromptContent(sourceLang, targetLang);
@@ -9223,7 +9231,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 var selectedPromptPath = batchControl.GetSelectedPromptPath();
                 if (aiSettings != null)
                     aiSettings.SelectedPromptPath = selectedPromptPath;
-                _settings.Save();
+                SettingsService.Save();
 
                 var customPromptContent = ResolveCustomPromptContent(sourceLang, targetLang);
                 var customSystemPrompt = aiSettings?.CustomSystemPrompt;
@@ -9587,7 +9595,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 // Resolve custom prompt from library selection
                 var selectedPromptPath = batchControl.GetSelectedPromptPath();
                 aiSettings.SelectedPromptPath = selectedPromptPath;
-                _settings.Save();
+                SettingsService.Save();
 
                 var customPromptContent = ResolveCustomPromptContent(sourceLang, targetLang);
 
@@ -12091,7 +12099,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         {
             var instance = _currentInstance;
             if (instance == null) return;
-            instance._settings = TermLensSettings.Load();
+            SettingsService.Reload();
             instance.UpdateProviderDisplay();
             instance.UpdateBatchProviderDisplay();
             // Pick up any bank-list changes (new bank added via settings dialog,

@@ -54,7 +54,19 @@ namespace Supervertaler.Trados
 
         private EditorController _editorController;
         private IStudioDocument _activeDocument;
-        private TermLensSettings _settings;
+        /// <summary>
+        /// The shared settings instance. A property, not a field: a private copy
+        /// here is what reverted a memory bank switched in the Assistant pane,
+        /// because opening Settings from this pane handed the dialog stale state
+        /// and its save won. See docs/design/settings-single-source-of-truth.md.
+        ///
+        /// <para>Note this instance carries the active project's overlay (see
+        /// ApplyProjectOverlay): settings.json is deliberately used as the channel
+        /// that lets disk-reading actions such as Alt+Down see the CURRENT
+        /// project's Write termbases. Sharing the instance makes that visible in
+        /// memory too, rather than only after a save/reload round trip.</para>
+        /// </summary>
+        private TermLensSettings _settings => SettingsService.Current;
 
         // MultiTerm integration
         private List<MultiTermTermbaseConfig> _multiTermConfigs;
@@ -229,9 +241,10 @@ namespace Supervertaler.Trados
             // currently have SuperMemory switched on.
             ShowSuperMemoryAnnouncement(ctrl);
 
-            // Load persisted settings – needed even when unlicensed so the
-            // settings dialog can open and let the user enter a license key.
-            _settings = TermLensSettings.Load();
+            // Settings load themselves on first touch via SettingsService.
+            // Touched here so they are ready even when unlicensed, which is what
+            // lets the settings dialog open for a user entering a licence key.
+            var _ = _settings;
 
             // Apply global UI scale factor before any controls are created.
             // SeedSystemScale picks up the current Windows DPI (1.0 at 100%,
@@ -1147,18 +1160,12 @@ namespace Supervertaler.Trados
 
                     if (form.SettingsImported)
                     {
-                        // User imported settings from file – reload everything from disk
-                        var fresh = TermLensSettings.Load();
-                        _settings.TermbasePath = fresh.TermbasePath;
-                        _settings.AutoLoadOnStartup = fresh.AutoLoadOnStartup;
-                        _settings.PanelFontSize = fresh.PanelFontSize;
-                        _settings.TermShortcutStyle = fresh.TermShortcutStyle;
-                        _settings.ChordDelayMs = fresh.ChordDelayMs;
-                        _settings.DisabledTermbaseIds = fresh.DisabledTermbaseIds;
-                        _settings.WriteTermbaseIds = fresh.WriteTermbaseIds;
-                        _settings.ProjectTermbaseId = fresh.ProjectTermbaseId;
-                        _settings.DisabledMultiTermIds = fresh.DisabledMultiTermIds;
-                        _settings.AiSettings = fresh.AiSettings;
+                        // Import replaces the file wholesale, so re-read it. This
+                        // was ten named fields copied into a private copy — the
+                        // workaround the shared instance removes, and one that
+                        // could not work: it ran after the dialog had already
+                        // saved the stale object.
+                        SettingsService.Reload();
                     }
 
                     if (result == System.Windows.Forms.DialogResult.OK || form.SettingsImported)
@@ -1205,7 +1212,7 @@ namespace Supervertaler.Trados
         {
             // Persist the new font size from the A+/A- buttons
             _settings.PanelFontSize = _control.Value.Font.Size;
-            _settings.Save();
+            SettingsService.Save();
 
             // Refresh the segment display with the new font
             UpdateFromActiveSegment();
@@ -1302,7 +1309,7 @@ namespace Supervertaler.Trados
                     // instead of the previous project's stale values. Pre-fix,
                     // pressing Alt+Down on a freshly-opened project would write
                     // to the previous project's Write termbase.
-                    _settings.Save();
+                    SettingsService.Save();
 
                     // Reload termbase with the project-specific path
                     LoadTermbase(forceReload: true);
@@ -1346,7 +1353,7 @@ namespace Supervertaler.Trados
                     // readers see the empty WriteTermbaseIds / cleared
                     // ProjectTermbaseId. See comment on the matching call
                     // above for the bug this prevents.
-                    _settings.Save();
+                    SettingsService.Save();
 
                     // Reload termbase with clean state
                     LoadTermbase(forceReload: true);
@@ -1389,7 +1396,7 @@ namespace Supervertaler.Trados
                     // User has pre-existing explicit choices; just mark as initialized
                     // so we don't keep re-evaluating on every load.
                     ai.AiTermbaseIdsInitialized = true;
-                    _settings.Save();
+                    SettingsService.Save();
                     return;
                 }
 
@@ -1404,7 +1411,7 @@ namespace Supervertaler.Trados
 
                 ai.DisabledAiTermbaseIds = new List<long>(allIds);
                 ai.AiTermbaseIdsInitialized = true;
-                _settings.Save();
+                SettingsService.Save();
                 System.Diagnostics.Debug.WriteLine(
                     $"[TermLens] Migrated global AI termbase list: disabled {allIds.Count} termbases (opt-in default)");
             }
@@ -2146,11 +2153,12 @@ namespace Supervertaler.Trados
         {
             var instance = _currentInstance;
             if (instance == null) return;
-            var fresh = TermLensSettings.Load();
-            if (instance._settings == null)
-                instance._settings = fresh;
-            else
-                instance._settings.AiSettings = fresh.AiSettings;
+            // Was: copy AiSettings out of a fresh load into this pane's private
+            // copy, so its gear icon showed current values. With one shared
+            // instance there is nothing to refresh — the values are already the
+            // same object. Kept as a no-op rather than deleted because callers
+            // outside this file still invoke it; it goes in stage 3.
+            _ = instance;
         }
 
         /// <summary>
@@ -2161,7 +2169,7 @@ namespace Supervertaler.Trados
         {
             var instance = _currentInstance;
             if (instance == null) return;
-            instance._settings = TermLensSettings.Load();
+            SettingsService.Reload();
             // Re-detect system DPI in case the user moved Trados to a
             // different monitor since startup, then re-apply user scale.
             UiScale.SeedSystemScale();
@@ -2180,7 +2188,7 @@ namespace Supervertaler.Trados
                     // Keep the global settings file in sync so disk-based
                     // readers (QuickAddTermAction, AddTermAction) see the
                     // current project's effective Write/Project termbase IDs.
-                    instance._settings.Save();
+                    SettingsService.Save();
                 }
             }
 
@@ -2198,8 +2206,9 @@ namespace Supervertaler.Trados
             var instance = _currentInstance;
             if (instance == null) return;
 
-            // Re-read settings in case WriteTermbaseId or disabled list changed
-            instance._settings = TermLensSettings.Load();
+            // Re-read in case WriteTermbaseId or the disabled list changed on
+            // disk; the project overlay below is then re-applied over the top.
+            SettingsService.Reload();
 
             // Re-apply per-project overlay so the reload doesn't clobber project-specific values
             if (!string.IsNullOrEmpty(instance._currentProjectPath))
@@ -2209,7 +2218,7 @@ namespace Supervertaler.Trados
                 {
                     instance._settings.ApplyProjectOverlay(ps);
                     // Keep the global settings file in sync (see notes above).
-                    instance._settings.Save();
+                    SettingsService.Save();
                 }
             }
 
