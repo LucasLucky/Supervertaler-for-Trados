@@ -93,10 +93,33 @@ def parse_changelog(changelog_path):
     return entries
 
 
+HIGHLIGHT_MARKER = "★"  # a leading star in CHANGELOG.md marks a headline feature
+
+
+def extract_headline(bullet):
+    """The bold lead sentence of a changelog bullet, which is already written as
+    a headline. Falls back to the whole bullet if it has no bold lead."""
+    body = bullet[2:].strip() if bullet.startswith("- ") else bullet.strip()
+    if body.startswith("**"):
+        end = body.find("**", 2)
+        if end > 2:
+            return body[2:end].strip()
+    return body
+
+
 def collect_sections(entries):
-    """Merge multiple changelog entries into combined Added/Changed/Fixed sections."""
+    """Merge multiple changelog entries into combined Added/Changed/Fixed sections.
+
+    A bullet whose text begins with the star marker is ALSO lifted into a
+    Highlights lead. It keeps its place in its own section: an App Store reader
+    coming from a version two dozen releases back faces well over a hundred
+    bullets, and the flagship feature should not depend on them reading to the
+    right one. The lead carries only the bold headline, so nothing is repeated
+    at length.
+    """
     added = []
     changed = []
+    highlights = []
     fixed = []
 
     for _version, content in entries:
@@ -123,6 +146,10 @@ def collect_sections(entries):
                     current_section = None
                 continue
             if stripped.startswith("- ") and current_section:
+                marker = "- " + HIGHLIGHT_MARKER
+                if stripped.startswith(marker):
+                    stripped = "- " + stripped[len(marker):].lstrip()
+                    highlights.append(extract_headline(stripped))
                 if current_section == "added":
                     added.append(stripped)
                 elif current_section == "changed":
@@ -142,7 +169,17 @@ def collect_sections(entries):
                 result.append(item)
         return result
 
-    return dedup(added), dedup(changed), dedup(fixed)
+    # Highlights keep changelog order (newest version first) and are deduped
+    # against each other only — they are headlines, not bullets.
+    seen = set()
+    unique_highlights = []
+    for h in highlights:
+        key = h.lower().strip()
+        if key not in seen:
+            seen.add(key)
+            unique_highlights.append(h)
+
+    return dedup(added), dedup(changed), dedup(fixed), unique_highlights
 
 
 def main():
@@ -198,7 +235,7 @@ def main():
 
     version_range = f"{selected[-1][0]}-{selected[0][0]}" if len(selected) > 1 else selected[0][0]
 
-    added, changed, fixed = collect_sections(selected)
+    added, changed, fixed, highlights = collect_sections(selected)
 
     # Build changelog text
     sections = []
@@ -230,6 +267,17 @@ def main():
     output_lines.append("")
     output_lines.append("---")
     output_lines.append("")
+    if highlights:
+        output_lines.append("## Highlights")
+        output_lines.append("")
+        for h in highlights:
+            output_lines.append(f"- **{h}**")
+        output_lines.append("")
+        output_lines.append("Everything else is below.")
+        output_lines.append("")
+        output_lines.append("---")
+        output_lines.append("")
+
     output_lines.append("## Changelog")
     output_lines.append("")
     output_lines.append(changelog_text)

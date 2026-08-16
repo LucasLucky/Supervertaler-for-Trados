@@ -10,6 +10,15 @@ version numbers so the App Store never sees a collision):
 
 ---
 
+## Highlights
+
+- **The MCP server works with ChatGPT desktop, and the plugin now sets it up for you.**
+- **Select a term, press Alt+W, and 41 reference sites are one keystroke away**
+
+Everything else is below.
+
+---
+
 ## Changelog
 
 ### Added
