@@ -702,6 +702,22 @@ namespace Supervertaler.Trados.Settings
         /// Extracts the per-project fields from this settings instance into a
         /// ProjectSettings object suitable for saving.
         /// </summary>
+        /// <summary>
+        /// Reads back the reference-images folder already stored for this
+        /// project, so an unrelated settings save cannot discard it.
+        /// Returns empty when there is nothing to preserve.
+        /// </summary>
+        private static string LoadExistingReferenceImagesFolder(string projectPath)
+        {
+            if (string.IsNullOrEmpty(projectPath)) return "";
+            try
+            {
+                var existing = ProjectSettings.Load(projectPath);
+                return existing?.ReferenceImagesFolder ?? "";
+            }
+            catch { return ""; }
+        }
+
         public ProjectSettings ExtractProjectSettings(string projectPath = null, string projectName = null)
         {
             return new ProjectSettings
@@ -724,6 +740,15 @@ namespace Supervertaler.Trados.Settings
                 // the plugin has loaded and applied them at least once.
                 AiTermbaseIdsInitialized = true,
                 ActivePromptPath = AiSettings?.SelectedPromptPath ?? "",
+
+                // Carried forward, not derived. Every other field here mirrors a
+                // global setting, so rebuilding them from memory is right. The
+                // reference-images folder has no global counterpart — it belongs
+                // to the job — and Save() writes the whole object, so omitting it
+                // would silently blank the user's choice each time they opened
+                // Settings and pressed OK. The same lost-update shape the
+                // SettingsService work removed, one level down.
+                ReferenceImagesFolder = LoadExistingReferenceImagesFolder(projectPath),
             };
         }
 
