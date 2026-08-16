@@ -1228,7 +1228,8 @@
         "query": "q",
         "domain": "domain",
         "client": "client",
-        "tokenBudget": "tokenBudget"
+        "tokenBudget": "tokenBudget",
+        "bank": "bank"
       },
       "fixedQuery": {},
       "fixedBody": {}
