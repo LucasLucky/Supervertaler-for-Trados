@@ -1,6 +1,8 @@
 # A SuperMemory tab in Settings
 
-**Status:** design, not started
+**Status:** design, not started. The *organisational* argument in "What belongs
+where" is an unsettled working hypothesis, not an agreed structure — the build
+order below does not depend on it.
 **Date:** 2026-08-16
 **Prompted by:** needing somewhere to put the reference-images folder button
 (step 1 of `HANDOFF-image-context.md`), which turned into a better question:
@@ -151,6 +153,72 @@ repetitive. Revisit if it proves annoying in practice.
 Related, from the handoff and still open: sibling BE/EP filings share drawings.
 Per-project handles that naturally — both projects point at one folder — which is
 another point in its favour.
+
+## What belongs where — a working hypothesis
+
+**Not settled.** Recorded because it is the lens that decides placement
+questions, and because writing it down is the only way to find out whether it
+survives contact with real use. Argue with it rather than inheriting it.
+
+The Prompts tab currently holds three things: the **System Prompt**, the
+**AutoTagger Instruction**, and the user's **custom prompts**. Asked whether any
+of them belong with SuperMemory, the useful move is to sort by *what the text
+is* rather than by what format it happens to be in:
+
+| | What it is | Who authors it | When it changes |
+|---|---|---|---|
+| System Prompt | how the assistant behaves | ships with a default | almost never |
+| AutoTagger Instruction | how one feature behaves | ships with a default | almost never |
+| Custom prompts | what task to perform | the user | chosen per run |
+| SuperMemory | what is true about this client | the user | grows during a job |
+
+That is three kinds, not two: **configuration**, **task instructions**, and
+**knowledge**.
+
+### What follows
+
+**None of the three belongs with SuperMemory.** All are instructions — *how* or
+*what to do*. SuperMemory is knowledge — *what is true*. The distinction holds up
+operationally: you choose a prompt, you never choose a brief.
+
+**The misfit is elsewhere.** System Prompt and AutoTagger Instruction do not
+belong with custom prompts either. They are product configuration, shipping with
+defaults and edited about once a year, sitting inside a library of content the
+user authors and picks between. AI Settings, next to the other "how the tool
+behaves" controls, fits them better. Worth considering on its own merits, not as
+part of this tab.
+
+**Prompts and banks are already entangled, and the fix runs the other way.** The
+production prompt for BRANTS BARI-001-BE-EP contains a long *"STRUCTURAL FACTS
+DERIVED FROM THE DRAWINGS"* section — numeral disambiguations, why *schot* and
+*scheiding* must not collapse into one English word, what `(15)` is. That is
+knowledge about a filing living inside a task instruction.
+`HANDOFF-image-context.md` says as much: the prompt is *"the current delivery
+mechanism"* and *"the point of this feature is that it should stop being
+necessary to embed it."*
+
+So the direction of travel is moving content **out of prompts and into banks**,
+until a prompt says "translate this the way you have been told" and the bank
+says what you have been told. The reference-images feature is the first step of
+that migration, not a side quest.
+
+### Where it is weak
+
+**Users write prompts that are mostly knowledge.** A prompt named "Client X
+house style" is knowledge wearing a prompt's clothes, and nothing stops it. The
+taxonomy describes where things *should* sit, not where they *do* — so it is a
+guide for new surfaces, not a licence to move a user's existing files.
+
+**The style boundary is genuinely blurry.** `style.md` is knowledge and a
+proofreading prompt is an instruction, but both encode "how to write". Which one
+should hold "never use the Oxford comma for this client" is not obvious, and the
+honest answer may be that it depends on whether it applies to one task or to all
+of them.
+
+**Three categories may be one too many for a UI.** Configuration and task
+instructions are distinct in principle, but a user looking for "the AI's
+instructions" may not care which is which. Splitting them across two tabs could
+cost more than the tidiness is worth.
 
 ## Build order
 
