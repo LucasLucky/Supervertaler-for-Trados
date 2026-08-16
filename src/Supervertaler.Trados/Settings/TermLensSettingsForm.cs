@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -30,7 +30,14 @@ namespace Supervertaler.Trados.Settings
         /// </summary>
         public event EventHandler<string> ActivePromptChanged;
 
-        private readonly TermLensSettings _settings;
+        /// <summary>The one shared settings instance, not a copy handed in.
+        ///
+        /// <para>It used to be a constructor parameter, and each caller passed
+        /// whatever it happened to hold — so the dialog you got depended on
+        /// which gear icon you clicked, and saving it reverted whatever another
+        /// panel had changed since that copy was loaded. A property rather than
+        /// a field because <c>Reload()</c> replaces the instance.</para></summary>
+        private TermLensSettings _settings => SettingsService.Current;
         private readonly Core.PromptLibrary _promptLibrary;
 
         // Tab control
@@ -84,11 +91,14 @@ namespace Supervertaler.Trados.Settings
         // suppressed because we have nothing to compare against.
         private string _projectSourceLanguage;
 
-        public TermLensSettingsForm(TermLensSettings settings,
-            Core.PromptLibrary promptLibrary = null, int defaultTab = 0)
+        /// <summary>
+        /// Prefer <see cref="SettingsDialog.Show"/> over constructing this
+        /// directly — it is the single entry point every gear icon goes
+        /// through, and it owns the refresh that has to follow a save.
+        /// </summary>
+        public TermLensSettingsForm(Core.PromptLibrary promptLibrary = null, int defaultTab = 0)
         {
             Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
-            _settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _promptLibrary = promptLibrary ?? new Core.PromptLibrary();
             _projectSourceLanguage = TermLensEditorViewPart.GetCurrentProjectSourceLanguage();
             BuildUI();
@@ -1982,7 +1992,7 @@ namespace Supervertaler.Trados.Settings
             // Prompts
             _promptManagerPanel.ApplyToSettings(_settings.AiSettings);
 
-            _settings.Save();
+            SettingsService.Save();
 
             // Also save per-project settings if a Trados project is active
             var projectPath = TermLensEditorViewPart.GetCurrentProjectPath();
@@ -2012,7 +2022,7 @@ namespace Supervertaler.Trados.Settings
                         if (!File.Exists(src))
                         {
                             // Save current in-memory settings first so there is something to export
-                            _settings.Save();
+                            SettingsService.Save();
                         }
                         File.Copy(src, dlg.FileName, overwrite: true);
                         MessageBox.Show(this,
@@ -2112,7 +2122,7 @@ namespace Supervertaler.Trados.Settings
             // Always persist form size (even on Cancel)
             _settings.SettingsFormWidth = Width;
             _settings.SettingsFormHeight = Height;
-            _settings.Save();
+            SettingsService.Save();
 
             base.OnFormClosing(e);
         }

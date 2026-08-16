@@ -494,15 +494,10 @@ namespace Supervertaler.Trados
                 UpdateProviderDisplay();
                 UpdateBatchProviderDisplay();
 
-                // Tell TermLensEditorViewPart to reload AiSettings from disk.
-                // Otherwise its in-memory settings stay on the OLD provider/
-                // model, so opening the Settings dialog from the TermLens
-                // panel's gear icon would show stale values that don't match
-                // the chat status bar. We use the lightweight NotifyAi-
-                // variant rather than the full NotifySettingsChanged so we
-                // don't pointlessly reload the termbase – AI provider/model
-                // changes don't affect terminology.
-                TermLensEditorViewPart.NotifyAiSettingsChanged();
+                // Nothing to tell TermLens. This used to push AiSettings into
+                // that panel's private copy, so its gear icon would not show a
+                // provider the chat status bar had already moved off. There is
+                // one instance now, so both are reading the same values.
             });
         }
 
@@ -518,49 +513,17 @@ namespace Supervertaler.Trados
 
         private void OnSettingsRequested(object sender, EventArgs e)
         {
+            // One entry point for every gear icon; the tab index is the only
+            // thing this panel gets to decide. Refreshing both panels afterwards
+            // is SettingsDialog's job, so it happens however Settings was opened.
             SafeInvoke(() =>
             {
-                using (var form = new TermLensSettingsForm(_settings, _promptLibrary, defaultTab: 2))
-                {
+                SettingsDialog.Show(_control.Value.FindForm(), _promptLibrary, defaultTab: 2);
 
-                    // Note: live-sync of the active prompt is handled by the static
-                    // Controls.PromptManagerPanel.ActivePromptChangedGlobal hook
-                    // wired in Initialize, not here – that way it also fires when
-                    // the Settings dialog is opened from TermLensEditorViewPart.
-
-                    var parent = _control.Value.FindForm();
-                    var result = parent != null
-                        ? form.ShowDialog(parent)
-                        : form.ShowDialog();
-
-                    if (form.SettingsImported)
-                    {
-                        // Import replaces the file wholesale, so re-read it.
-                        //
-                        // This used to copy ten named fields out of a fresh
-                        // Load() into a private copy — a workaround for the
-                        // staleness the shared instance removes. It could not
-                        // work: it ran AFTER the dialog had already saved the
-                        // stale object, so it only re-synced memory to a file
-                        // that had just been reverted.
-                        SettingsService.Reload();
-                    }
-
-                    // Always refresh the prompt dropdown – prompt deletions happen
-                    // immediately on disk even if the user clicks Cancel afterwards
-                    _promptLibrary.Refresh();
-                    PopulateBatchPromptDropdown();
-
-                    if (result == System.Windows.Forms.DialogResult.OK || form.SettingsImported)
-                    {
-                        // Refresh provider displays
-                        UpdateProviderDisplay();
-                        UpdateBatchProviderDisplay();
-
-                        // Notify TermLens to reload settings from disk
-                        TermLensEditorViewPart.NotifySettingsChanged();
-                    }
-                }
+                // Prompt deletions hit disk even on Cancel, so the dropdown is
+                // rebuilt either way. (SettingsDialog refreshes the library
+                // itself; this rebuilds the control that reads it.)
+                PopulateBatchPromptDropdown();
             });
         }
 
@@ -12132,16 +12095,27 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         }
 
         /// <summary>
-        /// Reloads settings from disk. Called by TermLensEditorViewPart after its
-        /// settings dialog saves, so this ViewPart picks up changes made there.
+        /// Brings this panel into line with the settings after the dialog has
+        /// committed. Called by <see cref="SettingsDialog"/> for every gear
+        /// icon, including ones in other panels — which is why it is static and
+        /// tolerates never having been opened.
+        ///
+        /// <para>No reload from disk: the dialog wrote the shared instance, so
+        /// there is nothing newer on disk to fetch. The reload existed only
+        /// because this panel used to hold a copy.</para>
+        ///
+        /// <para>Absorbed the block that used to sit inline in
+        /// <c>OnSettingsRequested</c>, which did the same work minus the bank
+        /// dropdown — so a bank created in the dialog appeared only if you had
+        /// opened Settings from the *other* panel.</para>
         /// </summary>
-        public static void NotifySettingsChanged()
+        public static void RefreshAfterSettingsChanged()
         {
             var instance = _currentInstance;
             if (instance == null) return;
-            SettingsService.Reload();
             instance.UpdateProviderDisplay();
             instance.UpdateBatchProviderDisplay();
+            instance.PopulateBatchPromptDropdown();
             // Pick up any bank-list changes (new bank added via settings dialog,
             // rename, etc.) and re-select the active bank without firing the
             // toolbar's change event.

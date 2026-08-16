@@ -171,8 +171,12 @@ namespace Supervertaler.Trados.Controls
                 Close();
                 try
                 {
-                    using (var form = new TermLensSettingsForm(TermLensSettings.Load(), defaultTab: 4))
-                        form.ShowDialog();
+                    // Was: a fresh TermLensSettings.Load(), i.e. a fourth private
+                    // copy. Saving it reverted whatever either panel had changed
+                    // since — and nothing was refreshed afterwards either, so
+                    // this was the one gear icon whose changes did not show up
+                    // until Studio restarted.
+                    SettingsDialog.Show(null, defaultTab: 4);
                 }
                 catch { }
             };

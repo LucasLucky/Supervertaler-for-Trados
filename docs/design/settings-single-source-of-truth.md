@@ -212,6 +212,75 @@ and one is a fix. The audit's main finding is that the existing workaround must
 be **removed**, not adapted — leaving it would re-introduce a second source of
 truth inside the very change meant to remove it.
 
+## Stage 3: one way in
+
+**Done 2026-08-16.**
+
+The stated goal was "every gear icon opens the same settings". The audit for
+stage 2 had found three openers. There were **five** — the two panels, the About
+box's licence link, the QuickLauncher menu header, and the settings form's own
+construction. Two of the five had been missed because the call was
+namespace-qualified and wrapped across lines, which a search for
+`new TermLensSettingsForm` does not match.
+
+That mattered, because the two missed ones were the worst:
+
+| Opener | What it passed | Refresh afterwards |
+|---|---|---|
+| `AiAssistantViewPart` | its copy (shared since stage 2) | itself, then TermLens by hand |
+| `TermLensEditorViewPart` | its copy (shared since stage 2) | itself, then the Assistant by hand |
+| `AboutDialog` licence link | **a fresh `Load()`** | **none** |
+| `QuickLauncherAction` header | **a fresh `Load()`** | **none** |
+
+So opening Settings from the About box or the QuickLauncher took a private copy
+of the file, saved the whole of it, and reverted anything either panel had
+changed since — with nothing refreshed afterwards, so the panels went on
+displaying values the file no longer held until Studio restarted. Stage 2 could
+not have fixed these: it removed the panels' copies, and these two never used
+them.
+
+### What changed
+
+`SettingsDialog.Show(owner, promptLibrary, defaultTab)` is now the only way in.
+`TermLensSettingsForm`'s constructor no longer takes a settings object at all —
+it reads `SettingsService.Current` — so passing a private copy is not something
+a future call site can express. The tab index is the only thing a caller still
+decides.
+
+The refresh moved into `SettingsDialog` and now runs for **both** panels
+whichever icon was clicked, replacing the hand-wired
+`NotifySettingsChanged` cross-calls, which existed in only two of the five
+openers.
+
+### Two behaviour changes worth naming
+
+**TermLens's post-settings termbase reload is now always in the background.**
+The inline block and the static notify method had drifted: the inline one used
+`Task.Run`, the static one ran on the UI thread. Whether Studio froze for ~2
+minutes on a cold Studio 2026 cache therefore depended on which gear icon you
+had used. The background version won.
+
+**The AI Assistant's memory-bank dropdown now refreshes whichever icon was
+used.** Its inline block omitted `RefreshMemoryBankDropdown`, so a bank created
+inside the dialog appeared only if you had opened Settings from the *other*
+panel.
+
+### Why the refresh is not hung off `SettingsService.Changed`
+
+`Changed` fires on every save — including the A+/A− font buttons and the chat
+font slider. TermLens's refresh forces a full termbase reload. Subscribing would
+make an idle font tweak trigger a two-minute reload. `Changed` stays for
+refreshes cheap enough to run on an arbitrary write; the expensive one is asked
+for explicitly.
+
+### Left for stages 4-6
+
+`TermbaseEditorDialog` and `TermPickerDialog` are still handed a settings object
+(stage 4), and there are still **48** `TermLensSettings.Load()` call sites, most
+of them transient load-modify-save (stage 5). Those can each still lose a write
+that lands between their load and their save — a much narrower window than the
+defect fixed here, but the same shape.
+
 ## Not in scope
 
 Defect B — "active prompt" having two sources of truth (Settings pin vs the

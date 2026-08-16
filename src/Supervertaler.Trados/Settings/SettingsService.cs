@@ -37,10 +37,14 @@ namespace Supervertaler.Trados.Settings
 
         /// <summary>
         /// Raised after the settings have been saved or reloaded, so panes can
-        /// refresh instead of being told by hand. It replaces the one-directional
-        /// wiring that exists today (<c>AiAssistantViewPart.NotifySettingsChanged</c>,
-        /// called only by <c>TermLensEditorViewPart</c>) — which is why a change
-        /// made in one pane is currently invisible to the other.
+        /// refresh instead of being told by hand.
+        ///
+        /// <para><b>Not what the settings dialog uses.</b> This fires on every
+        /// save, including the A+/A− font buttons; the post-dialog refresh forces
+        /// a termbase reload that can take ~2 minutes on a cold Studio 2026
+        /// cache, so it is called explicitly by <see cref="SettingsDialog"/>
+        /// rather than triggered by any write that happens past. Use this event
+        /// for refreshes cheap enough to run on an arbitrary save.</para>
         ///
         /// <para>Marshalled to the UI thread when one is known, because every
         /// subscriber is a WinForms surface and a bridge-thread save would

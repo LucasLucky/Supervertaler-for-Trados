@@ -1148,64 +1148,13 @@ namespace Supervertaler.Trados
 
         private void OnSettingsRequested(object sender, EventArgs e)
         {
-            SafeInvoke(() =>
-            {
-                using (var form = new TermLensSettingsForm(_settings, _promptLibrary, defaultTab: 1))
-                {
-                    // Find a parent window handle for proper dialog parenting
-                    var parent = _control.Value.FindForm();
-                    var result = parent != null
-                        ? form.ShowDialog(parent)
-                        : form.ShowDialog();
-
-                    if (form.SettingsImported)
-                    {
-                        // Import replaces the file wholesale, so re-read it. This
-                        // was ten named fields copied into a private copy — the
-                        // workaround the shared instance removes, and one that
-                        // could not work: it ran after the dialog had already
-                        // saved the stale object.
-                        SettingsService.Reload();
-                    }
-
-                    if (result == System.Windows.Forms.DialogResult.OK || form.SettingsImported)
-                    {
-                        // Apply font size change (user may have adjusted it in settings)
-                        _control.Value.SetFontSize(_settings.PanelFontSize);
-
-                        // Apply shortcut style change
-                        TermBlock.UseRepeatedDigitBadges = _settings.TermShortcutStyle == "repeated";
-                        TermCaseAdapter.Enabled = _settings.AdaptTermCasing;
-
-                        // Refresh prompt library (user may have added/edited/deleted prompts)
-                        _promptLibrary.Refresh();
-
-                        // Notify AI Assistant to reload settings from disk
-                        AiAssistantViewPart.NotifySettingsChanged();
-
-                        // Force-reload termbases on a background thread so the
-                        // dialog closes immediately and the UI stays responsive
-                        // while the reload (which can take ~2 min on Studio 2026
-                        // cold cache) runs. UpdateFromActiveSegment is marshaled
-                        // back to the UI thread when the reload finishes so
-                        // chips refresh on whatever segment is active by then.
-                        System.Threading.Tasks.Task.Run(() =>
-                        {
-                            try
-                            {
-                                LoadTermbase(forceReload: true);
-                                LoadMultiTermTermbases();
-                                SafeInvoke(UpdateFromActiveSegment);
-                            }
-                            catch (Exception ex)
-                            {
-                                System.Diagnostics.Debug.WriteLine(
-                                    "[TermLens] Post-settings reload failed: " + ex);
-                            }
-                        });
-                    }
-                }
-            });
+            // One entry point for every gear icon; the tab index is the only
+            // thing this panel gets to decide. Everything that used to follow
+            // inline here — font size, shortcut style, the prompt library, the
+            // termbase reload, and telling the AI Assistant by hand — now lives
+            // in RefreshAfterSettingsChanged, which SettingsDialog calls for
+            // both panels whichever icon was clicked.
+            SafeInvoke(() => SettingsDialog.Show(_control.Value.FindForm(), _promptLibrary, defaultTab: 1));
         }
 
         private void OnFontSizeChanged(object sender, EventArgs e)
@@ -2141,35 +2090,28 @@ namespace Supervertaler.Trados
         }
 
         /// <summary>
-        /// Reloads only the AiSettings portion of this ViewPart's _settings
-        /// from disk. Called by AiAssistantViewPart when the user changes
-        /// the provider/model via the chat status-bar picker — TermLens
-        /// doesn't care about termbase reloads in that case, just needs
-        /// its in-memory copy of AiSettings refreshed so opening the
-        /// Settings dialog from this ViewPart's gear icon shows the
-        /// current values rather than stale ones.
+        /// Brings this panel into line with the settings after the dialog has
+        /// committed. Called by <see cref="SettingsDialog"/> for every gear
+        /// icon, including ones in other panels — which is why it is static and
+        /// tolerates never having been opened.
+        ///
+        /// <para>There is no reload from disk any more. The dialog wrote the
+        /// shared instance, so re-reading the file would at best return what is
+        /// already in memory; the reload only existed because this panel used to
+        /// hold a copy that the dialog's save had made stale.</para>
+        ///
+        /// <para>This absorbed the near-identical block that used to sit inline
+        /// in <c>OnSettingsRequested</c>. The two had drifted: the inline one
+        /// reloaded termbases in the background while this one did it on the UI
+        /// thread, so whether Studio froze for ~2 minutes on a cold Studio 2026
+        /// cache depended on which gear icon you had clicked. The background
+        /// version won.</para>
         /// </summary>
-        public static void NotifyAiSettingsChanged()
+        public static void RefreshAfterSettingsChanged()
         {
             var instance = _currentInstance;
             if (instance == null) return;
-            // Was: copy AiSettings out of a fresh load into this pane's private
-            // copy, so its gear icon showed current values. With one shared
-            // instance there is nothing to refresh — the values are already the
-            // same object. Kept as a no-op rather than deleted because callers
-            // outside this file still invoke it; it goes in stage 3.
-            _ = instance;
-        }
 
-        /// <summary>
-        /// Reloads settings from disk. Called by AiAssistantViewPart after its
-        /// settings dialog saves, so this ViewPart picks up changes made there.
-        /// </summary>
-        public static void NotifySettingsChanged()
-        {
-            var instance = _currentInstance;
-            if (instance == null) return;
-            SettingsService.Reload();
             // Re-detect system DPI in case the user moved Trados to a
             // different monitor since startup, then re-apply user scale.
             UiScale.SeedSystemScale();
@@ -2192,9 +2134,24 @@ namespace Supervertaler.Trados
                 }
             }
 
-            instance.LoadTermbase(forceReload: true);
-            instance.LoadMultiTermTermbases();
-            instance.UpdateFromActiveSegment();
+            // Off the UI thread: the dialog is already closed, and a forced
+            // reload can take ~2 min on a cold Studio 2026 cache.
+            // UpdateFromActiveSegment is marshalled back so chips refresh on
+            // whatever segment is active by the time it finishes.
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    instance.LoadTermbase(forceReload: true);
+                    instance.LoadMultiTermTermbases();
+                    instance.SafeInvoke(instance.UpdateFromActiveSegment);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        "[TermLens] Post-settings reload failed: " + ex);
+                }
+            });
         }
 
         /// <summary>
