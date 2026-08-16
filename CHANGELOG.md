@@ -7,6 +7,29 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.183 / 19.20.183] – 2026-08-16
+
+### Fixed (settings quietly reverting, depending on which panel you opened them from)
+
+- **A setting could be undone by a panel that was not even involved.** Change your memory bank in the Supervertaler Assistant, then open Settings from the TermLens panel and click OK: the bank goes back to what it was. Nothing warns you, and the panel afterwards agrees with the reverted value, so the change looks like it never happened rather than like it was lost.
+- **The cause was five copies of one settings file.** Each panel and dialog held its own, and saving wrote the whole thing back, so whichever saved last silently reverted every field another had changed since it loaded. There is now one shared instance, so "a stale copy" is no longer something that can exist. This was not a memory-bank fault: **any** setting could be lost this way - API keys, which termbases are ticked, batch size, provider choice. The memory bank is simply where the damage was visible, because it ends up as the wrong terminology in a finished translation.
+- **A new prompt not appearing in the dropdown was the same fault**, seen from the other end, and is fixed by the same change.
+- **Deleting a termbase and then pressing Cancel used to leave the settings pointing at it.** The termbase itself was already gone - deletion happens immediately - but the references to it were only cleaned up if you pressed OK. They are now cleaned up either way.
+
+### Fixed (the AI being handed less than it asked for, without being told)
+
+- **Part of a memory bank could be left out of an answer with nothing to say so.** A bank that does not fit the size limit is trimmed, which is necessary - but it was silent, and two of your three articles look exactly like all three. A rule you had written down could be simply absent from what the AI saw, and neither of you would know. The AI is now told which files were left out and that it should ask rather than guess when a question turns on them.
+- **`get_supermemory_context` ignored the bank you asked for.** Ask for one client's bank while another is active and you were quietly given the active one, with the response naming your requested bank back at you - so the reply read as confirmation. The argument now works, and an unknown bank name is refused, listing the banks that exist, rather than falling back to the active one and injecting another client's locked terminology.
+- **Files you added to a memory bank yourself did nothing.** Only three fixed filenames were ever read into a prompt, while the bank listing counted every `.md` - so a hand-written `figures.md` was reported as present and contributed nothing. All Markdown files at the top of a bank are now read, under their own filename.
+
+### Fixed (Batch Operations showing a different prompt from the one it would use)
+
+- **The dropdown could show one prompt while the tick inside it marked another.** The closed box was filled in from a guess based on the project name; the tick came from the prompt you had actually set as active. So a run used the ticked prompt while the box named a different one. The active prompt now decides both. The project-name guess still applies when no prompt is active - a guess should not outrank a choice.
+
+### Changed
+
+- **The bilingual Word export no longer has a Notes column.** It was empty on the way out and discarded on the way back, so it named nothing you could rely on, and sitting next to Comments it suggested a distinction that did not exist. Its width has gone to Source and Target. Files exported before this change still import correctly.
+
 ## [18.20.182 / 19.20.182] – 2026-08-15
 
 ### Added (connect ChatGPT desktop to your Trados session, in one click)

@@ -863,7 +863,16 @@ namespace Supervertaler.Trados.Core
         /// <summary>Bank-relative paths of every article that fed the block, so
         /// the AI can cite them and the translator can open them.</summary>
         [DataMember(Name = "sources", Order = 6, EmitDefaultValue = false)] public List<string> Sources { get; set; }
-        [DataMember(Name = "note", Order = 7, EmitDefaultValue = false)] public string Note { get; set; }
+        /// <summary>Articles the bank holds that did NOT fit the token budget,
+        /// as bank-relative paths, least-important first.
+        ///
+        /// <para>Without this a trimmed answer is indistinguishable from a
+        /// complete one: the caller sees content, has no way to know a third
+        /// article existed, and translates against rules it was never shown.
+        /// Present only when something was actually dropped, so its absence
+        /// means "you have all of it".</para></summary>
+        [DataMember(Name = "trimmed", Order = 7, EmitDefaultValue = false)] public List<string> Trimmed { get; set; }
+        [DataMember(Name = "note", Order = 8, EmitDefaultValue = false)] public string Note { get; set; }
     }
 
     [DataContract]

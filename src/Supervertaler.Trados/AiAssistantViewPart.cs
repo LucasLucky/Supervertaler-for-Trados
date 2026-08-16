@@ -6797,6 +6797,15 @@ namespace Supervertaler.Trados
             if (ctx.TerminologyPaths != null) sources.AddRange(ctx.TerminologyPaths);
             if (ctx.ExtraPaths != null) sources.AddRange(ctx.ExtraPaths);
 
+            // Say what did not fit. The default budget is deliberately small
+            // (see above), so trimming is normal rather than exceptional — which
+            // is exactly why it has to be reported: a caller that silently
+            // receives two of a bank's three articles will translate against
+            // rules it was never shown and neither side will know.
+            var trimmed = ctx.TrimmedPaths != null && ctx.TrimmedPaths.Count > 0
+                ? new List<string>(ctx.TrimmedPaths)
+                : null;
+
             return new BridgeSuperMemoryContextResponse
             {
                 Available = true,
@@ -6806,8 +6815,39 @@ namespace Supervertaler.Trados
                 DetectionMethod = ctx.DetectionMethod,
                 Context = MemoryBankReader.FormatForPrompt(ctx),
                 Sources = sources,
-                Note = BuildClientDetectionNote(reader, ctx)
+                Trimmed = trimmed,
+                Note = AppendTrimNote(BuildClientDetectionNote(reader, ctx), ctx, budget)
             };
+        }
+
+        /// <summary>
+        /// Adds a plain-English sentence about what the token budget cut, so the
+        /// omission is legible to a model reading the note as well as to code
+        /// reading the <c>trimmed</c> array. Says how to get the rest, because a
+        /// warning a caller cannot act on is just noise.
+        /// </summary>
+        private static string AppendTrimNote(string note, KbContext ctx, int budget)
+        {
+            if (ctx == null) return note;
+
+            var parts = new List<string>();
+            if (ctx.TrimmedPaths != null && ctx.TrimmedPaths.Count > 0)
+            {
+                parts.Add(ctx.TrimmedPaths.Count == 1
+                    ? "1 article did not fit the " + budget + "-token budget and was left out: "
+                        + ctx.TrimmedPaths[0]
+                    : ctx.TrimmedPaths.Count + " articles did not fit the " + budget
+                        + "-token budget and were left out: " + string.Join(", ", ctx.TrimmedPaths));
+            }
+            if (ctx.ClientProfileTruncated)
+                parts.Add("The client brief was truncated to fit.");
+
+            if (parts.Count == 0) return note;
+
+            parts.Add("Call again with a larger tokenBudget to get the rest.");
+            var trimNote = string.Join(" ", parts);
+
+            return string.IsNullOrWhiteSpace(note) ? trimNote : note.TrimEnd() + " " + trimNote;
         }
 
         /// <summary>

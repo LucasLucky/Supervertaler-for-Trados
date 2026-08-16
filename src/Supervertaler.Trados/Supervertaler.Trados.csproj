@@ -33,7 +33,7 @@
        the token still resolves for IDE builds (which do not pass /p:...). Only
        the shared 20.87 tail is hand-bumped, via bump_version.py. -->
   <PropertyGroup>
-    <Version>$(TradosStudioVersion).20.182</Version>
+    <Version>$(TradosStudioVersion).20.183</Version>
     <InformationalVersion>$(TradosStudioVersion).20.182</InformationalVersion>
   </PropertyGroup>
 

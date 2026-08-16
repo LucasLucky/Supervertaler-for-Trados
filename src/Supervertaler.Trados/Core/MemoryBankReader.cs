@@ -462,6 +462,24 @@ namespace Supervertaler.Trados.Core
                 AppendSection(sb, title, null, ctx.ExtraArticles[i]);
             }
 
+            // Name what the budget cut, inside the block itself. This reaches
+            // the in-Trados chat as well as the MCP `context` field, and both
+            // need it for the same reason: a model handed a bank's material has
+            // no way to tell a complete answer from a trimmed one, so an absent
+            // rule reads as a rule that was never written. Saying so lets it
+            // flag the gap instead of translating confidently past it.
+            if (ctx.TrimmedPaths != null && ctx.TrimmedPaths.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("## Not included");
+                sb.AppendLine();
+                sb.AppendLine("This bank holds more than fitted the token budget. **Left out:** "
+                    + string.Join(", ", ctx.TrimmedPaths) + ".");
+                sb.AppendLine();
+                sb.AppendLine("If a question turns on something those files would cover, say so");
+                sb.AppendLine("rather than guessing - the answer may be written down but absent here.");
+            }
+
             return sb.ToString().TrimEnd();
         }
 
@@ -1094,6 +1112,27 @@ namespace Supervertaler.Trados.Core
         // Detection info
         public string DetectionMethod { get; set; } = "none";
 
+        /// <summary>
+        /// What <see cref="TrimToTokenBudget"/> dropped to fit the budget, as
+        /// bank-relative paths.
+        ///
+        /// <para>Trimming is necessary — a bank can be far larger than any
+        /// sensible prompt — but it must not be silent. A caller that asks for
+        /// a bank's context and receives two of its three articles has an
+        /// incomplete answer that looks complete, which is the failure mode
+        /// where a rule the translator wrote down is simply absent from the
+        /// translation and nothing says so. Reporting the omission lets the
+        /// caller re-ask with a bigger budget.</para>
+        /// </summary>
+        public List<string> TrimmedPaths { get; set; } = new List<string>();
+
+        /// <summary>True if the brief was cut mid-way rather than dropped
+        /// whole. Tracked separately because a truncated article is still
+        /// present in the output, so it does not belong in
+        /// <see cref="TrimmedPaths"/>, but it is still content the caller did
+        /// not get.</summary>
+        public bool ClientProfileTruncated { get; set; }
+
         // ── The _shared bank, loaded alongside the active one ────────────
         // Separate fields rather than merged text, so FormatForPrompt can label
         // which layer a rule came from. An AI told "the client overrides the
@@ -1142,12 +1181,31 @@ namespace Supervertaler.Trados.Core
         {
             if (maxTokens <= 0 || EstimatedTokens <= maxTokens) return;
 
-            if (EstimatedTokens > maxTokens) SharedBriefText = null;
-            if (EstimatedTokens > maxTokens) SharedStyleText = null;
-            if (EstimatedTokens > maxTokens) SharedTerminologyText = null;
+            // Each drop is recorded. The order below is the priority order —
+            // shared house defaults go before the client's own material — and
+            // TrimmedPaths preserves it, so a caller reading the list sees what
+            // was considered least important first.
+            var sharedPrefix = MemoryBankReader.SharedBankName + "/";
 
-            if (EstimatedTokens > maxTokens)
+            if (EstimatedTokens > maxTokens && SharedBriefText != null)
             {
+                SharedBriefText = null;
+                TrimmedPaths.Add(sharedPrefix + MemoryBankReader.BriefFile);
+            }
+            if (EstimatedTokens > maxTokens && SharedStyleText != null)
+            {
+                SharedStyleText = null;
+                TrimmedPaths.Add(sharedPrefix + MemoryBankReader.StyleFile);
+            }
+            if (EstimatedTokens > maxTokens && SharedTerminologyText != null)
+            {
+                SharedTerminologyText = null;
+                TrimmedPaths.Add(sharedPrefix + MemoryBankReader.TerminologyFile);
+            }
+
+            if (EstimatedTokens > maxTokens && StyleGuideText != null)
+            {
+                TrimmedPaths.Add(StyleGuidePath ?? MemoryBankReader.StyleFile);
                 StyleGuideText = null;
                 StyleGuidePath = null;
             }
@@ -1155,14 +1213,21 @@ namespace Supervertaler.Trados.Core
             while (ExtraArticles.Count > 0 && EstimatedTokens > maxTokens)
             {
                 ExtraArticles.RemoveAt(ExtraArticles.Count - 1);
-                if (ExtraPaths.Count > 0) ExtraPaths.RemoveAt(ExtraPaths.Count - 1);
+                if (ExtraPaths.Count > 0)
+                {
+                    TrimmedPaths.Add(ExtraPaths[ExtraPaths.Count - 1]);
+                    ExtraPaths.RemoveAt(ExtraPaths.Count - 1);
+                }
             }
 
             while (TerminologyArticles.Count > 0 && EstimatedTokens > maxTokens)
             {
                 TerminologyArticles.RemoveAt(TerminologyArticles.Count - 1);
                 if (TerminologyPaths.Count > 0)
+                {
+                    TrimmedPaths.Add(TerminologyPaths[TerminologyPaths.Count - 1]);
                     TerminologyPaths.RemoveAt(TerminologyPaths.Count - 1);
+                }
             }
 
             // Last resort: truncate the brief.
@@ -1170,7 +1235,10 @@ namespace Supervertaler.Trados.Core
             {
                 var maxChars = maxTokens * 4;
                 if (ClientProfileText.Length > maxChars)
+                {
                     ClientProfileText = ClientProfileText.Substring(0, maxChars) + "\n[... truncated ...]";
+                    ClientProfileTruncated = true;
+                }
             }
         }
 
