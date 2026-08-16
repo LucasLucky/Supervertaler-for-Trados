@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Sdl.Desktop.IntegrationApi;
 using Sdl.Desktop.IntegrationApi.Extensions;
@@ -181,9 +181,7 @@ namespace Supervertaler.Trados
             if (ctrl == null || ctrl.IsDisposed) return;
             try
             {
-                var settings = TermLensSettings.Load();
-                settings.TermPickerPaneColumnWidths = ctrl.GetColumnWidths();
-                settings.Save();
+                SettingsService.Update(s => s.TermPickerPaneColumnWidths = ctrl.GetColumnWidths());
             }
             catch { }
         }

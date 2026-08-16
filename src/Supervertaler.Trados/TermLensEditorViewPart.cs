@@ -2975,7 +2975,7 @@ namespace Supervertaler.Trados
 
             instance.SafeInvoke(() =>
             {
-                using (var dlg = new TermPickerDialog(matches, instance._settings))
+                using (var dlg = new TermPickerDialog(matches))
                 {
                     var parent = _control.Value.FindForm();
                     var result = parent != null
@@ -3222,7 +3222,8 @@ namespace Supervertaler.Trados
         /// </summary>
         private void ShowUsageStatisticsOptIn(TermLensControl ctrl)
         {
-            var settings = TermLensSettings.Load();
+            // Read-only: the shared instance is already current.
+            var settings = SettingsService.Current;
             // Use the v2 flag so users who answered the old opt-in dialog get
             // shown the rewritten (informational, default-on) dialog once.
             if (settings.UsageStatisticsAskedV2)
@@ -3329,12 +3330,12 @@ namespace Supervertaler.Trados
                             // opt-in — generating one here if the user never opted
                             // in. This one field does still live in settings.json;
                             // losing it costs nothing but a new random id.
-                            var settings = TermLensSettings.Load();
-                            if (string.IsNullOrEmpty(settings.UsageStatisticsId))
+                            SettingsService.UpdateIf(s =>
                             {
-                                settings.UsageStatisticsId = Guid.NewGuid().ToString("D");
-                                settings.Save();
-                            }
+                                if (!string.IsNullOrEmpty(s.UsageStatisticsId)) return false;
+                                s.UsageStatisticsId = Guid.NewGuid().ToString("D");
+                                return true;
+                            });
 
                             // Send a response when they actually answered, or when
                             // they closed it but left a comment worth capturing.
@@ -3343,7 +3344,7 @@ namespace Supervertaler.Trados
                                 var response = new SurveyResponse
                                 {
                                     SurveyId = survey.SurveyId,
-                                    AnonymousId = settings.UsageStatisticsId,
+                                    AnonymousId = SettingsService.Current.UsageStatisticsId,
                                     Answer = answered ? answer : "ignored",
                                     Text = comment ?? "",
                                     Tier = SurveyTierString(),
@@ -3698,9 +3699,7 @@ namespace Supervertaler.Trados
                     // Skipping a single version stopped working once releases
                     // became frequent: the next build is a different version,
                     // so the dialog came back the next day.
-                    var settings = TermLensSettings.Load();
-                    settings.SnoozeUpdatePrompts();
-                    settings.Save();
+                    SettingsService.Update(s => s.SnoozeUpdatePrompts());
                 }
                 // Remind Me Later – do nothing, will check again next session
             }

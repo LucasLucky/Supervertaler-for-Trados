@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Windows.Forms;
 using Supervertaler.Trados.Core;
@@ -57,10 +57,11 @@ namespace Supervertaler.Trados.VoiceControl
             {
                 if (_userPositioned)
                 {
-                    var settings = Settings.TermLensSettings.Load();
-                    settings.VoiceStripLeft = Location.X;
-                    settings.VoiceStripTop = Location.Y;
-                    settings.Save();
+                    Settings.SettingsService.Update(s =>
+                    {
+                        s.VoiceStripLeft = Location.X;
+                        s.VoiceStripTop = Location.Y;
+                    });
                 }
             }
             catch { }

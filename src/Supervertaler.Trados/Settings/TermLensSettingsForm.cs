@@ -1228,7 +1228,7 @@ namespace Supervertaler.Trados.Settings
             var selected = _dgvTermbases.Rows[rowIndex].Tag as TermbaseInfo;
             if (selected == null) return;
 
-            using (var editor = new TermbaseEditorDialog(dbPath, selected, _settings))
+            using (var editor = new TermbaseEditorDialog(dbPath, selected))
             {
                 editor.ShowDialog(this);
             }

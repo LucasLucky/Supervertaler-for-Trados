@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
@@ -405,11 +405,12 @@ namespace Supervertaler.Trados
 
                     // Persist the chosen bank as the active one so every AI feature
                     // that opens later in this session finds the right vault.
-                    var settings = TermLensSettings.Load();
-                    if (settings.AiSettings == null)
-                        settings.AiSettings = new AiSettings();
-                    settings.AiSettings.ActiveMemoryBankName = chosen;
-                    settings.Save();
+                    SettingsService.Update(settings =>
+                    {
+                        if (settings.AiSettings == null)
+                            settings.AiSettings = new AiSettings();
+                        settings.AiSettings.ActiveMemoryBankName = chosen;
+                    });
                 }
             }
             catch

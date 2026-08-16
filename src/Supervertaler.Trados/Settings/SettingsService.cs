@@ -131,6 +131,33 @@ namespace Supervertaler.Trados.Settings
             RaiseChanged();
         }
 
+        /// <summary>
+        /// Like <see cref="Update"/>, but <paramref name="mutate"/> returns
+        /// whether it actually changed anything, and the save is skipped when it
+        /// did not.
+        ///
+        /// <para>For the read-then-maybe-write sites — "generate an id if there
+        /// isn't one", "apply defaults if this termbase has none". Doing that as
+        /// a load, a test and a conditional save leaves a window in which another
+        /// writer can act between the test and the write; here the whole
+        /// decision happens under the one lock, so two callers cannot both
+        /// conclude that the id is missing and generate a different one each.</para>
+        /// </summary>
+        /// <returns>Whether anything was saved.</returns>
+        public static bool UpdateIf(Func<TermLensSettings, bool> mutate)
+        {
+            if (mutate == null) return false;
+            bool changed;
+            lock (_gate)
+            {
+                var settings = _current ?? (_current = LoadOrDefault());
+                changed = mutate(settings);
+                if (changed) settings.Save();
+            }
+            if (changed) RaiseChanged();
+            return changed;
+        }
+
         private static TermLensSettings LoadOrDefault()
         {
             try { return TermLensSettings.Load() ?? new TermLensSettings(); }

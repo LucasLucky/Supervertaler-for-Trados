@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
@@ -20,7 +20,9 @@ namespace Supervertaler.Trados.Controls
     public class TermPickerDialog : Form
     {
         private readonly TermPickerControl _picker;
-        private readonly TermLensSettings _settings;
+        /// <summary>The shared settings instance, not a copy handed in.
+        /// See <c>docs/design/settings-single-source-of-truth.md</c>.</summary>
+        private TermLensSettings _settings => SettingsService.Current;
 
         /// <summary>The dialog currently on screen, if any - the global Escape
         /// hook closes it through this, because (measured in Studio 2026) the
@@ -34,13 +36,12 @@ namespace Supervertaler.Trados.Controls
         // has closed (see OnFormClosed).
         private TermPickerEditEventArgs _pendingEdit;
 
-        public TermPickerDialog(List<TermPickerMatch> matches, TermLensSettings settings = null)
+        public TermPickerDialog(List<TermPickerMatch> matches)
         {
             Icon = IconHelper.AppIcon;
             // Let WinForms scale this dialog by system DPI so it doesn't squish
             // at >100% Windows display scaling.
             AutoScaleMode = AutoScaleMode.Dpi;
-            _settings = settings;
 
             Text = "TermPicker";
             Size = new Size(580, 400);
@@ -51,7 +52,7 @@ namespace Supervertaler.Trados.Controls
             MinimizeBox = false;
             ShowInTaskbar = false;
 
-            if (_settings != null && _settings.TermPickerWidth > 0 && _settings.TermPickerHeight > 0)
+            if (_settings.TermPickerWidth > 0 && _settings.TermPickerHeight > 0)
                 Size = new Size(_settings.TermPickerWidth, _settings.TermPickerHeight);
 
             _picker = new TermPickerControl
@@ -74,7 +75,7 @@ namespace Supervertaler.Trados.Controls
                 Close();
             };
             _picker.LoadMatches(matches);
-            _picker.ApplyColumnWidths(_settings?.TermPickerColumnWidths);
+            _picker.ApplyColumnWidths(_settings.TermPickerColumnWidths);
 
             var bottomPanel = new Panel
             {
@@ -136,12 +137,11 @@ namespace Supervertaler.Trados.Controls
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            if (_settings != null)
             {
                 _settings.TermPickerWidth = Width;
                 _settings.TermPickerHeight = Height;
                 _settings.TermPickerColumnWidths = _picker.GetColumnWidths();
-                _settings.Save();
+                SettingsService.Save();
             }
             base.OnFormClosing(e);
         }

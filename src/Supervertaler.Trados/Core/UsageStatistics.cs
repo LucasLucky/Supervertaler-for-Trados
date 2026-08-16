@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.IO;
 using System.Net.Http;
@@ -46,20 +46,26 @@ namespace Supervertaler.Trados.Core
         {
             try
             {
-                var settings = TermLensSettings.Load();
-
                 // Only send if explicitly opted in
-                if (!settings.UsageStatisticsEnabled)
+                if (!SettingsService.Current.UsageStatisticsEnabled)
                     return;
 
-                // Get or create the anonymous ID
-                var anonymousId = settings.UsageStatisticsId;
-                if (string.IsNullOrEmpty(anonymousId))
+                // Get or create the anonymous ID, deciding and writing under one
+                // lock. Read-test-write across a separate load and save let two
+                // callers both find it missing and mint a different id each,
+                // which would have split one install across two identities.
+                string anonymousId = null;
+                SettingsService.UpdateIf(s =>
                 {
+                    if (!string.IsNullOrEmpty(s.UsageStatisticsId))
+                    {
+                        anonymousId = s.UsageStatisticsId;
+                        return false;
+                    }
                     anonymousId = Guid.NewGuid().ToString("D");
-                    settings.UsageStatisticsId = anonymousId;
-                    settings.Save();
-                }
+                    s.UsageStatisticsId = anonymousId;
+                    return true;
+                });
 
                 var payload = new UsagePing
                 {
@@ -73,7 +79,7 @@ namespace Supervertaler.Trados.Core
                     ProcessArch = (Environment.GetEnvironmentVariable("PROCESSOR_ARCHITECTURE") ?? "unknown").ToLowerInvariant(),
                     DisplayScale = GetDisplayScale(),
                     TextScale = GetTextScale(),
-                    UiScalePercent = FormatScalePercent(settings.UiScaleFactor)
+                    UiScalePercent = FormatScalePercent(SettingsService.Current.UiScaleFactor)
                 };
 
                 var json = SerializePayload(payload);

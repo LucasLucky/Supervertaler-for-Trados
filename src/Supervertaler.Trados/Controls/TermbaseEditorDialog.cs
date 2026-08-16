@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Drawing;
@@ -19,7 +19,9 @@ namespace Supervertaler.Trados.Controls
     {
         private readonly string _dbPath;
         private readonly TermbaseInfo _termbase;
-        private readonly TermLensSettings _settings;
+        /// <summary>The shared settings instance, not a copy handed in.
+        /// See <c>docs/design/settings-single-source-of-truth.md</c>.</summary>
+        private TermLensSettings _settings => SettingsService.Current;
 
         private DataTable _dataTable;
         private BindingSource _bindingSource;
@@ -40,18 +42,17 @@ namespace Supervertaler.Trados.Controls
         // Track whether we're loading data (to suppress CellValueChanged during population)
         private bool _isLoading;
 
-        public TermbaseEditorDialog(string dbPath, TermbaseInfo termbase, TermLensSettings settings)
+        public TermbaseEditorDialog(string dbPath, TermbaseInfo termbase)
         {
             Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
             _dbPath = dbPath ?? throw new ArgumentNullException(nameof(dbPath));
             _termbase = termbase ?? throw new ArgumentNullException(nameof(termbase));
-            _settings = settings;
 
             BuildUI();
             LoadTerms();
 
             // Restore persisted form size
-            if (_settings != null && _settings.TermbaseEditorWidth > 0 && _settings.TermbaseEditorHeight > 0)
+            if (_settings.TermbaseEditorWidth > 0 && _settings.TermbaseEditorHeight > 0)
                 Size = new Size(_settings.TermbaseEditorWidth, _settings.TermbaseEditorHeight);
         }
 
@@ -1213,11 +1214,10 @@ namespace Supervertaler.Trados.Controls
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             // Persist form size
-            if (_settings != null)
             {
                 _settings.TermbaseEditorWidth = Width;
                 _settings.TermbaseEditorHeight = Height;
-                _settings.Save();
+                SettingsService.Save();
             }
 
             base.OnFormClosing(e);

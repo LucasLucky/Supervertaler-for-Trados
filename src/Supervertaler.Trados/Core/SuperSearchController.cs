@@ -117,13 +117,18 @@ namespace Supervertaler.Trados.Core
 
         private void OnModeChanged(object sender, EventArgs e)
         {
-            // Persist the mode so it survives across sessions. Fresh load-modify-
-            // save so a setting changed elsewhere in the meantime isn't clobbered.
+            // Persist the mode so it survives across sessions.
+            //
+            // The fresh load-modify-save this replaces carried the comment
+            // "so a setting changed elsewhere in the meantime isn't clobbered" —
+            // a hand-rolled defence against the five-copies defect, and nearly
+            // right: it narrowed the window without closing it, since another
+            // writer could still save between that load and that save. Update()
+            // holds one lock across both.
             try
             {
-                var s = TermLensSettings.Load();
-                s.SuperSearchMode = _control.SelectedSourceMode.ToString();
-                s.Save();
+                SettingsService.Update(s =>
+                    s.SuperSearchMode = _control.SelectedSourceMode.ToString());
             }
             catch { /* persistence failure must not break the UI */ }
         }
@@ -134,10 +139,11 @@ namespace Supervertaler.Trados.Core
         {
             try
             {
-                var s = TermLensSettings.Load();
-                s.SetWebResources(_control.GetWebResources());
-                s.WebResultsMode = _control.WebResultsInBrowser ? "Browser" : "Embedded";
-                s.Save();
+                SettingsService.Update(s =>
+                {
+                    s.SetWebResources(_control.GetWebResources());
+                    s.WebResultsMode = _control.WebResultsInBrowser ? "Browser" : "Embedded";
+                });
             }
             catch { /* persistence failure must not break the UI */ }
         }

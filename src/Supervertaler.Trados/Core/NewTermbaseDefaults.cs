@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Supervertaler.Trados.Settings;
 
@@ -55,8 +55,9 @@ namespace Supervertaler.Trados.Core
         {
             try
             {
-                var settings = TermLensSettings.Load();
-                if (ApplyTo(settings, termbaseId)) settings.Save();
+                // UpdateIf: ApplyTo decides whether anything changed, and that
+                // decision now happens under the same lock as the write.
+                SettingsService.UpdateIf(settings => ApplyTo(settings, termbaseId));
             }
             catch { }
         }
