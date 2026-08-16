@@ -5,17 +5,23 @@ using System.Windows.Forms;
 namespace Supervertaler.Trados.Controls
 {
     /// <summary>
-    /// Dialog for adding a terminology entry or raw note to SuperMemory.
-    /// Captures a source term, a target term, optional notes, and
-    /// optionally appends the entry to the active translation prompt.
+    /// Dialog for adding a terminology entry or a background note to SuperMemory.
+    /// Captures a source term, a target term, optional notes, the bank to write
+    /// to, and optionally appends the entry to the active translation prompt.
     ///
     /// Two save modes:
-    ///   • Structured article (default): writes a ready-to-use .md article
-    ///     as a row in terminology.md - no AI processing needed.
-    ///   • Raw note: writes an unstructured note to reference/ as source
-    ///     to compile into structured articles via Process Inbox. Useful
-    ///     when the knowledge is fuzzy or context-dependent ("fiche can
-    ///     mean either sheet or plug depending on context").
+    ///   • Terminology row (default): appends a row to the bank's
+    ///     terminology.md, which IS read into prompts. Takes effect at once.
+    ///   • Background reference: writes a note to the bank's reference/ folder,
+    ///     which is deliberately NOT read into prompts - it is the audit trail.
+    ///     For knowledge too fuzzy to be a term pair yet ("fiche can mean either
+    ///     sheet or plug depending on context").
+    ///
+    /// The labels used to name 02_TERMINOLOGY and 00_INBOX, which the bank
+    /// redesign replaced with terminology.md and reference/, and the second mode
+    /// advertised "AI processing" by a Process Inbox command that does not exist
+    /// in this plugin. Saying where something goes is the whole job of this
+    /// dialog, so naming the wrong place was the one error it could not afford.
     /// </summary>
     internal class SuperMemoryQuickAddDialog : Form
     {
@@ -24,6 +30,13 @@ namespace Supervertaler.Trados.Controls
         private TextBox _txtNotes;
         private CheckBox _chkAppendToPrompt;
         private CheckBox _chkRawNote;
+        private ComboBox _cmbBank;
+        private Label _lblDestination;
+
+        /// <summary>Display suffix marking the bank that is currently active, so
+        /// the preselected entry is recognisable as "where things normally go"
+        /// rather than just the first name in a list.</summary>
+        private const string ActiveSuffix = "  (active)";
 
         /// <summary>The source-language term.</summary>
         public string Term => _txtTerm?.Text?.Trim() ?? "";
@@ -38,12 +51,34 @@ namespace Supervertaler.Trados.Controls
         public bool AppendToPrompt => _chkAppendToPrompt?.Checked ?? true;
 
         /// <summary>
-        /// When true, write the entry to reference/ as a raw note instead of
-        /// processing (via Process Inbox) rather than directly to
-        /// 02_TERMINOLOGY/ as a structured article. Useful for knowledge
-        /// that is ambiguous or context-dependent.
+        /// When true, write a note into the bank's reference/ folder instead of
+        /// appending a row to its terminology.md. Nothing reads reference/ into
+        /// a prompt — it is the audit trail — so this is for knowledge that is
+        /// worth keeping but not yet expressible as a term pair.
         /// </summary>
         public bool SaveAsRawNote => _chkRawNote?.Checked ?? false;
+
+        /// <summary>
+        /// The memory bank to write to: the active one by default, any other
+        /// bank, or <c>_shared</c> for something true of the translator's work
+        /// rather than of one client.
+        ///
+        /// <para>Before this existed the destination was resolved silently from
+        /// the active bank and only named in the confirmation, i.e. after the
+        /// write. A term filed into the wrong client's terminology is exactly the
+        /// kind of mistake that stays invisible until it reaches a delivery.</para>
+        /// </summary>
+        public string SelectedBank
+        {
+            get
+            {
+                var text = _cmbBank?.SelectedItem as string;
+                if (string.IsNullOrEmpty(text)) return null;
+                if (text.EndsWith(ActiveSuffix, StringComparison.Ordinal))
+                    text = text.Substring(0, text.Length - ActiveSuffix.Length);
+                return text.Trim();
+            }
+        }
 
         /// <summary>
         /// Creates the Quick Add dialog.
@@ -53,8 +88,10 @@ namespace Supervertaler.Trados.Controls
         /// <param name="activePromptName">Display name of the active prompt (shown below checkbox).</param>
         /// <param name="targetLanguage">Display name of the target language (e.g. "English (GB)").</param>
         /// <param name="sourceLanguage">Display name of the source language (e.g. "Dutch (BE)").</param>
+        /// <param name="activeBankName">The bank to preselect — normally the active one.</param>
         public SuperMemoryQuickAddDialog(string defaultTerm = "", string defaultCorrection = "",
-            string activePromptName = null, string targetLanguage = null, string sourceLanguage = null)
+            string activePromptName = null, string targetLanguage = null, string sourceLanguage = null,
+            string activeBankName = null)
         {
             Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
             // Let WinForms scale this dialog by system DPI so it doesn't squish
@@ -68,10 +105,46 @@ namespace Supervertaler.Trados.Controls
             MaximizeBox = false;
             MinimizeBox = false;
             StartPosition = FormStartPosition.CenterParent;
-            ClientSize = new Size(460, 390);
+            ClientSize = new Size(460, 470);
             BackColor = Color.White;
 
             var y = 14;
+
+            // ── Destination bank ─────────────────────────────────────
+            // First, not last: everything below is "what to save", and this is
+            // "where it goes". It used to be neither shown nor choosable.
+            Controls.Add(new Label
+            {
+                Text = "Save to memory bank:",
+                Location = new Point(16, y),
+                AutoSize = true,
+                ForeColor = Color.FromArgb(80, 80, 80)
+            });
+            y += 20;
+
+            _cmbBank = new ComboBox
+            {
+                Location = new Point(16, y),
+                Width = ClientSize.Width - 32,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Font = new Font("Segoe UI", 9f)
+            };
+            PopulateBanks(activeBankName);
+            _cmbBank.SelectedIndexChanged += (s, e) => UpdateDestinationLabel();
+            Controls.Add(_cmbBank);
+            y += 26;
+
+            _lblDestination = new Label
+            {
+                Location = new Point(18, y),
+                AutoSize = false,
+                Width = ClientSize.Width - 36,
+                Height = 16,
+                ForeColor = Color.FromArgb(0, 90, 158),
+                Font = new Font("Segoe UI", 8.25f, FontStyle.Italic)
+            };
+            Controls.Add(_lblDestination);
+            y += 24;
 
             // ── Source term ──────────────────────────────────────────
             var sourceLabel = string.IsNullOrEmpty(sourceLanguage)
@@ -143,31 +216,34 @@ namespace Supervertaler.Trados.Controls
             Controls.Add(_txtNotes);
             y += 68;
 
-            // ── Save as raw note toggle ──────────────────────────────
+            // ── Background-reference toggle ──────────────────────────
             _chkRawNote = new CheckBox
             {
-                Text = "Save as raw note for AI processing (00_INBOX)",
+                Text = "Save as background reference instead",
                 Location = new Point(14, y),
                 AutoSize = true,
                 Checked = false,
                 ForeColor = Color.FromArgb(60, 60, 60)
             };
+            _chkRawNote.CheckedChanged += (s, e) => UpdateDestinationLabel();
             Controls.Add(_chkRawNote);
 
-            // Add a small hint label explaining the two modes
+            // States what each mode DOES, since the difference that matters is
+            // whether the AI ever sees it. The old hint named two folders that no
+            // longer exist and promised a Process Inbox command that does not.
             var rawNoteHint = new Label
             {
-                Text = "Unchecked = structured article in 02_TERMINOLOGY (instant).  " +
-                       "Checked = raw note for Process Inbox to compile.",
+                Text = "Unchecked: a row in terminology.md - the AI reads it, straight away.  "
+                     + "Checked: a note in reference/, kept for you but never read into a prompt.",
                 Location = new Point(32, y + 20),
                 AutoSize = false,
                 Width = ClientSize.Width - 48,
-                Height = 28,
+                Height = 30,
                 ForeColor = Color.FromArgb(140, 140, 140),
                 Font = new Font("Segoe UI", 7.5f)
             };
             Controls.Add(rawNoteHint);
-            y += 52;
+            y += 54;
 
             // ── Append to prompt checkbox ────────────────────────────
             _chkAppendToPrompt = new CheckBox
@@ -249,6 +325,78 @@ namespace Supervertaler.Trados.Controls
                 else
                     _txtTerm.Focus();
             };
+
+            UpdateDestinationLabel();
+        }
+
+        /// <summary>
+        /// Fills the bank list: the active bank first and preselected, then every
+        /// other bank, then <c>_shared</c> last.
+        ///
+        /// <para><c>_shared</c> is placed at the end and labelled rather than
+        /// hidden. It is loaded alongside whichever bank is active, so a rule put
+        /// there applies to every job — powerful when meant and wrong when not,
+        /// which is an argument for making it visible and deliberate, not for
+        /// leaving it reachable only by editing files by hand.</para>
+        /// </summary>
+        private void PopulateBanks(string activeBankName)
+        {
+            var shared = Core.MemoryBankReader.SharedBankName;
+
+            var banks = Settings.UserDataPath.ListMemoryBanks() ?? new System.Collections.Generic.List<string>();
+            var others = new System.Collections.Generic.List<string>();
+            foreach (var b in banks)
+            {
+                if (string.IsNullOrWhiteSpace(b)) continue;
+                if (string.Equals(b, shared, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!string.IsNullOrEmpty(activeBankName) &&
+                    string.Equals(b, activeBankName, StringComparison.OrdinalIgnoreCase)) continue;
+                others.Add(b);
+            }
+
+            // The active bank leads even if the folder does not exist yet — the
+            // write path creates it, and omitting it would silently retarget the
+            // entry somewhere else.
+            if (!string.IsNullOrWhiteSpace(activeBankName))
+                _cmbBank.Items.Add(activeBankName + ActiveSuffix);
+
+            foreach (var b in others)
+                _cmbBank.Items.Add(b);
+
+            _cmbBank.Items.Add(shared);
+
+            if (_cmbBank.Items.Count > 0)
+                _cmbBank.SelectedIndex = 0;
+        }
+
+        /// <summary>
+        /// Names the exact file the entry will land in, before the user commits.
+        /// The confirmation used to be the first and only place this appeared.
+        /// </summary>
+        private void UpdateDestinationLabel()
+        {
+            if (_lblDestination == null) return;
+
+            var bank = SelectedBank;
+            if (string.IsNullOrEmpty(bank))
+            {
+                _lblDestination.Text = "";
+                return;
+            }
+
+            var target = SaveAsRawNote
+                ? Core.MemoryBankReader.ReferenceFolder + "/"
+                : Core.MemoryBankReader.TerminologyFile;
+
+            _lblDestination.Text = "→ " + target + "  in  " + bank;
+
+            var isShared = string.Equals(bank, Core.MemoryBankReader.SharedBankName,
+                StringComparison.OrdinalIgnoreCase);
+            _lblDestination.ForeColor = isShared
+                ? Color.FromArgb(180, 120, 0)   // amber: applies to every job, not just this client
+                : Color.FromArgb(0, 90, 158);
+            if (isShared)
+                _lblDestination.Text += "   (applies to every bank)";
         }
     }
 }

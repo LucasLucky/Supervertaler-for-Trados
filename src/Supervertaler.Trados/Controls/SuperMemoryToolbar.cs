@@ -28,16 +28,17 @@ namespace Supervertaler.Trados.Controls
         /// </summary>
         private bool _suppressComboChange;
 
-        /// <summary>Raised when the user clicks "Process Inbox".</summary>
         /// <summary>Raised when the user asks to convert a legacy-layout bank.
         /// Only reachable while <see cref="SetLegacyBank"/> has flagged one.</summary>
         public event EventHandler ConvertLegacyRequested;
 
-        public event EventHandler ProcessInboxRequested;
+        // ProcessInboxRequested was declared here, never raised and never
+        // subscribed — there is no Process Inbox button on this toolbar. It was
+        // the source of the CS0067 warning on every build, and, more usefully,
+        // of the Quick Add dialog's claim that a raw note would be "compiled by
+        // Process Inbox". Removed rather than wired up: reference/ is
+        // deliberately the audit trail, not a queue waiting to be processed.
 
-
-
-        /// <summary>Raised when the user clicks "Overview" (generate HTML overview).</summary>
         /// <summary>Raised for the bank report (formerly Overview).</summary>
         public event EventHandler OverviewRequested;
 

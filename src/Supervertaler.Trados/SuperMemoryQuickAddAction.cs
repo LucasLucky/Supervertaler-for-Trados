@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -30,9 +30,6 @@ namespace Supervertaler.Trados
     [Shortcut(Keys.Control | Keys.Alt | Keys.M)]
     public class SuperMemoryQuickAddAction : AbstractAction
     {
-        /// <summary>Terminology sub-folder inside every memory bank.</summary>
-        private const string TermFolder = "02_TERMINOLOGY";
-
         protected override void Execute()
         {
             if (!LicenseManager.Instance.HasAssistantAccess)
@@ -107,7 +104,15 @@ namespace Supervertaler.Trados
             catch { }
 
             // ── Show dialog ──────────────────────────────────────────
-            using (var dlg = new SuperMemoryQuickAddDialog(sourceTerm, targetTerm, activePromptName, targetLang, sourceLang))
+            // Read the active bank from the shared settings instance rather
+            // than a private Load(): the bank can be switched from the Assistant
+            // toolbar, and this action must target whatever it says now.
+            var activeBank = SettingsService.Current?.AiSettings?.ActiveMemoryBankName;
+            if (string.IsNullOrWhiteSpace(activeBank))
+                activeBank = UserDataPath.DefaultMemoryBankName;
+
+            using (var dlg = new SuperMemoryQuickAddDialog(sourceTerm, targetTerm, activePromptName,
+                targetLang, sourceLang, activeBank))
             {
                 if (dlg.ShowDialog() != DialogResult.OK)
                     return;
@@ -137,12 +142,12 @@ namespace Supervertaler.Trados
                 }
 
                 // ── 1. Write .md to the active memory bank ───────────
-                // Resolve the active bank from settings so Quick Add always writes
-                // to the same vault the AI Assistant is currently reading from.
-                var qaSettings = TermLensSettings.Load();
-                var bankName = qaSettings?.AiSettings?.ActiveMemoryBankName;
+                // Was: resolved silently from the active bank and named only in
+                // the confirmation, i.e. after the write. The dialog now shows and
+                // chooses the destination, so this just honours it.
+                var bankName = dlg.SelectedBank;
                 if (string.IsNullOrWhiteSpace(bankName))
-                    bankName = UserDataPath.DefaultMemoryBankName;
+                    bankName = activeBank;
                 var vaultPath = UserDataPath.GetMemoryBankDir(bankName);
 
                 bool mdWritten;
@@ -169,10 +174,14 @@ namespace Supervertaler.Trados
                 var msg = new StringBuilder();
                 if (mdWritten)
                 {
+                    var isShared = string.Equals(bankName, Core.MemoryBankReader.SharedBankName,
+                        StringComparison.OrdinalIgnoreCase);
                     if (dlg.SaveAsRawNote)
-                        msg.AppendLine($"\u2713  Saved note to memory bank \"{bankName}\" (reference folder).");
+                        msg.AppendLine($"\u2713  Saved note to reference/ in memory bank \"{bankName}\".");
                     else
                         msg.AppendLine($"\u2713  Added a row to terminology.md in memory bank \"{bankName}\".");
+                    if (isShared)
+                        msg.AppendLine("   This bank is loaded alongside every other one, so it applies to all your jobs.");
                 }
                 else
                 {
@@ -302,13 +311,18 @@ namespace Supervertaler.Trados
         }
 
         // ══════════════════════════════════════════════════════════════
-        //  Write a raw note to the inbox
+        //  Write a background note to the bank's reference/ folder
         // ══════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// Creates a plain Markdown note in the SuperMemory vault's 00_INBOX folder.
-        /// This is the unstructured alternative to <see cref="WriteTermArticle"/> –
-        /// the AI will compile it into proper articles when Process Inbox runs.
+        /// Creates a plain Markdown note in the bank's reference/ folder.
+        ///
+        /// <para>The unstructured alternative to <see cref="AppendTerminologyRow"/>.
+        /// Nothing reads reference/ into a prompt - it is the audit trail, so a
+        /// derived claim can be checked against what it came from. This doc used
+        /// to say 00_INBOX and promise that Process Inbox would compile the note;
+        /// the folder was renamed by the bank redesign and Process Inbox is not
+        /// implemented in this plugin, so both halves were wrong.</para>
         /// </summary>
         private static bool WriteRawNote(string vaultPath, string term, string correction, string notes)
         {
@@ -346,7 +360,9 @@ namespace Supervertaler.Trados
                 }
 
                 sb.AppendLine("---");
-                sb.AppendLine("*This note was captured via Quick Add (Ctrl+Alt+M). Run Process Inbox to compile it into a structured knowledge base article.*");
+                sb.AppendLine("*Captured via Quick Add (Ctrl+Alt+M). Nothing reads this folder into a prompt -");
+                sb.AppendLine("it is reference material. To make it count, fold it into brief.md, terminology.md");
+                sb.AppendLine("or style.md in this bank.*");
 
                 File.WriteAllText(filePath, sb.ToString(), new UTF8Encoding(false));
                 return true;
@@ -464,12 +480,6 @@ namespace Supervertaler.Trados
             // Limit length
             if (safe.Length > 60) safe = safe.Substring(0, 60).Trim();
             return string.IsNullOrEmpty(safe) ? "term" : safe;
-        }
-
-        /// <summary>Escape double quotes for YAML string values.</summary>
-        private static string EscapeYaml(string input)
-        {
-            return (input ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"");
         }
 
         /// <summary>
