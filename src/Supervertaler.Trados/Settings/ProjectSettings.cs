@@ -110,19 +110,22 @@ namespace Supervertaler.Trados.Settings
         // ─── Reference drawings ─────────────────────────────────────
 
         /// <summary>
-        /// Folder holding this project's reference drawings. Empty means "work it
-        /// out by convention" — <see cref="Core.ReferenceImages.Resolve"/> looks
-        /// for an <c>Images\</c> or <c>Figures\</c> folder near the project, which
-        /// is where they land when extracted from the application PDF.
+        /// Folder holding this project's reference drawings, as chosen by the
+        /// user. Empty means this project has none, and the feature stays quiet.
         ///
-        /// <para>Per project rather than global because drawings belong to a
-        /// filing, and per project rather than per bank because a bank can outlive
-        /// the Studio project that produced it. The distilled <c>figures.md</c>
-        /// that gets written FROM these images is bank-scoped; the images
-        /// themselves are not.</para>
+        /// <para><b>Never inferred.</b> Studio projects live wherever the user
+        /// saved them, under whatever folder names they prefer, so there is no
+        /// layout to deduce. <c>ReferenceImages.Suggest</c> may propose a nearby
+        /// folder in the settings UI, but only an explicit choice is stored here —
+        /// a guessed folder can belong to a sibling job, and drawings from the
+        /// wrong matter are worse than none, since the output still reads
+        /// plausibly.</para>
         ///
-        /// <para>Stored even when it matches the convention, so that a folder
-        /// renamed later does not silently change which drawings a job used.</para>
+        /// <para>Per project rather than global because drawings belong to a job,
+        /// and per project rather than per bank because a bank can outlive the
+        /// Studio project that produced it. The distilled <c>figures.md</c>
+        /// written FROM these images is bank-scoped; the images themselves are
+        /// not.</para>
         /// </summary>
         [DataMember(Name = "referenceImagesFolder")]
         public string ReferenceImagesFolder { get; set; } = "";

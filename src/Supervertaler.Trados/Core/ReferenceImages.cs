@@ -7,14 +7,21 @@ using System.Text.RegularExpressions;
 namespace Supervertaler.Trados.Core
 {
     /// <summary>
-    /// Finds the drawings that belong to a Trados project.
+    /// The folder of drawings a user has pointed this project at.
     ///
-    /// <para>Patent filings ship with figures, and the figures carry information
-    /// the text does not — most of it reducible to "which physical part does each
-    /// reference numeral denote". This class is step 1 of the reference-image
-    /// feature: locating the images. What is eventually done with them (a numeral
-    /// reconciliation report, a vision pass writing <c>figures.md</c> into the
-    /// memory bank) builds on top.</para>
+    /// <para>The premise: you put a job's figures in a folder, tell the plugin
+    /// where, and they become reference material for its memory bank. Nothing
+    /// here is specific to patents — patents are simply where drawings carry the
+    /// most translation-relevant information — so avoid narrowing it to figures
+    /// with reference numerals.</para>
+    ///
+    /// <para><b>Where the folder lives is the user's business, not ours.</b>
+    /// Studio projects can be saved anywhere under any name, so there is no
+    /// layout to infer from. <see cref="Resolve"/> returns only what the user
+    /// set; <see cref="Suggest"/> offers nearby candidates for a dialog to
+    /// propose. The distinction is load-bearing: a folder guessed by walking up
+    /// the tree can belong to a different job, and drawings from the wrong matter
+    /// are worse than no drawings, because the output still looks reasonable.</para>
     ///
     /// <para>Deliberately has no dependency on Studio or on any AI provider, so it
     /// can be exercised without either.</para>
@@ -35,45 +42,53 @@ namespace Supervertaler.Trados.Core
             { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tif", ".tiff" };
 
         /// <summary>
-        /// Resolves the reference-images folder for a project: the explicit
-        /// per-project setting when it is set and exists, otherwise convention.
+        /// The reference-images folder for a project: whatever the user chose,
+        /// and nothing else.
         ///
-        /// <para>Returns null when nothing is found. Callers should treat that as
+        /// <para><b>There is deliberately no fallback.</b> An earlier version fell
+        /// back to a convention search when the setting was unset, which sounds
+        /// helpful and is dangerous: project folders have no fixed shape, so a
+        /// search that walks upwards can leave the job entirely. A project stored
+        /// directly in its job folder, with no <c>Images\</c> of its own, would
+        /// have found the one belonging to a SIBLING FILING — or to the client
+        /// folder above it — and fed another matter's drawings into this one's
+        /// context, silently and plausibly.</para>
+        ///
+        /// <para>Convention now only ever produces a <see cref="Suggest"/>ion for
+        /// the user to accept. Getting drawings from a folder nobody pointed at is
+        /// not a feature.</para>
+        ///
+        /// <para>Returns null when unset or missing. Callers should treat that as
         /// "this project has no drawings", not as an error — most do not.</para>
         /// </summary>
-        /// <param name="projectFilePath">Path to the .sdlproj file (or its folder).</param>
-        /// <param name="explicitFolder">The per-project override; may be null or blank.</param>
-        public static string Resolve(string projectFilePath, string explicitFolder)
+        /// <param name="explicitFolder">The per-project setting; may be null or blank.</param>
+        public static string Resolve(string explicitFolder)
         {
-            // An explicit setting wins, but only if it still exists — a folder
-            // that was moved or lives on a disconnected drive should fall back to
-            // convention rather than making the feature look broken.
-            if (!string.IsNullOrWhiteSpace(explicitFolder))
+            if (string.IsNullOrWhiteSpace(explicitFolder)) return null;
+            try
             {
-                try
-                {
-                    if (Directory.Exists(explicitFolder)) return Path.GetFullPath(explicitFolder);
-                }
-                catch { /* malformed path — fall through to convention */ }
+                return Directory.Exists(explicitFolder) ? Path.GetFullPath(explicitFolder) : null;
             }
-
-            return FindByConvention(projectFilePath);
+            catch { return null; }
         }
 
         /// <summary>
-        /// Looks for an Images/ or Figures/ folder near the project.
+        /// Folders near the project that look like they hold drawings, for the UI
+        /// to offer as a starting point. Never applied automatically.
         ///
-        /// <para>Searches the project folder, then walks UP two levels. That is not
-        /// arbitrary: Studio keeps the .sdlproj in its own <c>Studio\</c> subfolder
-        /// inside the job folder, and the drawings land beside it when they are
-        /// extracted from the application PDF —
-        /// <c>…\BRANTS (BARI-001-BE-EP)\Images\</c> next to
-        /// <c>…\BRANTS (BARI-001-BE-EP)\Studio\</c>. Searching only the project
-        /// folder would miss the case the convention exists to serve.</para>
+        /// <para>Searches the project's own folder and its immediate parent only.
+        /// One level up, because a project is commonly kept in a subfolder of the
+        /// job folder while the drawings sit beside it — but that is a habit, not
+        /// a rule, and going further reaches other jobs. Empty folders are skipped:
+        /// suggesting one would waste the user's click.</para>
+        ///
+        /// <para>Ordered nearest-first, so the most likely candidate leads.</para>
         /// </summary>
-        public static string FindByConvention(string projectFilePath)
+        /// <param name="projectFilePath">Path to the .sdlproj file, or its folder.</param>
+        public static List<string> Suggest(string projectFilePath)
         {
-            if (string.IsNullOrWhiteSpace(projectFilePath)) return null;
+            var found = new List<string>();
+            if (string.IsNullOrWhiteSpace(projectFilePath)) return found;
 
             try
             {
@@ -81,23 +96,24 @@ namespace Supervertaler.Trados.Core
                     ? projectFilePath
                     : Path.GetDirectoryName(projectFilePath);
 
-                for (int level = 0; level < 3 && !string.IsNullOrEmpty(dir); level++)
+                for (int level = 0; level < 2 && !string.IsNullOrEmpty(dir); level++)
                 {
                     foreach (var name in ConventionalNames)
                     {
                         var candidate = Path.Combine(dir, name);
-                        // Must actually contain images. A stray empty "Images"
-                        // folder should not shadow a populated one a level up.
-                        if (Directory.Exists(candidate) && HasAnyImage(candidate))
-                            return Path.GetFullPath(candidate);
+                        if (!Directory.Exists(candidate) || !HasAnyImage(candidate)) continue;
+
+                        var full = Path.GetFullPath(candidate);
+                        if (!found.Any(f => string.Equals(f, full, StringComparison.OrdinalIgnoreCase)))
+                            found.Add(full);
                     }
 
                     dir = Path.GetDirectoryName(dir.TrimEnd(Path.DirectorySeparatorChar));
                 }
             }
-            catch { /* permissions, malformed path — treat as "not found" */ }
+            catch { /* permissions, malformed path — offer nothing */ }
 
-            return null;
+            return found;
         }
 
         private static bool HasAnyImage(string folder)
