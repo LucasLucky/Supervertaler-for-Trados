@@ -160,7 +160,11 @@ namespace Supervertaler.Trados.Settings
 
         private static TermLensSettings LoadOrDefault()
         {
+            // The one sanctioned call. Load() is [Obsolete] precisely so that any
+            // OTHER call becomes a build warning naming this class instead.
+#pragma warning disable 618
             try { return TermLensSettings.Load() ?? new TermLensSettings(); }
+#pragma warning restore 618
             catch (Exception ex)
             {
                 DiagnosticLog.Log(LogCategory, "Could not load settings, using defaults: " + ex.Message);

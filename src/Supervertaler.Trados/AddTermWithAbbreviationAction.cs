@@ -72,7 +72,7 @@ namespace Supervertaler.Trados
                     return;
                 }
 
-                var settings = TermLensSettings.Load();
+                var settings = SettingsService.Current;
 
                 if (settings.WriteTermbaseIds == null || settings.WriteTermbaseIds.Count == 0)
                 {

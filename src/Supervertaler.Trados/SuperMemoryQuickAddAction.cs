@@ -505,7 +505,7 @@ namespace Supervertaler.Trados
                 // 2. Fall back to global setting
                 if (string.IsNullOrEmpty(relativePath))
                 {
-                    var settings = TermLensSettings.Load();
+                    var settings = SettingsService.Current;
                     relativePath = settings?.AiSettings?.SelectedPromptPath;
                 }
 

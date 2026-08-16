@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -100,7 +100,7 @@ namespace Supervertaler.Trados.Core
             // ─── Supervertaler termbases (shared SQLite DB) ───────────────
             try
             {
-                var settings = TermLensSettings.Load();
+                var settings = SettingsService.Current;
                 var dbPath = settings?.TermbasePath;
                 if (!string.IsNullOrEmpty(dbPath) && System.IO.File.Exists(dbPath))
                 {

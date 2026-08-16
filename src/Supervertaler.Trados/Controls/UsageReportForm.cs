@@ -116,7 +116,7 @@ namespace Supervertaler.Trados.Controls
             try
             {
                 _mtdCost = UsageBudget.MonthToDateCostUsd();
-                var s = TermLensSettings.Load();
+                var s = SettingsService.Current;
                 _budget = (decimal)(s != null && s.AiSettings != null ? s.AiSettings.MonthlyBudgetUsd : 0);
             }
             catch { _mtdCost = 0m; _budget = 0m; }

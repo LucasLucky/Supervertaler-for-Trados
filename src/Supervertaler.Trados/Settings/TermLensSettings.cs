@@ -506,8 +506,27 @@ namespace Supervertaler.Trados.Settings
 
         /// <summary>
         /// Loads settings from disk. Returns default settings if the file doesn't exist or can't be read.
+        ///
+        /// <para><b>Use <see cref="SettingsService.Current"/> instead.</b> This is
+        /// the service's own way of filling the shared instance and has exactly
+        /// one legitimate caller. Every other call returns a PRIVATE COPY of the
+        /// same file, and <see cref="Save"/> serialises the whole object — so
+        /// whoever saves such a copy last silently reverts every field anyone
+        /// else changed since it was read. That was one defect with several
+        /// faces: a memory bank that would not stay switched, a new prompt
+        /// missing from the dropdown, settings reverting depending on which gear
+        /// icon you opened them from. See
+        /// <c>docs/design/settings-single-source-of-truth.md</c>.</para>
+        ///
+        /// <para>Marked obsolete rather than merely documented because a comment
+        /// cannot stop the next person reaching for the obvious-looking method;
+        /// a build warning naming the alternative can. Marked internal so the
+        /// temptation at least stops at the assembly boundary.</para>
         /// </summary>
-        public static TermLensSettings Load()
+        [Obsolete("Use SettingsService.Current (or Update/UpdateIf to write). " +
+                  "Load() returns a private copy, and saving one reverts every change " +
+                  "another component made since it was read.")]
+        internal static TermLensSettings Load()
         {
             try
             {
@@ -745,14 +764,20 @@ namespace Supervertaler.Trados.Settings
         /// Re-reads the fields that BACKGROUND tasks own and folds anything new
         /// on disk back into this instance before it is written.
         ///
-        /// The whole settings file is serialised on every Save, and several
-        /// long-lived objects hold a copy loaded at startup - AiAssistantViewPart
-        /// keeps one for the session and saves it on bank switches, prompt
-        /// changes and chat turns. A startup task that records "the user has now
-        /// seen this" therefore had its write silently undone minutes later by an
-        /// unrelated save of a stale copy. Observed with the SuperMemory
-        /// announcement, which reappeared on some restarts and not others
-        /// depending on what the user did in between.
+        /// The whole settings file is serialised on every Save. This was written
+        /// when several long-lived objects each held a copy loaded at startup, so
+        /// a startup task recording "the user has now seen this" had its write
+        /// silently undone minutes later by an unrelated save of a stale copy —
+        /// observed with the SuperMemory announcement, which reappeared on some
+        /// restarts and not others depending on what the user did in between.
+        /// That was the five-copies defect, and it is another mitigation someone
+        /// built for it before the cause was found.
+        ///
+        /// <b>It is still needed, for a different reason.</b> In-process staleness
+        /// is gone — there is one shared instance now — but settings.json is also
+        /// written by the Supervertaler Workbench, and a merge with what is
+        /// actually on disk is the only thing that keeps an append-only record
+        /// written by the other process from being dropped by ours.
         ///
         /// These fields are append-only records of things that HAPPENED, so a
         /// union with whatever is on disk is always the correct merge: an id
@@ -764,7 +789,13 @@ namespace Supervertaler.Trados.Settings
             try
             {
                 if (!File.Exists(SettingsFilePath)) return;
+                // A sanctioned Load(): this genuinely wants the bytes on disk,
+                // not the shared instance, because the point is to find what
+                // ANOTHER process wrote. SettingsService.Current would return
+                // the very object we are about to serialise.
+#pragma warning disable 618
                 var onDisk = Load();
+#pragma warning restore 618
                 if (onDisk == null) return;
 
                 if (onDisk.ShownAnnouncementIds != null)

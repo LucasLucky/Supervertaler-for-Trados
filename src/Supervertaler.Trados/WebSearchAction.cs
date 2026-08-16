@@ -128,7 +128,7 @@ namespace Supervertaler.Trados
                 var language = fromTarget
                     ? TermLensEditorViewPart.GetCurrentProjectTargetLanguage()
                     : TermLensEditorViewPart.GetCurrentProjectSourceLanguage();
-                var autoExpand = !TermLensSettings.Load().ResolveSuffixTolerant(language);
+                var autoExpand = !SettingsService.Current.ResolveSuffixTolerant(language);
 
                 return SelectionExpander.ExpandToWordBoundaries(fullText, selection, autoExpand);
             }

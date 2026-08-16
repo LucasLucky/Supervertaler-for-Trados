@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -46,7 +46,7 @@ namespace Supervertaler.Trados.Settings
 
             try
             {
-                var legacy = TermLensSettings.Load()?.ShownAnnouncementIds;
+                var legacy = SettingsService.Current?.ShownAnnouncementIds;
                 if (legacy != null && legacy.Contains(announcementId, StringComparer.Ordinal))
                     return true;
             }

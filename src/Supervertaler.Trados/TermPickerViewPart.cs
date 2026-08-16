@@ -81,7 +81,7 @@ namespace Supervertaler.Trados
 
             try
             {
-                var settings = TermLensSettings.Load();
+                var settings = SettingsService.Current;
                 _control.ApplyColumnWidths(settings.TermPickerPaneColumnWidths);
             }
             catch { /* widths are cosmetic */ }

@@ -1,4 +1,4 @@
-using System.Windows.Forms;
+﻿using System.Windows.Forms;
 using Sdl.Desktop.IntegrationApi;
 using Sdl.TranslationStudioAutomation.IntegrationApi;
 using Supervertaler.Trados.Core;
@@ -52,7 +52,7 @@ namespace Supervertaler.Trados
             _library.Refresh();
             var prompts = _library.GetQuickLauncherPrompts();
 
-            settings = settings ?? TermLensSettings.Load();
+            settings = settings ?? SettingsService.Current;
             var aiSettings = settings?.AiSettings;
 
             // Look up slot mapping in settings

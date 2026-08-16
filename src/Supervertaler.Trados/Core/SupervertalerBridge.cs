@@ -2570,7 +2570,7 @@ namespace Supervertaler.Trados.Core
                     long projectTbId = -1;
                     try
                     {
-                        var tlSettings = TermLensSettings.Load();
+                        var tlSettings = SettingsService.Current;
                         disabledTbs = new HashSet<long>(
                             tlSettings?.DisabledTermbaseIds ?? new List<long>());
                         projectTbId = tlSettings?.ProjectTermbaseId ?? -1;

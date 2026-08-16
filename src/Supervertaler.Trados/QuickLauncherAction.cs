@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Windows.Forms;
 using Sdl.Desktop.IntegrationApi;
@@ -106,7 +106,7 @@ namespace Supervertaler.Trados
             }
 
             // Load settings once for surrounding segments count
-            var settings = TermLensSettings.Load();
+            var settings = SettingsService.Current;
             var surroundingCount = settings?.AiSettings?.QuickLauncherSurroundingSegments ?? 5;
 
             // Build and show the context menu at the current cursor position.

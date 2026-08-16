@@ -42,7 +42,7 @@ namespace Supervertaler.Trados.Core
         public static async Task<(string version, string url, string pluginUrl)?> CheckForUpdateAsync(
             TermLensSettings settings = null)
         {
-            settings = settings ?? TermLensSettings.Load();
+            settings = settings ?? SettingsService.Current;
 
             // Cache first – skip the network entirely if the cached entry is fresh
             var entry = LoadCachedEntry();

@@ -74,7 +74,7 @@ namespace Supervertaler.Trados.Core
             _control.WebSearchRequested += OnWebSearchRequested;
 
             // Restore the persisted search-source mode (Project files / Files + TMs / TMs only).
-            var settings = TermLensSettings.Load();
+            var settings = SettingsService.Current;
             _control.SetSourceMode(ParseSourceMode(settings.SuperSearchMode));
 
             // GetWebResources() reconciles the stored list against the built-ins

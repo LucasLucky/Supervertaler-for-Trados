@@ -1,6 +1,6 @@
 # Settings: one source of truth
 
-**Status:** design, not started
+**Status:** complete - all six stages landed 2026-08-16 (v18.20.183)
 **Date:** 2026-08-16
 **Prompted by:** defect D in `BUGS-supervertaler.md` — the active memory bank
 does not stay switched — traced to a defect that is much wider than SuperMemory.
@@ -280,6 +280,92 @@ for explicitly.
 of them transient load-modify-save (stage 5). Those can each still lose a write
 that lands between their load and their save — a much narrower window than the
 defect fixed here, but the same shape.
+
+## Stages 4-6: closing it
+
+**Done 2026-08-16.**
+
+### Stage 4 - the last two dialogs
+
+`TermbaseEditorDialog` and `TermPickerDialog` no longer take a settings object.
+Both only persist geometry and column widths on close, exactly as the stage-2
+audit predicted. Their `if (_settings != null)` guards went with the parameter:
+`SettingsService.Current` is never null, and a guard for an impossible case
+invites someone to write a fallback for it.
+
+### Stage 5 - the ten sites that could lose a write
+
+Of 44 `Load()` call sites, **ten** were load-modify-save. That is the only shape
+that can lose data: another writer saving between the load and the save has its
+change reverted. The other 34 were read-only and could at worst be briefly
+stale.
+
+`SuperSearchController` carried the clearest evidence that this had already been
+noticed and worked around:
+
+```
+// Persist the mode so it survives across sessions. Fresh load-modify-
+// save so a setting changed elsewhere in the meantime isn't clobbered.
+```
+
+Nearly right, and that is what makes it interesting: a fresh load narrows the
+window, but cannot close it, because another writer can still save between that
+load and that save. The same shape as the field-copy workaround stage 2 deleted
+— a mitigation that reads like a fix, which is worse than no mitigation, because
+it stops the search.
+
+Added `SettingsService.UpdateIf(Func<TermLensSettings,bool>)` for the
+read-then-maybe-write sites, where the mutator reports whether anything changed
+and the save is skipped if not. It closed a real hole in `UsageStatistics`: the
+anonymous id was read, tested and written across a separate load and save, so
+two callers could each find it missing and mint a different id — one install
+reporting as two.
+
+### Stage 6 - one way in
+
+The remaining 32 call sites became `SettingsService.Current` by textual
+substitution. `TermLensSettings.Load()` is now **`internal`** and **`[Obsolete]`**,
+naming `SettingsService` in its message.
+
+The obsolete marker is the part that matters. `internal` only moves the
+temptation to the assembly boundary; a build warning is what actually reaches
+the next person, and it earned itself immediately — it found a caller `grep`
+could not, because the call was unqualified from inside `TermLensSettings`
+itself.
+
+That caller, `MergeBackgroundOwnedFields`, turned out to be **legitimate and
+still necessary**, and its doc comment was itself a third hand-rolled workaround
+for this defect (the SuperMemory announcement reappearing on some restarts).
+In-process staleness is gone, but `settings.json` is shared with the
+Supervertaler Workbench, so merging with what is actually on disk is the only
+thing keeping an append-only record written by that process from being dropped
+by ours. It keeps its `Load()`, with the warning suppressed and the reason
+stated.
+
+### End state
+
+| | Before | After |
+|---|---|---|
+| Components holding a settings copy | 5 | 0 |
+| Ways to open the Settings dialog | 5 | 1 |
+| Load-modify-save sites | 10 | 0 |
+| `Load()` callers outside the service | 43 | 1 (deliberate, cross-process) |
+| `Load()` visibility | public | internal + obsolete |
+
+### What is deliberately left
+
+**The dead null guards.** `Load()` could return null and `Current` cannot, so
+`settings?.Foo` and `settings != null && ...` now never fire. Harmless, but
+noise. Stripping them across 30-odd sites would have turned a mechanical change
+into a judgement-call one, so it is a separate pass if it is worth doing at all.
+
+**Three mitigations were found and removed or reframed during this work** — the
+ten-field copy after the settings dialog (stage 2), the fresh load-modify-save
+in `SuperSearchController` (stage 5), and the disk merge in
+`MergeBackgroundOwnedFields` (stage 6, kept for a different reason). Each was
+written by someone who had hit the defect, correctly localised the symptom, and
+patched where it hurt. None of them named the cause, and each made the next
+person less likely to look for it.
 
 ## Not in scope
 

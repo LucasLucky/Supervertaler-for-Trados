@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Sdl.LanguagePlatform.TranslationMemory;
@@ -206,7 +206,7 @@ namespace Supervertaler.Trados.Core
             //    user enters the server login once; the password is DPAPI-encrypted.
             try
             {
-                var settings = TermLensSettings.Load();
+                var settings = SettingsService.Current;
                 var match = settings?.GroupShareServers?
                     .FirstOrDefault(g => HostMatches(g.BaseUrl, baseUri));
                 if (match != null)

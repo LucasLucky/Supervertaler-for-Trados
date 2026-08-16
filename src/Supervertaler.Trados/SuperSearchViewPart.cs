@@ -1,4 +1,4 @@
-using System.Drawing;
+﻿using System.Drawing;
 using System.Windows.Forms;
 using Sdl.Desktop.IntegrationApi;
 using Sdl.Desktop.IntegrationApi.Extensions;
@@ -50,7 +50,7 @@ namespace Supervertaler.Trados
         /// </summary>
         public static bool IsHostedInAssistantTab()
         {
-            return TermLensSettings.Load().SuperSearchInAssistantTab
+            return SettingsService.Current.SuperSearchInAssistantTab
                 && LicenseManager.Instance.HasAssistantAccess;
         }
 

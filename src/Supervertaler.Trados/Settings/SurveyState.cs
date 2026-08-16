@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -69,7 +69,7 @@ namespace Supervertaler.Trados.Settings
 
             try
             {
-                var legacy = TermLensSettings.Load()?.AnsweredSurveyIds;
+                var legacy = SettingsService.Current?.AnsweredSurveyIds;
                 if (legacy != null && legacy.Contains(surveyId)) return true;
             }
             catch { }
@@ -104,7 +104,7 @@ namespace Supervertaler.Trados.Settings
 
             try
             {
-                var legacy = TermLensSettings.Load()?.SurveyShownCounts;
+                var legacy = SettingsService.Current?.SurveyShownCounts;
                 int old;
                 if (legacy != null && legacy.TryGetValue(Key(surveyId), out old) && old > count)
                     count = old;

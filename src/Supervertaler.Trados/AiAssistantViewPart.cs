@@ -2841,7 +2841,7 @@ namespace Supervertaler.Trados
                 List<Models.TermbaseDirectionMismatch> mismatched = null;
                 try
                 {
-                    var settings = TermLensSettings.Load();
+                    var settings = SettingsService.Current;
                     var dbPath = ResolveSupervertalerDbPath();
                     if (dbPath == null)
                         return new BridgeQaResponse
@@ -3154,14 +3154,14 @@ namespace Supervertaler.Trados
             total = 0;
             bool known = false;
 
-            var aiCfg = _settings?.AiSettings ?? TermLensSettings.Load()?.AiSettings ?? new AiSettings();
+            var aiCfg = _settings?.AiSettings ?? SettingsService.Current?.AiSettings ?? new AiSettings();
 
             try
             {
                 var dbPath = ResolveSupervertalerDbPath();
                 if (!string.IsNullOrEmpty(dbPath) && File.Exists(dbPath))
                 {
-                    var settings = TermLensSettings.Load();
+                    var settings = SettingsService.Current;
                     var disabled = settings?.DisabledTermbaseIds != null
                         ? new HashSet<long>(settings.DisabledTermbaseIds) : new HashSet<long>();
                     using (var tbReader = new TermbaseReader(dbPath))
@@ -3334,7 +3334,7 @@ namespace Supervertaler.Trados
                         }
                     }
 
-                    var settings = TermLensSettings.Load();
+                    var settings = SettingsService.Current;
                     var write = settings.WriteTermbaseIds != null
                         ? new HashSet<long>(settings.WriteTermbaseIds) : new HashSet<long>();
                     var disabled = settings.DisabledTermbaseIds != null
@@ -3773,7 +3773,7 @@ namespace Supervertaler.Trados
 
             try
             {
-                var settings = TermLensSettings.Load();
+                var settings = SettingsService.Current;
 
                 if (settings.WriteTermbaseIds == null || settings.WriteTermbaseIds.Count == 0)
                     return new BridgeAddTermResponse
@@ -4202,7 +4202,7 @@ namespace Supervertaler.Trados
 
                 if (destId >= 0)
                 {
-                    var settings = TermLensSettings.Load();
+                    var settings = SettingsService.Current;
                     var writeIds = settings?.WriteTermbaseIds ?? new List<long>();
                     if (!writeIds.Contains(destId))
                         return new BridgeImportTermbaseResponse
@@ -4377,7 +4377,7 @@ namespace Supervertaler.Trados
                                 "'newDefinition' and/or 'newDomain'"
                     };
 
-                var settings = TermLensSettings.Load();
+                var settings = SettingsService.Current;
                 if (settings.WriteTermbaseIds == null || settings.WriteTermbaseIds.Count == 0)
                     return new BridgeEditTermResponse
                     {
@@ -11263,7 +11263,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     return;
                 }
 
-                var aiSettings = TermLensSettings.Load()?.AiSettings;
+                var aiSettings = SettingsService.Current?.AiSettings;
                 if (aiSettings == null)
                 {
                     MessageBox.Show(
@@ -11486,7 +11486,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     return;
                 }
 
-                var aiSettings = TermLensSettings.Load()?.AiSettings;
+                var aiSettings = SettingsService.Current?.AiSettings;
                 if (aiSettings == null)
                 {
                     MessageBox.Show(

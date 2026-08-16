@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Reflection;
 using Supervertaler.Trados.Models;
 using Supervertaler.Trados.Settings;
@@ -37,7 +37,7 @@ namespace Supervertaler.Trados.Core
                 if (_subscribed) return;
                 LlmClient.PromptCompleted += (s, entry) =>
                 {
-                    try { Record(entry, TermLensSettings.Load()); }
+                    try { Record(entry, SettingsService.Current); }
                     catch { /* never let logging disrupt anything */ }
                 };
                 _subscribed = true;

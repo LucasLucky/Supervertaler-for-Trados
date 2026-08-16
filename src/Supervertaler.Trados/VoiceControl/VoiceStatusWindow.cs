@@ -156,7 +156,7 @@ namespace Supervertaler.Trados.VoiceControl
         {
             try
             {
-                var settings = Settings.TermLensSettings.Load();
+                var settings = Settings.SettingsService.Current;
                 if (settings.VoiceStripLeft != 0 || settings.VoiceStripTop != 0)
                 {
                     var saved = new Point(settings.VoiceStripLeft, settings.VoiceStripTop);

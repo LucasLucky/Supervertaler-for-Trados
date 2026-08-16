@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Windows.Forms;
@@ -46,7 +46,7 @@ namespace Supervertaler.Trados
                     return;
                 }
 
-                var settings = TermLensSettings.Load();
+                var settings = SettingsService.Current;
 
                 // Validate project termbase is configured
                 if (settings.ProjectTermbaseId < 0)

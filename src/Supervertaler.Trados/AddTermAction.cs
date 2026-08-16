@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Windows.Forms;
@@ -47,7 +47,7 @@ namespace Supervertaler.Trados
                     return;
                 }
 
-                var settings = TermLensSettings.Load();
+                var settings = SettingsService.Current;
 
                 // Validate at least one write termbase is configured
                 if (settings.WriteTermbaseIds == null || settings.WriteTermbaseIds.Count == 0)

@@ -3391,7 +3391,7 @@ namespace Supervertaler.Trados
             {
                 try
                 {
-                    var settings = TermLensSettings.Load();
+                    var settings = SettingsService.Current;
 
                     // Targeting: only translators who currently have SuperMemory
                     // switched on. Everyone else has no reason to see this.
