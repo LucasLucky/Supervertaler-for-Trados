@@ -249,6 +249,22 @@ namespace Supervertaler.Trados.Controls
                 y += 20;
             }
 
+            y += 4;
+
+            // The list above is a hand-picked dozen; the plugin registers about
+            // seventeen families. More to the point, several of these keys are
+            // Trados factory defaults — Ctrl+Q is Studio's "View Internally
+            // Source", and STUDIO WINS, so QuickLauncher does nothing until the
+            // user clears that binding. A shortcut list that omits the reason a
+            // shortcut appears dead is worse than none, and this dialog is where
+            // people look first. The docs page carries the full list and the
+            // conflict table; this points at it rather than duplicating it here,
+            // where it would drift.
+            AddLink("All shortcuts, and Trados conflicts", null, leftPad + 4, ref y,
+                () => HelpSystem.OpenHelp(HelpSystem.Topics.KeyboardShortcuts),
+                tooltip: "The full list, plus the Trados defaults that override "
+                       + "some of these and how to clear them");
+
             y += 10;
 
             // Separator

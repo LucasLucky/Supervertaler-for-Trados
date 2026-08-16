@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
@@ -14,7 +14,10 @@ namespace Supervertaler.Trados.Controls
     ///
     /// Lifecycle:
     ///   - Opened via TermLensEditorViewPart.HandleTermLensPopup() – bound to
-    ///     Ctrl-tap (primary) and Ctrl+Alt+G (fallback). Re-pressing the open
+    ///     Ctrl-tap. (This said "and Ctrl+Alt+G (fallback)" until 20.184;
+    ///     Ctrl+Alt+G has been the AutoTagger for some time - see
+    ///     AutoTagActiveSegmentAction - so the two files each claimed the same
+    ///     key for a different feature.) Re-pressing the open
     ///     shortcut closes the popup (toggle); cycling is keyboard-only inside.
     ///   - Right / Down / Tab → next; Left / Up / Shift+Tab → previous.
     ///   - Enter inserts the currently-highlighted match into the target segment
