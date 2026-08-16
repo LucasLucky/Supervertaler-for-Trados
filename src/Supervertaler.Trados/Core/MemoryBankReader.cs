@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -197,6 +197,22 @@ namespace Supervertaler.Trados.Core
                     ctx.TerminologyArticles.Add(terms);
                     ctx.TerminologyPaths.Add(termPath);
                 }
+
+                // Anything else the translator put at the bank root. Previously
+                // these were simply inert: the loader read three fixed names
+                // while the search index enumerated *.md, so a file like
+                // figures.md was COUNTED as an article by list_supermemory_banks
+                // and then contributed nothing to the prompt — no error, no
+                // warning, no content. Someone who adds a file to a bank means
+                // it to be used.
+                //
+                // Top directory only: reference/ holds bulk material that is
+                // deliberately not in every prompt, and this must not sweep it in.
+                foreach (var extra in ReadOtherBankFiles(_vaultDir))
+                {
+                    ctx.ExtraArticles.Add(extra.Key);
+                    ctx.ExtraPaths.Add(extra.Value);
+                }
             }
 
             // ── The shared bank, always loaded alongside ─────────────
@@ -213,6 +229,39 @@ namespace Supervertaler.Trados.Core
             ctx.TrimToTokenBudget(tokenBudget);
 
             return ctx.HasContent ? ctx : null;
+        }
+
+        /// <summary>
+        /// Every other <c>*.md</c> at the bank root, as (text, relative path).
+        /// The three named files are excluded — they have their own slots — as
+        /// are dotfiles and the Obsidian sidecars the index already skips.
+        /// Ordered by name so the prompt is stable between runs.
+        /// </summary>
+        private static List<KeyValuePair<string, string>> ReadOtherBankFiles(string bankDir)
+        {
+            var result = new List<KeyValuePair<string, string>>();
+            try
+            {
+                var known = new HashSet<string>(
+                    new[] { BriefFile, TerminologyFile, StyleFile },
+                    StringComparer.OrdinalIgnoreCase);
+
+                var files = Directory.GetFiles(bankDir, "*.md", SearchOption.TopDirectoryOnly);
+                Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+
+                foreach (var path in files)
+                {
+                    var name = Path.GetFileName(path);
+                    if (known.Contains(name)) continue;
+                    if (name.StartsWith(".", StringComparison.Ordinal)) continue;
+
+                    var text = ReadBankFile(bankDir, name, out var rel);
+                    if (!string.IsNullOrWhiteSpace(text))
+                        result.Add(new KeyValuePair<string, string>(text, rel));
+                }
+            }
+            catch { /* a bank we cannot enumerate is not an error, just empty */ }
+            return result;
         }
 
         /// <summary>Bank folder name, used as the context's display label.</summary>
@@ -400,6 +449,18 @@ namespace Supervertaler.Trados.Core
             }
 
             AppendSection(sb, "Style", null, ctx.StyleGuideText);
+
+            for (int i = 0; i < ctx.ExtraArticles.Count; i++)
+            {
+                if (string.IsNullOrWhiteSpace(ctx.ExtraArticles[i])) continue;
+                // Titled by filename: these are whatever the translator chose to
+                // put in the bank, so the name is the only thing that says what
+                // it is. "figures.md" tells the model more than "Reference".
+                var title = i < ctx.ExtraPaths.Count && !string.IsNullOrEmpty(ctx.ExtraPaths[i])
+                    ? System.IO.Path.GetFileName(ctx.ExtraPaths[i])
+                    : "Reference";
+                AppendSection(sb, title, null, ctx.ExtraArticles[i]);
+            }
 
             return sb.ToString().TrimEnd();
         }
@@ -1023,6 +1084,13 @@ namespace Supervertaler.Trados.Core
         public List<string> TerminologyArticles { get; set; } = new List<string>();
         public List<string> TerminologyPaths { get; set; } = new List<string>();
 
+        // Any other *.md the user put at the bank root. Kept separate from
+        // terminology because they are not term lists — a figure brief filed
+        // under a "Terminology" heading tells the model the wrong thing about
+        // what it is reading.
+        public List<string> ExtraArticles { get; set; } = new List<string>();
+        public List<string> ExtraPaths { get; set; } = new List<string>();
+
         // Detection info
         public string DetectionMethod { get; set; } = "none";
 
@@ -1039,6 +1107,7 @@ namespace Supervertaler.Trados.Core
             !string.IsNullOrWhiteSpace(ClientProfileText) ||
             !string.IsNullOrWhiteSpace(StyleGuideText) ||
             TerminologyArticles.Count > 0 ||
+            ExtraArticles.Count > 0 ||
             !string.IsNullOrWhiteSpace(SharedBriefText) ||
             !string.IsNullOrWhiteSpace(SharedTerminologyText) ||
             !string.IsNullOrWhiteSpace(SharedStyleText);
@@ -1054,6 +1123,7 @@ namespace Supervertaler.Trados.Core
                 if (ClientProfileText != null) chars += ClientProfileText.Length;
                 if (StyleGuideText != null) chars += StyleGuideText.Length;
                 foreach (var t in TerminologyArticles) chars += t.Length;
+                foreach (var t in ExtraArticles) chars += t.Length;
                 if (SharedBriefText != null) chars += SharedBriefText.Length;
                 if (SharedTerminologyText != null) chars += SharedTerminologyText.Length;
                 if (SharedStyleText != null) chars += SharedStyleText.Length;
@@ -1080,6 +1150,12 @@ namespace Supervertaler.Trados.Core
             {
                 StyleGuideText = null;
                 StyleGuidePath = null;
+            }
+
+            while (ExtraArticles.Count > 0 && EstimatedTokens > maxTokens)
+            {
+                ExtraArticles.RemoveAt(ExtraArticles.Count - 1);
+                if (ExtraPaths.Count > 0) ExtraPaths.RemoveAt(ExtraPaths.Count - 1);
             }
 
             while (TerminologyArticles.Count > 0 && EstimatedTokens > maxTokens)

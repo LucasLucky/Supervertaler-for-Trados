@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -839,6 +839,11 @@ namespace Supervertaler.Trados.Core
         /// <summary>Names the client explicitly when the project name does not
         /// give it away. Matched loosely against 01_CLIENTS article names.</summary>
         [DataMember(Name = "client", EmitDefaultValue = false)] public string Client { get; set; }
+        /// <summary>Reads a specific bank instead of the active one. Unknown
+        /// names are an error rather than a silent fall back to the active bank:
+        /// the response carries a bank name either way, so falling back looks
+        /// exactly like success and injects another project's terminology.</summary>
+        [DataMember(Name = "bank", EmitDefaultValue = false)] public string Bank { get; set; }
         /// <summary>Defaults to the same 24k budget the in-Trados chat uses.</summary>
         [DataMember(Name = "tokenBudget", EmitDefaultValue = false)] public int TokenBudget { get; set; }
     }
@@ -2018,7 +2023,8 @@ namespace Supervertaler.Trados.Core
             {
                 Query = QueryUtf8(context.Request)["q"],
                 Domain = QueryUtf8(context.Request)["domain"],
-                Client = QueryUtf8(context.Request)["client"]
+                Client = QueryUtf8(context.Request)["client"],
+                Bank = QueryUtf8(context.Request)["bank"]
             };
             int budget;
             if (int.TryParse(QueryUtf8(context.Request)["tokenBudget"], out budget) && budget > 0)

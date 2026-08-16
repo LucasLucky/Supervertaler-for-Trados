@@ -1,4 +1,4 @@
-{
+﻿{
   "schemaVersion": 1,
   "tools": [
     {
@@ -1215,6 +1215,10 @@
               "null"
             ],
             "default": null
+          },
+          "bank": {
+            "description": "Read a specific memory bank instead of the active one, by folder name (see list_supermemory_banks). Omit to read the active bank. An unknown name is an ERROR, not a fall back to the active bank — the response always carries a 'bank' field, so a silent substitution is indistinguishable from success and injects another project's terminology. The 'bank' in the response is always the bank actually read.",
+            "type": "string"
           }
         }
       },

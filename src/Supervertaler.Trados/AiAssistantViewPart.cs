@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -6703,14 +6703,53 @@ namespace Supervertaler.Trados
                 };
             }
 
-            var reader = EnsureKbReader();
+            // An explicitly requested bank wins over the active one. Before
+            // this existed the argument was simply not a parameter, so a caller
+            // naming a bank got the ACTIVE bank's contents back — with a "bank"
+            // field in the response that reads exactly like confirmation. That
+            // is how another filing's locked terminology reaches a prompt with
+            // nothing to signal it.
+            string requestedBank = query != null ? (query.Bank ?? "").Trim() : "";
+            MemoryBankReader reader;
+            string bankName;
+
+            if (requestedBank.Length > 0)
+            {
+                var known = Settings.UserDataPath.ListMemoryBanks() ?? new List<string>();
+                var match = known.FirstOrDefault(b =>
+                    string.Equals(b, requestedBank, StringComparison.OrdinalIgnoreCase));
+                if (match == null)
+                {
+                    // Refused, not substituted: a wrong answer here is invisible.
+                    return new BridgeSuperMemoryContextResponse
+                    {
+                        Available = false,
+                        Bank = ActiveMemoryBankName,
+                        Note = "No memory bank named '" + requestedBank + "'. Available: "
+                             + (known.Count > 0 ? string.Join(", ", known) : "(none)")
+                             + ". The active bank is '" + ActiveMemoryBankName
+                             + "'; omit 'bank' to read that one."
+                    };
+                }
+                bankName = match;
+                reader = new MemoryBankReader(Settings.UserDataPath.GetMemoryBankDir(match));
+            }
+            else
+            {
+                reader = EnsureKbReader();
+                bankName = ActiveMemoryBankName;
+            }
+
             if (reader == null || !reader.VaultExists)
             {
                 return new BridgeSuperMemoryContextResponse
                 {
                     Available = false,
-                    Bank = ActiveMemoryBankName,
-                    Note = "No memory bank found at " + ActiveMemoryBankDir
+                    Bank = bankName,
+                    Note = "No memory bank found at "
+                         + (requestedBank.Length > 0
+                                ? Settings.UserDataPath.GetMemoryBankDir(bankName)
+                                : ActiveMemoryBankDir)
                 };
             }
 
@@ -6740,7 +6779,7 @@ namespace Supervertaler.Trados
                 return new BridgeSuperMemoryContextResponse
                 {
                     Available = false,
-                    Bank = ActiveMemoryBankName,
+                    Bank = bankName,
                     Domain = domain,
                     Note = "The memory bank has no content matching this project, domain or language pair."
                 };
@@ -6751,11 +6790,12 @@ namespace Supervertaler.Trados
             if (!string.IsNullOrEmpty(ctx.DomainArticlePath)) sources.Add(ctx.DomainArticlePath);
             if (!string.IsNullOrEmpty(ctx.StyleGuidePath)) sources.Add(ctx.StyleGuidePath);
             if (ctx.TerminologyPaths != null) sources.AddRange(ctx.TerminologyPaths);
+            if (ctx.ExtraPaths != null) sources.AddRange(ctx.ExtraPaths);
 
             return new BridgeSuperMemoryContextResponse
             {
                 Available = true,
-                Bank = ActiveMemoryBankName,
+                Bank = bankName,
                 Client = ctx.ClientName,
                 Domain = ctx.DomainName ?? domain,
                 DetectionMethod = ctx.DetectionMethod,
