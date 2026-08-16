@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 
@@ -77,7 +77,6 @@ namespace Supervertaler.Trados.Core.Export
                     ParagraphUnitId = m.ParagraphUnitId,
                     SegmentId = m.SegmentId,
                     NewTarget = row.TargetText ?? "",
-                    Notes = row.Notes,
                     Status = row.Status
                 };
 

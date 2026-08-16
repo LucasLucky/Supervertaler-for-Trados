@@ -1,4 +1,4 @@
-namespace Supervertaler.Trados.Core.Export
+﻿namespace Supervertaler.Trados.Core.Export
 {
     public enum ExportFormat
     {
@@ -17,7 +17,7 @@ namespace Supervertaler.Trados.Core.Export
 
     public enum ExportLayout
     {
-        /// <summary>5-column table (#, Source, Target, Status, Notes).
+        /// <summary>4-column table (#, Source, Target, Status).
         /// The canonical Supervertaler Bilingual Table, used by the DOCX and
         /// HTML renderers; the only DOCX layout that round-trips on
         /// re-import.</summary>

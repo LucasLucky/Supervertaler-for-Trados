@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -16,7 +16,8 @@ namespace Supervertaler.Trados.Core.Export
     /// - Both stacked-source-top and stacked-target-top layouts (detected by
     ///   the relative order of the <c>**Source ...:**</c> and
     ///   <c>**Target ...:**</c> labels).
-    /// - The Markdown table layout (5 columns: # | Source | Target | Status | Notes).
+    /// - The Markdown table layout (# | Source | Target | Status, plus an
+    ///   optional trailing Notes column in older files, which is ignored).
     ///
     /// NOT tolerant of:
     /// - Renaming the <c>## Segment N</c> headings (the segment-number is the
@@ -258,10 +259,7 @@ namespace Supervertaler.Trados.Core.Export
                     TargetText = UnescapeCell(cells[1]),
                     Status = multiFile
                         ? (cells.Length > 3 ? UnescapeCell(cells[3]) : "")
-                        : (cells.Length > 2 ? UnescapeCell(cells[2]) : ""),
-                    Notes = multiFile
-                        ? (cells.Length > 4 ? UnescapeCell(cells[4]) : "")
-                        : (cells.Length > 3 ? UnescapeCell(cells[3]) : "")
+                        : (cells.Length > 2 ? UnescapeCell(cells[2]) : "")
                 };
                 rows.Add(seg);
             }

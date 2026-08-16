@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 namespace Supervertaler.Trados.Core.Export
 {
@@ -42,7 +42,6 @@ namespace Supervertaler.Trados.Core.Export
         public string Status { get; set; }
 
         /// <summary>Optional free-form notes column, blank on initial export.</summary>
-        public string Notes { get; set; }
 
         /// <summary>Trados segment comments at export time, one per line,
         /// formatted "Author (yyyy-MM-dd): text". Read-only context for the

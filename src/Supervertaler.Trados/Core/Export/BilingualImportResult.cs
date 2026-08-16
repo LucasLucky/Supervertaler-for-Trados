@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 namespace Supervertaler.Trados.Core.Export
 {
@@ -39,7 +39,6 @@ namespace Supervertaler.Trados.Core.Export
         public string SegmentId { get; set; }
         public string OldTarget { get; set; }
         public string NewTarget { get; set; }
-        public string Notes { get; set; }
         public string Status { get; set; }
         public ImportChangeKind Kind { get; set; }
         public string Detail { get; set; }   // e.g. mismatch reason

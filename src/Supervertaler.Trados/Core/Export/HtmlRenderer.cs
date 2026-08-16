@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -94,7 +94,6 @@ namespace Supervertaler.Trados.Core.Export
             sb.Append("<th>").Append(HtmlEscape(opts.TargetLanguageDisplay)).Append("</th>");
             sb.Append("<th>Status</th>");
             if (hasComments) sb.Append("<th>Comments</th>");
-            sb.Append("<th>Notes</th>");
             sb.Append("</tr></thead>\n<tbody>\n");
             foreach (var seg in segments)
             {
@@ -105,7 +104,6 @@ namespace Supervertaler.Trados.Core.Export
                 sb.Append("<td>").Append(HtmlEscape(seg.DisplayStatus)).Append("</td>");
                 if (hasComments)
                     sb.Append("<td class=\"comments\">").Append(HtmlEscapeMultiline(seg.Comments)).Append("</td>");
-                sb.Append("<td>").Append(HtmlEscape(seg.Notes ?? "")).Append("</td>");
                 sb.Append("</tr>\n");
             }
             sb.Append("</tbody></table>\n");

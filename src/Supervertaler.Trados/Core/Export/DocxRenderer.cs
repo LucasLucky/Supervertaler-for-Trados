@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -12,7 +12,7 @@ namespace Supervertaler.Trados.Core.Export
     /// <summary>
     /// Renders bilingual data as a Word (.docx) document using
     /// DocumentFormat.OpenXml, as a 5-column table (columns: #, Source,
-    /// Target, Status, Notes) matching the Supervertaler Workbench's
+    /// Target, Status) matching the Supervertaler Workbench's
     /// "Bilingual Table" format. This is the canonical round-trippable
     /// shape — files exported from the Trados plugin can be re-imported by
     /// Supervertaler Workbench and vice versa, as long as the structure is
@@ -42,7 +42,7 @@ namespace Supervertaler.Trados.Core.Export
                 mainPart.Document = new Document();
                 var body = mainPart.Document.AppendChild(new Body());
 
-                AppendHeader(mainPart, body, options, segments.Count);
+                AppendHeader(mainPart, body, options, segments.Count, HasAnyComments(segments));
 
                 // Only the 5-column Bilingual Table remains; the stacked
                 // layouts were retired in favour of the Text (.txt) format.
@@ -68,7 +68,8 @@ namespace Supervertaler.Trados.Core.Export
         //     key-value lines (bold labels)
         //   - "⚠️ Important: ..." amber notice + italic instructions
 
-        private static void AppendHeader(MainDocumentPart mainPart, Body body, ExportOptions opts, int total)
+        private static void AppendHeader(MainDocumentPart mainPart, Body body, ExportOptions opts,
+            int total, bool hasComments)
         {
             // Decorative line above title.
             body.AppendChild(MakeDecorativeLine());
@@ -114,6 +115,20 @@ namespace Supervertaler.Trados.Core.Export
                 MakeRun("Do not change segment numbers (#) or source text. ", italic: true),
                 MakeRun("This file can be re-imported into Supervertaler after proofreading.", italic: true));
             body.AppendChild(notice);
+
+            // Only the target column comes back. Word will happily let someone
+            // edit the Comments cells, and nothing on screen says those edits go
+            // nowhere — so say it here, and only when the column is actually
+            // drawn, since it is omitted entirely when no segment has a comment.
+            if (hasComments)
+            {
+                body.AppendChild(new Paragraph(
+                    new ParagraphProperties(new SpacingBetweenLines() { After = "240" }),
+                    MakeRun("Comments ", bold: true, italic: true),
+                    MakeRun("are copied from your Trados segments for reference only. "
+                          + "You can edit them here, but the changes are not read back on "
+                          + "re-import — only the target text is.", italic: true)));
+            }
         }
 
         /// <summary>Decorative horizontal line — 50 heavy-horizontal-line
@@ -186,16 +201,16 @@ namespace Supervertaler.Trados.Core.Export
             int[] colPct;
             if (multiFile)
                 colPct = hasComments
-                    // #, Src, Tgt, File, Status, Comments, Notes — sums to 5000.
-                    ? new[] { 250, 1250, 1250, 650, 400, 800, 400 }
-                    // #, Src, Tgt, File, Status, Notes — sums to 5000.
-                    : new[] { 250, 1500, 1500, 800, 500, 450 };
+                    // #, Src, Tgt, File, Status, Comments — sums to 5000.
+                    ? new[] { 250, 1400, 1400, 650, 400, 900 }
+                    // #, Src, Tgt, File, Status — sums to 5000.
+                    : new[] { 250, 1700, 1700, 850, 500 };
             else
                 colPct = hasComments
-                    // #, Src, Tgt, Status, Comments, Notes — sums to 5000.
-                    ? new[] { 250, 1550, 1550, 450, 750, 450 }
-                    // #, Src, Tgt, Status, Notes — sums to 5000.
-                    : new[] { 250, 1900, 1900, 500, 450 };
+                    // #, Src, Tgt, Status, Comments — sums to 5000.
+                    ? new[] { 250, 1750, 1750, 450, 800 }
+                    // #, Src, Tgt, Status — sums to 5000.
+                    : new[] { 250, 2100, 2100, 550 };
 
             var table = new Table();
 
@@ -233,20 +248,19 @@ namespace Supervertaler.Trados.Core.Export
             header.AppendChild(MakeHeaderCellPct("Status", colPct[hi++]));
             if (hasComments)
                 header.AppendChild(MakeHeaderCellPct("Comments", colPct[hi++]));
-            header.AppendChild(MakeHeaderCellPct("Notes", colPct[hi++]));
             table.AppendChild(header);
 
             // Body rows. Source + Target cells are rendered tag-aware so
             // any <tN>...</tN> placeholders coming through from
             // SegmentTagHandler.Serialize() show up coloured red, matching
             // the Workbench's "With Tags" Bilingual Table appearance.
-            // # / Status / Notes columns stay plain — they never contain tags.
+            // # and Status columns stay plain — they never contain tags.
             //
             // In multi-file mode an extra yellow-highlighted row precedes
             // the first segment of each new file — proofreader-visible
             // section divider that spans the whole table width.
             string previousFile = null;
-            int columnCount = (multiFile ? 6 : 5) + (hasComments ? 1 : 0);
+            int columnCount = (multiFile ? 5 : 4) + (hasComments ? 1 : 0);
             foreach (var seg in segments)
             {
                 if (multiFile)
@@ -269,7 +283,7 @@ namespace Supervertaler.Trados.Core.Export
                 // formatting flags (Heading 1 bold, whole-paragraph italic,
                 // etc.) from the segment so the bilingual file visually
                 // matches what Trados shows in its editor. # / Status /
-                // Notes columns deliberately stay plain.
+                // Status and # cells deliberately stay plain.
                 row.AppendChild(MakeBodyCell(seg.SourceText ?? "", tagAware: true,
                     bold: seg.IsBold, italic: seg.IsItalic, underline: seg.IsUnderline));
                 row.AppendChild(MakeBodyCell(seg.TargetText ?? "", tagAware: true,
@@ -279,7 +293,6 @@ namespace Supervertaler.Trados.Core.Export
                 row.AppendChild(MakeBodyCell(seg.DisplayStatus));
                 if (hasComments)
                     row.AppendChild(MakeBodyCell(seg.Comments ?? ""));
-                row.AppendChild(MakeBodyCell(seg.Notes ?? ""));
                 table.AppendChild(row);
             }
 

@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
@@ -12,7 +12,10 @@ namespace Supervertaler.Trados.Core.Export
     /// <see cref="ImportedSegment"/>s.
     ///
     /// Expects the first table in the document to have a header row whose
-    /// first cell is "#" and 4 more columns: Source, Target, Status, Notes.
+    /// first cell is "#" and at least Source, Target and Status after it.
+    /// A trailing Notes column is tolerated but ignored: it was dropped from
+    /// the exports, and files written before that (or by the Workbench) still
+    /// carry one.
     /// Falls back to ordering if the header isn't an exact match — the
     /// segment number from the first cell is the authoritative key.
     /// </summary>
@@ -44,12 +47,12 @@ namespace Supervertaler.Trados.Core.Export
                 // whose header doesn't parse.
                 var headerRow = tableRows[0];
                 var headerCells = headerRow.Elements<TableCell>().ToList();
-                int statusIdx = -1, notesIdx = -1;
+                int statusIdx = -1;
                 for (int c = 3; c < headerCells.Count; c++)
                 {
                     var h = ExtractCellText(headerCells[c]).Trim();
                     if (h.Equals("Status", System.StringComparison.OrdinalIgnoreCase)) statusIdx = c;
-                    else if (h.Equals("Notes", System.StringComparison.OrdinalIgnoreCase)) notesIdx = c;
+
                     // "File" and "Comments" columns are recognised implicitly:
                     // they shift Status/Notes right and carry no re-importable
                     // data themselves.
@@ -82,19 +85,18 @@ namespace Supervertaler.Trados.Core.Export
                     if (headerMapped)
                     {
                         seg.Status = statusIdx < cells.Count ? ExtractCellText(cells[statusIdx]) : "";
-                        seg.Notes = notesIdx >= 0 && notesIdx < cells.Count ? ExtractCellText(cells[notesIdx]) : "";
                     }
                     else if (sixColumn && cells.Count >= 6)
                     {
-                        // cells: 0=#, 1=Src, 2=Tgt, 3=File, 4=Status, 5=Notes
+                        // cells: 0=#, 1=Src, 2=Tgt, 3=File, 4=Status[, 5=Notes]
+                        // A trailing Notes column may be present in files written
+                        // before it was dropped, or by the Workbench. Ignored.
                         seg.Status = ExtractCellText(cells[4]);
-                        seg.Notes = ExtractCellText(cells[5]);
                     }
                     else
                     {
-                        // cells: 0=#, 1=Src, 2=Tgt, 3=Status, 4=Notes
+                        // cells: 0=#, 1=Src, 2=Tgt, 3=Status[, 4=Notes]
                         seg.Status = cells.Count > 3 ? ExtractCellText(cells[3]) : "";
-                        seg.Notes = cells.Count > 4 ? ExtractCellText(cells[4]) : "";
                     }
                     rows.Add(seg);
                 }
