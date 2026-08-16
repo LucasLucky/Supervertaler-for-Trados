@@ -1,12 +1,24 @@
 # A SuperMemory tab in Settings
 
-**Status:** design, not started. The *organisational* argument in "What belongs
-where" is an unsettled working hypothesis, not an agreed structure — the build
-order below does not depend on it.
-**Date:** 2026-08-16
-**Prompted by:** needing somewhere to put the reference-images folder button
-(step 1 of `HANDOFF-image-context.md`), which turned into a better question:
-why is the memory bank the one thing you cannot see from inside the plugin?
+**Status: SUPERSEDED by `library-tab.md` (2026-08-16, same day).**
+
+This note proposed a separate SuperMemory tab and argued against merging it into
+the Prompts tab. That argument was wrong in a specific way worth keeping: it
+reasoned about how prompts and banks are used at POINT OF USE, where they really
+do answer different questions, and concluded they belong on different tabs. But
+a Settings tab is not point of use — nobody picks a prompt or switches a bank
+here. It is where you CURATE, and curating both is one activity.
+
+The successor keeps the taxonomy this note worked out (configuration, task
+instructions, knowledge) and expresses it as tree ordering rather than as
+separate tabs: foundation, then tasks, then knowledge.
+
+Kept because the reasoning trail is the useful part, and because the objections
+raised here — two "actives" in one panel, and burying the SuperMemory name —
+are still things the Library tab has to handle, even though neither justified a
+separate tab.
+
+---
 
 ## The gap
 
