@@ -9,6 +9,12 @@
 
 ## [18.20.182 / 19.20.182] – 2026-08-15
 
+### Added (connect ChatGPT desktop to your Trados session, in one click)
+
+- **The MCP server works with ChatGPT desktop, and the plugin now sets it up for you.** Ask ChatGPT about the project open in Studio, search your TMs and termbases, run QA checks — the same live connection Claude Desktop has had. **Settings → AI Settings → Connect AI assistant…** now has a **Set up ChatGPT desktop** button that downloads the server, keeps it in your Supervertaler data folder and registers it, so there is no zip to unpack and no configuration file to edit. Quit ChatGPT from the notification area afterwards — closing the window is not enough — and start it again.
+- **Your existing configuration is backed up first, and nothing else in it is touched.** Only Supervertaler's own entry is written; other MCP servers you have set up are left exactly as they are, and running the button again refreshes the server rather than adding a second copy.
+- **Earlier versions of the documentation said ChatGPT could not be used at all.** That was true when written — it ran MCP servers in the cloud, with no route to a bridge that is local to your machine by design — and has since changed. What still cannot work is a client that runs the server in the cloud, which includes the claude.ai and chatgpt.com **websites**, as opposed to the desktop apps.
+
 ### Added (ProZ.com's new term search, as an option)
 
 - **ProZ has rebuilt its term search, and both versions are now available.** The classic search stays switched on as before; the classic one is now labelled **ProZ.com (old)** and the rebuilt one **ProZ.com (new)**, sitting next to each other in the list. The new one ships **switched off**, so nothing about your setup changes unless you want it to. Tick it in the **Web** picker to try it, and keep whichever you prefer — or both.

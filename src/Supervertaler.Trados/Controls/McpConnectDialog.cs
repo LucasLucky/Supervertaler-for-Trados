@@ -168,8 +168,69 @@ namespace Supervertaler.Trados.Controls
             btnDownload.Click += (s, e) => OpenUrl(DownloadUrl);
             root.Controls.Add(btnDownload);
 
+            // ── ChatGPT desktop ───────────────────────────────────────────
+            root.Controls.Add(SectionHeader("ChatGPT desktop"));
+
+            var chatGptHint = new Label
+            {
+                Text = "ChatGPT has no drag-and-drop installer, so this does the work for you: it " +
+                       "downloads the server, keeps it in your Supervertaler data folder, and " +
+                       "registers it in ChatGPT's configuration. Afterwards, quit ChatGPT from the " +
+                       "notification area (closing the window is not enough) and start it again.",
+                AutoSize = true,
+                MaximumSize = new Size(UiScale.Pixels(520), 0),
+                Margin = new Padding(0, 0, 0, UiScale.Pixels(6))
+            };
+            root.Controls.Add(chatGptHint);
+
+            var chatGptStatus = new Label
+            {
+                Text = Core.ChatGptMcpSetup.IsConfigured()
+                    ? "Already set up. Running this again refreshes the server and its path."
+                    : "Not set up yet.",
+                AutoSize = true,
+                ForeColor = Color.FromArgb(110, 110, 110),
+                Margin = new Padding(0, 0, 0, UiScale.Pixels(6))
+            };
+            root.Controls.Add(chatGptStatus);
+
+            var btnChatGpt = new Button
+            {
+                Text = "Set up ChatGPT desktop",
+                AutoSize = true,
+                Margin = new Padding(0, 0, 0, UiScale.Pixels(10))
+            };
+            btnChatGpt.Click += async (s, e) =>
+            {
+                var original = btnChatGpt.Text;
+                btnChatGpt.Enabled = false;
+                try
+                {
+                    var result = await Core.ChatGptMcpSetup.RunAsync(
+                        msg => { try { btnChatGpt.Text = msg; } catch { } });
+
+                    chatGptStatus.Text = Core.ChatGptMcpSetup.IsConfigured()
+                        ? "Already set up. Running this again refreshes the server and its path."
+                        : "Not set up yet.";
+
+                    var body = result.Message;
+                    if (result.Success && result.BackupPath != null)
+                        body += "\r\n\r\nYour previous configuration was backed up to:\r\n"
+                              + result.BackupPath;
+
+                    MessageBox.Show(this, body, "Supervertaler", MessageBoxButtons.OK,
+                        result.Success ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+                }
+                finally
+                {
+                    btnChatGpt.Text = original;
+                    btnChatGpt.Enabled = true;
+                }
+            };
+            root.Controls.Add(btnChatGpt);
+
             // ── Other MCP-capable AI apps ─────────────────────────────────
-            root.Controls.Add(SectionHeader("Other AI apps (ChatGPT desktop, Claude Code, …)"));
+            root.Controls.Add(SectionHeader("Other AI apps (Claude Code, …)"));
 
             var manualHint = new Label
             {
