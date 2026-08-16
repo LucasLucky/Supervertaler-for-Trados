@@ -33,7 +33,11 @@ namespace Supervertaler.Trados
     // not a default; the same reasoning moved Translate to Alt+T in 20.119 and
     // web search to Alt+W in 20.181.
     //
-    // Alt+Q is free: Trados binds Quick Add New Term to Ctrl+Shift+F2. It also
+    // Alt+Q is NOT free either - Trados puts "Tell me what you want to do" on
+    // it (confirmed in Studio 2024 on an uncustomised profile). Kept anyway,
+    // deliberately: Tell Me is a ribbon search box that works fine without a
+    // shortcut, so it is the cheapest binding for a user to give up, and the
+    // conflict is documented in the help table the About dialog links to. It
     // fits the Alt+<letter> family this plugin has converged on — Alt+T
     // translate, Alt+S SuperSearch, Alt+W web, Alt+P TermPicker — so it is the
     // key a user would guess. Avoid Ctrl+Alt+Q: that is Workbench's QuickTrans,

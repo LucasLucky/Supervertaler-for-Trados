@@ -5,8 +5,8 @@ version numbers so the App Store never sees a collision):
 
 | Build | Version number | Min studio | Max studio | Checksum (SHA-256) |
 |-------|----------------|------------|------------|--------------------|
-| Studio 2024 | `18.20.184.0` | `18.0` | `18.9` | `22979f1cfbaa38b623ce22001c966e23e891d8060f86fcda27fd81917df1bd49` |
-| Studio 2026 | `19.20.184.0` | `19.0` | `19.0.9` | `e9379de7ad4a7e3373026ec3695f16d3b223b527f272600489136223c378ea74` |
+| Studio 2024 | `18.20.184.0` | `18.0` | `18.9` | `b07b35567bcce5c4eaf3710dda3d36acb51e5ef7f73a168556385713eedbc62e` |
+| Studio 2026 | `19.20.184.0` | `19.0` | `19.0.9` | `6684052e543d2c2a8d09e2c8fc29b120dba907716dd696bca66583498e63e77e` |
 
 ---
 
@@ -47,7 +47,7 @@ Everything else is below.
 - **Your Trados termbase is never touched** — it is read through a temporary snapshot, which also means a `.ttb` currently open in Studio is read correctly rather than half-read.
 
 ### Changed
-- **QuickLauncher has moved from `Ctrl+Q` to `Alt+Q`.** `Ctrl+Q` is a Trados factory default — **View Internally Source** — and Trados wins, so pressing it opened Trados's own command and QuickLauncher did nothing at all. No error, no hint that a plugin feature was meant to fire. On a fresh install the entire QuickLauncher menu, and the ten prompt slots behind it, were unreachable until you found the conflict yourself and cleared the binding in Studio's settings. `Alt+Q` is free, and matches the other shortcuts — `Alt+T` translate, `Alt+S` SuperSearch, `Alt+W` web search, `Alt+P` TermPicker.
+- **QuickLauncher has moved from `Ctrl+Q` to `Alt+Q`.** `Ctrl+Q` is a Trados factory default — **View Internally Source** — and Trados wins, so pressing it opened Trados's own command and QuickLauncher did nothing at all. No error, no hint that a plugin feature was meant to fire. On a fresh install the entire QuickLauncher menu, and the ten prompt slots behind it, were unreachable until you found the conflict yourself and cleared the binding in Studio's settings. `Alt+Q` matches the other shortcuts — `Alt+T` translate, `Alt+S` SuperSearch, `Alt+W` web search, `Alt+P` TermPicker. Trados does put **Tell me what you want to do** on `Alt+Q` (seen in Studio 2024), so it joins the short list of keys to free up in **File → Options → Keyboard Shortcuts** — a one-off, and Tell Me is a ribbon search box that works fine without a shortcut. The difference from `Ctrl+Q` is that the conflict is now documented in the help, the About box links to that page, and the key is one you would guess.
 - **If you had already cleared the Trados binding to make `Ctrl+Q` work**, that key now does nothing for QuickLauncher. Use `Alt+Q`, or set your own under **File → Options → Keyboard Shortcuts**. You may also want to give **View Internally Source** its `Ctrl+Q` back.
 - **The About box now lists QuickLauncher, its ten slots, and a link to the full shortcut reference.** That list is where you would go to look up a shortcut, and it did not mention `Ctrl+Q` — which is exactly how a flagship feature sat behind a dead key without it being obvious. The link goes to the docs page, which also carries the table of Trados defaults that override other Supervertaler keys and how to clear them.
 - **The insert-term range was listed as `Alt+1…9`**; it is `Alt+0…9`.
