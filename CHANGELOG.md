@@ -17,7 +17,7 @@
 
 ### Added (ProZ.com's new term search, as an option)
 
-- **ProZ has rebuilt its term search, and both versions are now available.** The classic search stays switched on as before; the classic one is now labelled **ProZ.com (old)** and the rebuilt one **ProZ.com (new)**, sitting next to each other in the list. The new one ships **switched off**, so nothing about your setup changes unless you want it to. Tick it in the **Web** picker to try it, and keep whichever you prefer — or both.
+- **ProZ has rebuilt its term search, and both versions are now available.** The classic one is now labelled **ProZ.com (old)** and the rebuilt one **ProZ.com (new)**, sitting next to each other in the list. The classic search stays switched on as before; the new one ships **switched off**, so nothing about your setup changes unless you want it to. Tick it in the **Web** picker to try it, and keep whichever you prefer — or both.
 
 ### Fixed (legacy termbase entries whose stored languages contradict their termbase)
 
