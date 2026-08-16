@@ -145,6 +145,73 @@ failure, which is the class of bug this whole exercise exists to remove. Worth
 testing each stage against: switch a bank, change a TermLens setting, open
 Settings from each pane in turn, confirm nothing reverts.
 
+## Stage 2 aliasing audit
+
+**Done 2026-08-16.** The question this had to answer: which code mutates the
+settings object *before* the user commits, and would therefore start applying
+changes on Cancel once the instance is shared?
+
+Every write was checked — assignments *and* in-place collection mutations
+(`.Add` / `.Remove` / `.Clear`), which a search for `_settings.X =` alone
+misses and which are equally live under a shared instance.
+
+### Safe to convert as-is
+
+| Where | Why |
+|---|---|
+| `TermLensSettingsForm` lines 1874–1970 | One block immediately before `Save()` — the commit handler. Nothing is written until OK. |
+| `TermLensSettingsForm` 2113–2114 | Window geometry, saved on close. Should persist regardless of Cancel. |
+| `TermbaseEditorDialog`, `TermPickerDialog` | Geometry and column widths only, saved immediately. Same reasoning. |
+| Both ViewParts | Panes, not dialogs. Their writes are committed user actions — there is no Cancel to respect. |
+
+### Two genuine pre-commit writes
+
+**`TermLensSettingsForm` 1115 / 1119 — remembered confirmation.**
+Ticking Write on a termbase whose language pair does not match the project
+raises a confirm prompt; answering Yes appends the termbase name to
+`ConfirmedNonMatchingWriteTermbaseNames` so it is not asked again. Today,
+pressing Cancel afterwards discards that. With a shared instance it would
+persist.
+
+Minor, and arguably an improvement — the user *did* answer the question — but
+it is a behaviour change and should be a decision rather than a side effect.
+
+**`TermLensSettingsForm` 1573 / 1575 — clearing references to a deleted termbase.**
+Deleting a termbase in the dialog calls `TermbaseReader.DeleteTermbase`
+immediately and irreversibly, then removes the id from `WriteTermbaseIds` and
+clears `ProjectTermbaseId`. Today, Cancel discards *only the cleanup*, leaving
+settings pointing at a termbase that no longer exists.
+
+So here the shared instance is **more correct than the current behaviour**, and
+converting fixes a latent bug rather than causing one.
+
+### The workaround already in the tree
+
+Both ViewParts contain a hand-rolled field-copy after the settings dialog
+closes — ten named fields copied from a fresh `TermLensSettings.Load()`:
+
+```
+TermLensEditorViewPart:1152-1161
+AiAssistantViewPart:532-541
+TermLensEditorViewPart:2153, 3287   (further one-off syncs)
+```
+
+Somebody hit this staleness before and patched it by enumerating the fields
+that mattered at the time. It cannot work: it runs *after* the dialog has
+already saved the stale object, so it re-syncs the in-memory copy to a file
+that has meanwhile been reverted. It is the mechanism that makes the bug hard
+to see, because the pane's own display ends up agreeing with the wrong file.
+
+All of it is deleted by stage 2, and its presence is the strongest argument
+that the copies themselves are the problem.
+
+### Conclusion
+
+Stage 2 carries no blocking risk. Two pre-commit writes exist; one is trivial
+and one is a fix. The audit's main finding is that the existing workaround must
+be **removed**, not adapted — leaving it would re-introduce a second source of
+truth inside the very change meant to remove it.
+
 ## Not in scope
 
 Defect B — "active prompt" having two sources of truth (Settings pin vs the
