@@ -9,6 +9,13 @@
 
 ## [18.20.184 / 19.20.184] – 2026-08-16
 
+### Changed (QuickLauncher is on Alt+Q, because Ctrl+Q never worked)
+
+- ★ **QuickLauncher has moved from `Ctrl+Q` to `Alt+Q`.** `Ctrl+Q` is a Trados factory default — **View Internally Source** — and Trados wins, so pressing it opened Trados's own command and QuickLauncher did nothing at all. No error, no hint that a plugin feature was meant to fire. On a fresh install the entire QuickLauncher menu, and the ten prompt slots behind it, were unreachable until you found the conflict yourself and cleared the binding in Studio's settings. `Alt+Q` is free, and matches the other shortcuts — `Alt+T` translate, `Alt+S` SuperSearch, `Alt+W` web search, `Alt+P` TermPicker.
+- **If you had already cleared the Trados binding to make `Ctrl+Q` work**, that key now does nothing for QuickLauncher. Use `Alt+Q`, or set your own under **File → Options → Keyboard Shortcuts**. You may also want to give **View Internally Source** its `Ctrl+Q` back.
+- **The About box now lists QuickLauncher, its ten slots, and a link to the full shortcut reference.** That list is where you would go to look up a shortcut, and it did not mention `Ctrl+Q` — which is exactly how a flagship feature sat behind a dead key without it being obvious. The link goes to the docs page, which also carries the table of Trados defaults that override other Supervertaler keys and how to clear them.
+- **The insert-term range was listed as `Alt+1…9`**; it is `Alt+0…9`.
+
 ### Fixed (the settings fix, finished off everywhere else)
 
 - **The same fix now covers the whole plugin, not just the panels.** Every remaining place that read or wrote settings on its own — the termbase editor, the term picker, the voice strip, the QuickLauncher, the update prompt, SuperSearch's mode and web-resource settings — goes through the one shared copy. Ten of those could previously lose a change outright: they read the file, altered one field and wrote the whole thing back, so anything saved by another part of the plugin in between was reverted.

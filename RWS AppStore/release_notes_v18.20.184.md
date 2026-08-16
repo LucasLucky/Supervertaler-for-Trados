@@ -12,6 +12,7 @@ version numbers so the App Store never sees a collision):
 
 ## Highlights
 
+- **QuickLauncher has moved from `Ctrl+Q` to `Alt+Q`.**
 - **The MCP server works with ChatGPT desktop, and the plugin now sets it up for you.**
 - **Select a term, press Alt+W, and 41 reference sites are one keystroke away**
 
@@ -46,6 +47,10 @@ Everything else is below.
 - **Your Trados termbase is never touched** — it is read through a temporary snapshot, which also means a `.ttb` currently open in Studio is read correctly rather than half-read.
 
 ### Changed
+- **QuickLauncher has moved from `Ctrl+Q` to `Alt+Q`.** `Ctrl+Q` is a Trados factory default — **View Internally Source** — and Trados wins, so pressing it opened Trados's own command and QuickLauncher did nothing at all. No error, no hint that a plugin feature was meant to fire. On a fresh install the entire QuickLauncher menu, and the ten prompt slots behind it, were unreachable until you found the conflict yourself and cleared the binding in Studio's settings. `Alt+Q` is free, and matches the other shortcuts — `Alt+T` translate, `Alt+S` SuperSearch, `Alt+W` web search, `Alt+P` TermPicker.
+- **If you had already cleared the Trados binding to make `Ctrl+Q` work**, that key now does nothing for QuickLauncher. Use `Alt+Q`, or set your own under **File → Options → Keyboard Shortcuts**. You may also want to give **View Internally Source** its `Ctrl+Q` back.
+- **The About box now lists QuickLauncher, its ten slots, and a link to the full shortcut reference.** That list is where you would go to look up a shortcut, and it did not mention `Ctrl+Q` — which is exactly how a flagship feature sat behind a dead key without it being obvious. The link goes to the docs page, which also carries the table of Trados defaults that override other Supervertaler keys and how to clear them.
+- **The insert-term range was listed as `Alt+1…9`**; it is `Alt+0…9`.
 - **The Quick Add dialog now asks which memory bank to write to**, with the active one preselected, every other bank listed, and **_shared** at the bottom, labelled *(applies to all banks)* because it is the one entry that is not a single client. Until now it wrote to the active bank silently and named it only in the confirmation afterwards — so a term could land in the wrong client's terminology and the first sign of it would be a delivery. **_shared** could not be reached from the dialog at all; it had to be edited by hand.
 - **It also names the exact file before you commit**, under the picker: *terminology.md in BRANTS BARI-001-BE-EP*, or *reference/* if you tick the second mode. Choosing _shared is marked in amber, because a rule put there applies to every job you do.
 - **The two mode labels were describing the old memory-bank layout.** They said your entry became "a structured article in **02_TERMINOLOGY**", or a "raw note ... (**00_INBOX**)". Neither folder has been written to since the bank redesign: entries go into **terminology.md**, and notes into **reference/**. The labels now say what actually happens, and what the difference is for — whether the AI ever reads it.

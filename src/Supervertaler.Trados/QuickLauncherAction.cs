@@ -26,7 +26,19 @@ namespace Supervertaler.Trados
     [ActionLayout(
         typeof(TranslationStudioDefaultContextMenus.EditorDocumentContextMenuLocation), 9,
         DisplayType.Default, "", true)]
-    [Shortcut(Keys.Control | Keys.Q)]
+    // Alt+Q, not Ctrl+Q: Ctrl+Q is Studio's own "View Internally Source", and
+    // STUDIO WINS — so QuickLauncher did nothing on a fresh install until the
+    // user went into Options and cleared that binding. Confirmed by pressing it.
+    // A default that needs the user to edit Studio's settings before it works is
+    // not a default; the same reasoning moved Translate to Alt+T in 20.119 and
+    // web search to Alt+W in 20.181.
+    //
+    // Alt+Q is free: Trados binds Quick Add New Term to Ctrl+Shift+F2. It also
+    // fits the Alt+<letter> family this plugin has converged on — Alt+T
+    // translate, Alt+S SuperSearch, Alt+W web, Alt+P TermPicker — so it is the
+    // key a user would guess. Avoid Ctrl+Alt+Q: that is Workbench's QuickTrans,
+    // registered as a GLOBAL hotkey, which is the trap Alt+W was created to dodge.
+    [Shortcut(Keys.Alt | Keys.Q)]
     public class QuickLauncherAction : AbstractAction
     {
         private static readonly PromptLibrary _library = new PromptLibrary();

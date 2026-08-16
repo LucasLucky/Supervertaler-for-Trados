@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.Reflection;
@@ -218,8 +218,16 @@ namespace Supervertaler.Trados.Controls
                 ("Ctrl+Alt+G",     "AutoTagger (place inline tags)"),
                 ("Ctrl (tap)",     "Show TermLens popup"),
                 ("Alt+P",          "Show TermPicker (list of matches)"),
+                // Alt+Q, not Ctrl+Q: Studio's "View Internally Source" holds
+                // Ctrl+Q and wins, so QuickLauncher did nothing until the user
+                // cleared it. Moved in 20.184 — and listed here, because its
+                // absence from this dialog is how that went unnoticed.
+                ("Alt+Q",          "QuickLauncher (prompt menu)"),
+                ("Ctrl+Alt+1\u20260", "Run QuickLauncher slot 1\u201310"),
                 ("Ctrl+Alt+D",     "Toggle voice commands"),
-                ("Alt+1\u20269",  "Insert term from TermLens panel"),
+                // Alt+0 is registered too ("insert term digit 0"), so the range
+                // is 0-9, not the 1-9 this said until 20.184.
+                ("Alt+0\u20269",  "Insert term from TermLens panel"),
                 ("F1",            "Context-sensitive help"),
             };
 
