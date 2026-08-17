@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -15,8 +15,13 @@ namespace Supervertaler.Trados.Controls
     /// </summary>
     public class PromptManagerPanel : UserControl
     {
+        // ─── Shell ───────────────────────────────────────────────
+        // Splitter, tree, toolbar/footer strips and detail swapping live in
+        // TreeDetailPanel so the Library tab's memory-bank view can use the
+        // same one. See docs/design/library-tab.md.
+        private TreeDetailPanel _shell;
+
         // ─── Left panel controls ─────────────────────────────────
-        private Panel _leftPanel;
         private TreeView _tvPrompts;
         private Button _btnNew;
         private Button _btnEdit;
@@ -30,6 +35,8 @@ namespace Supervertaler.Trados.Controls
         private System.Windows.Forms.ToolTip _toolTip = new System.Windows.Forms.ToolTip();
 
         // ─── Right panel controls ────────────────────────────────
+        // Now the shell's DetailHost; kept as a field so the many
+        // _rightPanel.Controls.Add calls below read unchanged.
         private Panel _rightPanel;
 
         // System prompt detail panel
@@ -108,45 +115,18 @@ namespace Supervertaler.Trados.Controls
             SuspendLayout();
             BackColor = Color.White;
 
-            _leftPanel = new Panel
-            {
-                Dock = DockStyle.Fill,
-                BackColor = Color.White
-            };
+            _shell = new TreeDetailPanel();
+            _tvPrompts = _shell.Tree;
+            _rightPanel = _shell.DetailHost;
 
-            _rightPanel = new Panel
-            {
-                Dock = DockStyle.Fill,
-                BackColor = Color.White
-            };
+            // Prompts are reordered by dragging; memory banks will not be, so
+            // this is set here rather than in the shell.
+            _tvPrompts.AllowDrop = true;
 
             BuildLeftPanel();
             BuildRightPanels();
 
-            var splitter = new SplitContainer
-            {
-                Dock = DockStyle.Fill,
-                Orientation = Orientation.Vertical,
-                BackColor = Color.FromArgb(220, 220, 220),
-                SplitterWidth = 5,
-                FixedPanel = FixedPanel.None,
-                BorderStyle = BorderStyle.None
-            };
-            splitter.Panel1.Controls.Add(_leftPanel);
-            splitter.Panel2.Controls.Add(_rightPanel);
-            Controls.Add(splitter);
-
-            // Set initial splitter position after layout is ready
-            splitter.SplitterDistance = 100; // temporary; updated on first resize
-            var initialised = false;
-            Resize += (s, e) =>
-            {
-                if (!initialised && Width > 100)
-                {
-                    splitter.SplitterDistance = (int)(Width * 0.55);
-                    initialised = true;
-                }
-            };
+            Controls.Add(_shell);
 
             ResumeLayout(false);
         }
@@ -156,12 +136,7 @@ namespace Supervertaler.Trados.Controls
             var labelColor = Color.FromArgb(80, 80, 80);
 
             // ─── Toolbar ─────────────────────────────────────────
-            var toolbar = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 46,
-                BackColor = Color.White
-            };
+            var toolbar = _shell.Toolbar;
 
             _btnNew = CreateToolbarButton("New", 45);
             _btnNew.Click += OnNewPrompt;
@@ -210,17 +185,7 @@ namespace Supervertaler.Trados.Controls
             };
 
             // ─── TreeView ────────────────────────────────────────
-            _tvPrompts = new TreeView
-            {
-                Dock = DockStyle.Fill,
-                HideSelection = false,
-                ShowLines = true,
-                FullRowSelect = true,
-                Font = new Font("Segoe UI", 8.5f),
-                BorderStyle = BorderStyle.FixedSingle,
-                BackColor = Color.FromArgb(250, 250, 250),
-                AllowDrop = true
-            };
+            // Created by the shell; only the handlers are ours.
             _tvPrompts.AfterSelect += OnTreeAfterSelect;
             _tvPrompts.NodeMouseDoubleClick += OnTreeNodeDoubleClick;
             _tvPrompts.NodeMouseClick += OnTreeNodeMouseClick;
@@ -231,21 +196,8 @@ namespace Supervertaler.Trados.Controls
 
             BuildTreeContextMenu();
 
-            var treePanel = new Panel
-            {
-                Dock = DockStyle.Fill,
-                Padding = new Padding(10, 0, 4, 0),
-                BackColor = Color.White
-            };
-            treePanel.Controls.Add(_tvPrompts);
-
             // ─── Bottom link ─────────────────────────────────────
-            var folderPanel = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 38,
-                BackColor = Color.White
-            };
+            var folderPanel = _shell.Footer;
             var lnkFolder = new LinkLabel
             {
                 Text = "Open prompts folder",
@@ -266,36 +218,12 @@ namespace Supervertaler.Trados.Controls
                 catch { }
             };
             folderPanel.Controls.Add(lnkFolder);
-
-            // Add in reverse order for correct Dock layout
-            _leftPanel.Controls.Add(treePanel);    // Fill
-            _leftPanel.Controls.Add(folderPanel);  // Bottom
-            _leftPanel.Controls.Add(toolbar);       // Top
         }
 
+        /// <summary>Toolbar button in the shared house style. Delegates so the
+        /// Library tab's memory-bank toolbar cannot drift from this one.</summary>
         private Button CreateToolbarButton(string text, int width)
-        {
-            // AutoSize so buttons grow to fit their text at any DPI / font
-            // size – the previous fixed-width pattern clipped "New", "Restore"
-            // and "Refresh" labels at 150% Windows scaling. The `width` arg is
-            // kept as a minimum so narrow labels still get a comfortable
-            // click target rather than collapsing to text-width-only.
-            var btn = new Button
-            {
-                Text = text,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                MinimumSize = new Size(width, 25),
-                Padding = new Padding(8, 0, 8, 0),
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 8f),
-                ForeColor = Color.FromArgb(80, 80, 80),
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
-            };
-            btn.FlatAppearance.BorderSize = 0;
-            btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(220, 220, 220);
-            return btn;
-        }
+            => TreeDetailPanel.CreateToolbarButton(text, width);
 
         private void BuildTreeContextMenu()
         {
@@ -412,10 +340,7 @@ namespace Supervertaler.Trados.Controls
             _rightPanel.Controls.Add(_panelFolderInfo);
 
             // Hide all initially
-            _panelSystemPrompt.Visible = false;
-            _panelAutoTagger.Visible = false;
-            _panelPromptDetail.Visible = false;
-            _panelFolderInfo.Visible = false;
+            _shell.HideAllDetails();
         }
 
         private void BuildAutoTaggerPanel()
@@ -1211,36 +1136,39 @@ namespace Supervertaler.Trados.Controls
 
         private void OnTreeAfterSelect(object sender, TreeViewEventArgs e)
         {
-            _panelSystemPrompt.Visible = false;
-            _panelAutoTagger.Visible = false;
-            _panelPromptDetail.Visible = false;
-            _panelFolderInfo.Visible = false;
-
-            if (e.Node == null) return;
+            if (e.Node == null)
+            {
+                _shell.HideAllDetails();
+                return;
+            }
 
             if (e.Node.Tag is string tagStr && tagStr == SystemPromptTag)
             {
                 // System prompt selected
                 UpdateSystemPromptDisplay();
-                _panelSystemPrompt.Visible = true;
+                _shell.ShowDetail(_panelSystemPrompt);
             }
             else if (e.Node.Tag is string atTag && atTag == AutoTaggerTag)
             {
                 // AutoTagger instruction selected
                 UpdateAutoTaggerDisplay();
-                _panelAutoTagger.Visible = true;
+                _shell.ShowDetail(_panelAutoTagger);
             }
             else if (e.Node.Tag is PromptTemplate prompt)
             {
                 // Prompt selected – show detail
                 ShowPromptDetail(prompt);
-                _panelPromptDetail.Visible = true;
+                _shell.ShowDetail(_panelPromptDetail);
             }
             else if (e.Node.Tag is string folderPath)
             {
                 // Folder selected – show folder info
                 ShowFolderInfo(e.Node, folderPath);
-                _panelFolderInfo.Visible = true;
+                _shell.ShowDetail(_panelFolderInfo);
+            }
+            else
+            {
+                _shell.HideAllDetails();
             }
         }
 
