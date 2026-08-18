@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Windows.Forms;
 
@@ -46,6 +46,12 @@ namespace Supervertaler.Trados.Controls
 
         private SplitContainer _splitter;
         private bool _splitInitialised;
+
+        // Button -> "should this be enabled for the selected node".
+        private readonly System.Collections.Generic.List<
+            System.Collections.Generic.KeyValuePair<Button, Func<TreeNode, bool>>> _toolbarRules =
+            new System.Collections.Generic.List<
+                System.Collections.Generic.KeyValuePair<Button, Func<TreeNode, bool>>>();
 
         public TreeDetailPanel()
         {
@@ -100,6 +106,12 @@ namespace Supervertaler.Trados.Controls
             // its current width, and at construction that width is meaningless.
             _splitter.SplitterDistance = 100;
             Resize += OnResizeSetInitialSplit;
+
+            // The shell owns re-evaluation so a consumer cannot forget it. Its
+            // own AfterSelect handler runs alongside the consumer's; order does
+            // not matter, because the rules read the tree rather than any state
+            // the consumer sets.
+            Tree.AfterSelect += (s, e) => RefreshToolbarState();
         }
 
         private void OnResizeSetInitialSplit(object sender, EventArgs e)
@@ -125,6 +137,49 @@ namespace Supervertaler.Trados.Controls
 
         /// <summary>Hides every detail panel.</summary>
         public void HideAllDetails() => ShowDetail(null);
+
+        /// <summary>
+        /// Declares when <paramref name="button"/> should be enabled, given the
+        /// selected node. Re-evaluated on every selection change.
+        ///
+        /// <para>Disabled rather than hidden, deliberately. Buttons that vanish
+        /// and reappear make the toolbar jump as you move through the tree, and
+        /// you can never learn what is possible where, because you only ever see
+        /// what applies right now. Greyed buttons stay put and teach the shape of
+        /// the thing. It also fails better: a wrongly-enabled button is a
+        /// nuisance, a wrongly-missing one looks like a bug.</para>
+        ///
+        /// <para>The button is not added to the toolbar here — consumers position
+        /// their own, because the spacing is deliberately uneven and differs per
+        /// tab.</para>
+        /// </summary>
+        public void RegisterToolbarButton(Button button, Func<TreeNode, bool> isEnabled)
+        {
+            if (button == null) return;
+            _toolbarRules.Add(new System.Collections.Generic.KeyValuePair<Button, Func<TreeNode, bool>>(
+                button, isEnabled ?? (_ => true)));
+        }
+
+        /// <summary>
+        /// Re-applies every registered rule against the current selection.
+        /// Called automatically on selection change; call it directly after
+        /// rebuilding the tree, when no selection event fires.
+        /// </summary>
+        public void RefreshToolbarState()
+        {
+            var node = Tree.SelectedNode;
+            foreach (var rule in _toolbarRules)
+            {
+                bool enabled;
+                // Fail OPEN. A rule that throws must not leave a button dead for
+                // the rest of the session: a wrongly-enabled button does nothing
+                // when clicked, a wrongly-disabled one blocks the user entirely.
+                try { enabled = rule.Value(node); }
+                catch { enabled = true; }
+
+                if (rule.Key.Enabled != enabled) rule.Key.Enabled = enabled;
+            }
+        }
 
         /// <summary>
         /// A toolbar button styled like the rest.

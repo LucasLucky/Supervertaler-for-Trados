@@ -180,6 +180,24 @@ namespace Supervertaler.Trados.Controls
                 _btnNew, _btnEdit, _btnDelete, _btnRestore, _btnMoveUp, _btnMoveDown, _btnNewFolder, _btnRefresh
             });
 
+            // Step 2 of the Library plan: the shell can now enable and disable
+            // buttons per selected node. Every rule here returns true on
+            // purpose, so this tab behaves exactly as it did before and the
+            // mechanism can be verified as "nothing changed" - the only cheap
+            // way to test it on a tab that already works. Real rules arrive with
+            // the memory-bank tree in step 3.
+            //
+            // Worth noting for whoever writes them: these buttons currently do
+            // NOTHING when clicked against the wrong selection - Move Up with
+            // the System Prompt selected, Delete with a folder. Silent no-ops,
+            // and exactly what this mechanism exists to replace.
+            foreach (var b in new[]
+                     { _btnNew, _btnEdit, _btnDelete, _btnRestore,
+                       _btnMoveUp, _btnMoveDown, _btnNewFolder, _btnRefresh })
+            {
+                _shell.RegisterToolbarButton(b, _ => true);
+            }
+
             // Position buttons from right edge
             toolbar.Resize += (s, e) =>
             {
