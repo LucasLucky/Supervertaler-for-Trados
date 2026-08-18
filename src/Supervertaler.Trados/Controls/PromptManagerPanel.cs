@@ -79,6 +79,25 @@ namespace Supervertaler.Trados.Controls
         private const string AutoTaggerTag = "__AUTOTAGGER__";
         private string _activePromptPath; // per-project active prompt relative path
 
+        // ─── SuperMemory (read-only) ─────────────────────────────
+        // A distinct Tag TYPE, not a string: OnTreeAfterSelect treats any string
+        // tag as a prompt folder, so a bank node tagged with a string would be
+        // silently mistaken for one.
+        private enum BankNodeKind { Root, Bank, File, ReferenceFolder }
+
+        private class BankNode
+        {
+            public BankNodeKind Kind;
+            public string BankName;
+            public string FilePath;   // File nodes only
+            public bool ReadIntoPrompts;
+        }
+
+        private Panel _panelBankFile;
+        private Label _lblBankFileName;
+        private Label _lblBankFileNote;
+        private TextBox _txtBankFile;
+
         /// <summary>
         /// Fired when the user toggles the per-project active prompt (right-click →
         /// "Set as active prompt for this project"). The string argument is the new
@@ -191,11 +210,16 @@ namespace Supervertaler.Trados.Controls
             // NOTHING when clicked against the wrong selection - Move Up with
             // the System Prompt selected, Delete with a folder. Silent no-ops,
             // and exactly what this mechanism exists to replace.
+            // Refresh always applies. Everything else acts on the prompt
+            // library and is dead against a SuperMemory node - which is what the
+            // step-2 mechanism was built for. Bank actions (rename, delete, set
+            // active) arrive in step 5.
+            _shell.RegisterToolbarButton(_btnRefresh, _ => true);
             foreach (var b in new[]
                      { _btnNew, _btnEdit, _btnDelete, _btnRestore,
-                       _btnMoveUp, _btnMoveDown, _btnNewFolder, _btnRefresh })
+                       _btnMoveUp, _btnMoveDown, _btnNewFolder })
             {
-                _shell.RegisterToolbarButton(b, _ => true);
+                _shell.RegisterToolbarButton(b, node => !(node?.Tag is BankNode));
             }
 
             // Position buttons from right edge
@@ -362,6 +386,9 @@ namespace Supervertaler.Trados.Controls
             BuildPromptDetailPanel();
             BuildFolderInfoPanel();
 
+            BuildBankFilePanel();
+
+            _rightPanel.Controls.Add(_panelBankFile);
             _rightPanel.Controls.Add(_panelSystemPrompt);
             _rightPanel.Controls.Add(_panelAutoTagger);
             _rightPanel.Controls.Add(_panelPromptDetail);
@@ -534,6 +561,58 @@ namespace Supervertaler.Trados.Controls
                 _autoTaggerInstruction = null;
                 UpdateAutoTaggerDisplay();
             }
+        }
+
+        /// <summary>
+        /// Read-only view of one memory-bank file. Read-only on purpose for now:
+        /// seeing the bank is most of the value, and these files are edited
+        /// concurrently by Obsidian and the Python assistant, so writing them
+        /// safely is its own problem (step 4).
+        /// </summary>
+        private void BuildBankFilePanel()
+        {
+            _panelBankFile = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Visible = false };
+
+            _lblBankFileName = new Label
+            {
+                Location = new Point(14, 10),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 11f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(30, 30, 30)
+            };
+
+            _lblBankFileNote = new Label
+            {
+                Location = new Point(14, 34),
+                AutoSize = false,
+                Height = 32,
+                Font = new Font("Segoe UI", 8.25f, FontStyle.Italic),
+                ForeColor = Color.FromArgb(110, 110, 110)
+            };
+
+            _txtBankFile = new TextBox
+            {
+                Multiline = true,
+                ReadOnly = true,
+                ScrollBars = ScrollBars.Both,
+                WordWrap = false,
+                Font = new Font("Consolas", 8.5f),
+                BackColor = Color.FromArgb(250, 250, 250),
+                BorderStyle = BorderStyle.FixedSingle
+            };
+
+            _panelBankFile.Controls.Add(_lblBankFileName);
+            _panelBankFile.Controls.Add(_lblBankFileNote);
+            _panelBankFile.Controls.Add(_txtBankFile);
+
+            _panelBankFile.Resize += (s, e) =>
+            {
+                var w = _panelBankFile.Width - 28;
+                if (w < 40) return;
+                _lblBankFileNote.Width = w;
+                _txtBankFile.Location = new Point(14, 72);
+                _txtBankFile.Size = new Size(w, Math.Max(40, _panelBankFile.Height - 86));
+            };
         }
 
         private void BuildSystemPromptPanel()
@@ -949,10 +1028,23 @@ namespace Supervertaler.Trados.Controls
                 var root = _library.GetFolderStructure();
                 AddFolderChildren(root, _tvPrompts.Nodes);
 
+                // 3) SuperMemory last: foundation, then tasks, then knowledge.
+                AddSuperMemoryNodes();
+
                 // Expand all by default, or restore previous state
                 if (expandedPaths.Count == 0)
                 {
                     _tvPrompts.ExpandAll();
+
+                    // ...but not SuperMemory. ExpandAll would open every bank and
+                    // every reference file on first view, which buries the prompt
+                    // library the tab is mostly used for. Collapsed, it reads as
+                    // one more top-level entry; the user opens what they want.
+                    foreach (TreeNode n in _tvPrompts.Nodes)
+                    {
+                        if (n.Tag is BankNode smRoot && smRoot.Kind == BankNodeKind.Root)
+                            n.Collapse();
+                    }
                 }
                 else
                 {
@@ -975,6 +1067,166 @@ namespace Supervertaler.Trados.Controls
             finally
             {
                 _tvPrompts.EndUpdate();
+            }
+        }
+
+        /// <summary>
+        /// Adds the SuperMemory subtree: every memory bank and the files in it.
+        ///
+        /// <para>Two things this has to say that nothing else in the plugin
+        /// does. That <c>_shared</c> is loaded ALONGSIDE the active bank rather
+        /// than being an alternative to it \u2014 the toolbar dropdown lists it
+        /// like any other bank, which invites exactly the wrong reading. And
+        /// that <c>reference/</c> is NOT read into prompts: it is the audit
+        /// trail, so a claim can be checked against its source, and a user who
+        /// does not know that will keep filing things there and wonder why the
+        /// AI ignores them.</para>
+        /// </summary>
+        private void AddSuperMemoryNodes()
+        {
+            var smNode = new TreeNode("SuperMemory")
+            {
+                Tag = new BankNode { Kind = BankNodeKind.Root },
+                ForeColor = Color.FromArgb(30, 30, 30)
+            };
+            MakeBoldHeaderNode(smNode);
+            _tvPrompts.Nodes.Add(smNode);
+
+            List<string> banks;
+            try { banks = UserDataPath.ListMemoryBanks() ?? new List<string>(); }
+            catch { return; }
+
+            var active = "";
+            try { active = SettingsService.Current?.AiSettings?.ActiveMemoryBankName ?? ""; }
+            catch { }
+
+            var shared = Core.MemoryBankReader.SharedBankName;
+
+            foreach (var bank in banks)
+            {
+                var isShared = string.Equals(bank, shared, StringComparison.OrdinalIgnoreCase);
+                var isActive = !isShared && string.Equals(bank, active, StringComparison.OrdinalIgnoreCase);
+
+                var label = bank;
+                if (isShared) label += "   (loaded with every bank)";
+                else if (isActive) label += "   (active)";
+
+                var bankNode = new TreeNode(label)
+                {
+                    Tag = new BankNode { Kind = BankNodeKind.Bank, BankName = bank },
+                    ForeColor = isActive
+                        ? Color.FromArgb(0, 90, 158)      // the blue the active prompt already uses
+                        : Color.FromArgb(80, 80, 80)
+                };
+                smNode.Nodes.Add(bankNode);
+
+                string dir;
+                try { dir = UserDataPath.GetMemoryBankDir(bank); }
+                catch { continue; }
+                if (!Directory.Exists(dir)) continue;
+
+                // Markdown at the bank root IS read into prompts - all of it,
+                // since defect E replaced the old three-name allow-list with a
+                // directory walk.
+                try
+                {
+                    var files = Directory.GetFiles(dir, "*.md", SearchOption.TopDirectoryOnly);
+                    Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+                    foreach (var f in files)
+                    {
+                        bankNode.Nodes.Add(new TreeNode(Path.GetFileName(f))
+                        {
+                            Tag = new BankNode
+                            {
+                                Kind = BankNodeKind.File,
+                                BankName = bank,
+                                FilePath = f,
+                                ReadIntoPrompts = true
+                            },
+                            ForeColor = Color.FromArgb(30, 30, 30)
+                        });
+                    }
+                }
+                catch { }
+
+                // reference/ is deliberately NOT read. Greyed, and labelled.
+                try
+                {
+                    var refDir = Path.Combine(dir, Core.MemoryBankReader.ReferenceFolder);
+                    if (Directory.Exists(refDir))
+                    {
+                        var refNode = new TreeNode(
+                            Core.MemoryBankReader.ReferenceFolder + "/   (not read into prompts)")
+                        {
+                            Tag = new BankNode { Kind = BankNodeKind.ReferenceFolder, BankName = bank },
+                            ForeColor = Color.FromArgb(150, 150, 150)
+                        };
+                        bankNode.Nodes.Add(refNode);
+
+                        var refFiles = Directory.GetFiles(refDir, "*.*", SearchOption.TopDirectoryOnly);
+                        Array.Sort(refFiles, StringComparer.OrdinalIgnoreCase);
+                        foreach (var f in refFiles)
+                        {
+                            refNode.Nodes.Add(new TreeNode(Path.GetFileName(f))
+                            {
+                                Tag = new BankNode
+                                {
+                                    Kind = BankNodeKind.File,
+                                    BankName = bank,
+                                    FilePath = f,
+                                    ReadIntoPrompts = false
+                                },
+                                ForeColor = Color.FromArgb(150, 150, 150)
+                            });
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
+
+        /// <summary>Shows a bank file, read-only, saying whether the AI reads it.</summary>
+        private void ShowBankFile(BankNode bn)
+        {
+            _lblBankFileName.Text = Path.GetFileName(bn.FilePath ?? "");
+            _lblBankFileNote.Text = bn.ReadIntoPrompts
+                ? "In memory bank \"" + bn.BankName + "\". Read into the AI's context."
+                : "In memory bank \"" + bn.BankName + "\", reference folder. Kept for you, "
+                  + "never read into a prompt - fold anything worth keeping into the bank's own files.";
+
+            try { _txtBankFile.Text = File.ReadAllText(bn.FilePath); }
+            catch (Exception ex) { _txtBankFile.Text = "(could not read this file: " + ex.Message + ")"; }
+
+            _txtBankFile.Select(0, 0);
+        }
+
+        /// <summary>Summary shown for a bank, the SuperMemory root, or reference/.</summary>
+        private void ShowBankSummary(BankNode bn, TreeNode node)
+        {
+            switch (bn.Kind)
+            {
+                case BankNodeKind.Root:
+                    _lblBankFileName.Text = "SuperMemory";
+                    _lblBankFileNote.Text =
+                        "What the AI knows about your clients and jobs. Each bank is a folder of "
+                        + "Markdown files; _shared is loaded alongside whichever bank is active.";
+                    _txtBankFile.Text = "";
+                    break;
+
+                case BankNodeKind.Bank:
+                    _lblBankFileName.Text = bn.BankName;
+                    _lblBankFileNote.Text = "Memory bank. Select a file to read it.";
+                    _txtBankFile.Text = "";
+                    break;
+
+                default:
+                    _lblBankFileName.Text = Core.MemoryBankReader.ReferenceFolder + "/";
+                    _lblBankFileNote.Text =
+                        "The audit trail for \"" + bn.BankName + "\" - where harvested "
+                        + "changes and notes land. Never read into a prompt, so a claim the AI "
+                        + "makes can be checked against what it came from.";
+                    _txtBankFile.Text = "";
+                    break;
             }
         }
 
@@ -1152,6 +1404,11 @@ namespace Supervertaler.Trados.Controls
                 return s;
             if (node.Tag is PromptTemplate pt)
                 return pt.FilePath;
+            // Bank nodes need a key too, or expanding a bank is undone by the
+            // next Refresh. Prefixed so it can never collide with a prompt
+            // folder path, which is what the plain-string case above means.
+            if (node.Tag is BankNode bn)
+                return "sm:" + bn.Kind + ":" + (bn.BankName ?? "") + ":" + (bn.FilePath ?? "");
             return null;
         }
 
@@ -1167,7 +1424,15 @@ namespace Supervertaler.Trados.Controls
                 return;
             }
 
-            if (e.Node.Tag is string tagStr && tagStr == SystemPromptTag)
+            // Before the string cases: the final branch below treats ANY string
+            // tag as a prompt folder, so a bank node must be matched first.
+            if (e.Node.Tag is BankNode bankNode)
+            {
+                if (bankNode.Kind == BankNodeKind.File) ShowBankFile(bankNode);
+                else ShowBankSummary(bankNode, e.Node);
+                _shell.ShowDetail(_panelBankFile);
+            }
+            else if (e.Node.Tag is string tagStr && tagStr == SystemPromptTag)
             {
                 // System prompt selected
                 UpdateSystemPromptDisplay();

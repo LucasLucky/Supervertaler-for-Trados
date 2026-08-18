@@ -204,7 +204,7 @@ namespace Supervertaler.Trados.Settings
             _tabControl.TabPages.Add(groupSharePage);
 
             // --- Prompts tab ---
-            var promptsPage = new TabPage("Prompts") { BackColor = Color.White };
+            var promptsPage = new TabPage("Library") { BackColor = Color.White };
             _promptManagerPanel = new PromptManagerPanel
             {
                 Dock = DockStyle.Fill
