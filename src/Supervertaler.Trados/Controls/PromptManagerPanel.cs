@@ -157,13 +157,23 @@ namespace Supervertaler.Trados.Controls
             _btnRefresh = CreateToolbarButton("Refresh", 65);
             _btnRefresh.Click += OnRefresh;
 
+            // The only icon-only buttons in this toolbar, so the only ones
+            // whose purpose is not written on them. Both name the
+            // consequence rather than the gesture: the tree order IS the
+            // QuickLauncher menu order.
             _btnMoveUp = CreateToolbarButton("\u25B2", 28);
             _btnMoveUp.Click += OnMoveUp;
             _btnMoveUp.Font = new Font("Segoe UI", 7f);
+            _toolTip.SetToolTip(_btnMoveUp,
+                "Move the selected prompt up within its folder" + Environment.NewLine +
+                "(this order is the order of the Alt+Q QuickLauncher menu)");
 
             _btnMoveDown = CreateToolbarButton("\u25BC", 28);
             _btnMoveDown.Click += OnMoveDown;
             _btnMoveDown.Font = new Font("Segoe UI", 7f);
+            _toolTip.SetToolTip(_btnMoveDown,
+                "Move the selected prompt down within its folder" + Environment.NewLine +
+                "(this order is the order of the Alt+Q QuickLauncher menu)");
 
             toolbar.Controls.AddRange(new Control[]
             {
@@ -903,21 +913,18 @@ namespace Supervertaler.Trados.Controls
                 var sysNode = new TreeNode("System Prompt")
                 {
                     Tag = SystemPromptTag,
-                    NodeFont = new Font(_tvPrompts.Font, FontStyle.Bold),
                     ForeColor = Color.FromArgb(30, 30, 30)
                 };
-                // Pad text to work around WinForms bold node width calculation bug
-                sysNode.Text += "  ";
+                MakeBoldHeaderNode(sysNode);
                 _tvPrompts.Nodes.Add(sysNode);
 
                 // 1b) AutoTagger Instruction node
                 var autoTagNode = new TreeNode("AutoTagger Instruction")
                 {
                     Tag = AutoTaggerTag,
-                    NodeFont = new Font(_tvPrompts.Font, FontStyle.Bold),
                     ForeColor = Color.FromArgb(30, 30, 30)
                 };
-                autoTagNode.Text += "  ";
+                MakeBoldHeaderNode(autoTagNode);
                 _tvPrompts.Nodes.Add(autoTagNode);
 
                 // 2) Build folder structure
@@ -1544,6 +1551,42 @@ namespace Supervertaler.Trados.Controls
         }
 
         // ─── Move up/down ──────────────────────────────────────
+
+        /// <summary>
+        /// Makes a node bold without it being clipped.
+        ///
+        /// <para>WinForms measures a TreeNode's display rectangle with the
+        /// CONTROL's font, never with its NodeFont, so bold text is laid out in
+        /// a box sized for regular text and the right edge is cut off. Both
+        /// header nodes worked around it by appending two literal spaces — but
+        /// the shortfall grows with the string, so a fixed pad cannot cover it.
+        /// "System Prompt" fitted; "AutoTagger Instruction" lost its last
+        /// letters.</para>
+        ///
+        /// <para>So measure it: widen with spaces until the regular-font width
+        /// of the padded text covers the bold width of the real text. Self-
+        /// correcting for any font, any DPI, any label length.</para>
+        ///
+        /// <para>Padding the text is safe because these nodes are identified by
+        /// their Tag, never by Text.</para>
+        /// </summary>
+        private void MakeBoldHeaderNode(TreeNode node)
+        {
+            var bold = new Font(_tvPrompts.Font, FontStyle.Bold);
+            node.NodeFont = bold;
+
+            var needed = TextRenderer.MeasureText(node.Text, bold).Width;
+            var pad = "";
+            // Bounded: a handful of spaces always suffices, and a runaway loop
+            // in tree construction would hang the dialog.
+            for (int i = 0; i < 12; i++)
+            {
+                if (TextRenderer.MeasureText(node.Text + pad, _tvPrompts.Font).Width >= needed) break;
+                pad += " ";
+            }
+            // One more, so the glyph never touches the edge of its box.
+            node.Text += pad + " ";
+        }
 
         private void OnMoveUp(object sender, EventArgs e)
         {
