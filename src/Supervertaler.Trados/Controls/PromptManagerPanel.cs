@@ -1247,14 +1247,32 @@ namespace Supervertaler.Trados.Controls
 
             try
             {
-                var raw = File.ReadAllText(bn.FilePath);
-                // Non-markdown lands in reference/ too (harvested TMX, notes).
-                // Rendering those as markdown is harmless but pointless, so show
-                // them as they are.
-                if (bn.FilePath.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
-                    _txtBankFile.Rtf = MarkdownToRtf.Convert(raw);
+                // reference/ holds whatever the user or a harvest put there,
+                // including PDFs. Showing their bytes as text is worse than
+                // useless: it looks like a corrupted file rather than a file
+                // this pane cannot display.
+                if (LooksBinary(bn.FilePath))
+                {
+                    var size = new FileInfo(bn.FilePath).Length;
+                    _txtBankFile.Text =
+                        "(" + Path.GetExtension(bn.FilePath).TrimStart('.').ToUpperInvariant()
+                        + " file, " + FormatSize(size) + ")"
+                        + Environment.NewLine + Environment.NewLine
+                        + "Not a text file, so there is nothing to show here."
+                        + Environment.NewLine
+                        + "Open the bank folder to work with it.";
+                }
                 else
-                    _txtBankFile.Text = raw;
+                {
+                    var raw = File.ReadAllText(bn.FilePath);
+                    // Non-markdown text lands in reference/ too (harvested TMX,
+                    // notes). Rendering those as markdown is pointless, so show
+                    // them as they are.
+                    if (bn.FilePath.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+                        _txtBankFile.Rtf = MarkdownToRtf.Convert(raw);
+                    else
+                        _txtBankFile.Text = raw;
+                }
             }
             catch (Exception ex)
             {
@@ -1263,6 +1281,37 @@ namespace Supervertaler.Trados.Controls
 
             _txtBankFile.Select(0, 0);
             _txtBankFile.ScrollToCaret();
+        }
+
+        /// <summary>
+        /// Whether a file is binary, by looking for a NUL byte in its first 8 KB.
+        ///
+        /// <para>Sniffed rather than judged by extension: reference/ is a folder
+        /// the user fills by hand, so the extension list would always be one
+        /// format behind. A NUL byte in the first few KB is the standard test
+        /// and is what git itself uses.</para>
+        /// </summary>
+        private static bool LooksBinary(string path)
+        {
+            try
+            {
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    var buf = new byte[8192];
+                    var read = fs.Read(buf, 0, buf.Length);
+                    for (int i = 0; i < read; i++)
+                        if (buf[i] == 0) return true;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        private static string FormatSize(long bytes)
+        {
+            if (bytes >= 1024L * 1024L) return (bytes / (1024.0 * 1024.0)).ToString("0.#") + " MB";
+            if (bytes >= 1024L) return (bytes / 1024.0).ToString("0.#") + " KB";
+            return bytes + " bytes";
         }
 
         /// <summary>Summary shown for a bank, the SuperMemory root, or reference/.</summary>

@@ -171,8 +171,36 @@ namespace Supervertaler.Trados.Core
                 }
 
                 // ─── Normal paragraph ───────────────────────────────
-                AppendPar(sb, ref firstBlock);
-                AppendInlineRtf(sb, line);
+                // A single newline is a SOFT break in Markdown: consecutive
+                // plain lines are ONE paragraph and reflow at the display width.
+                // Emitting a paragraph per source line turned the memory banks'
+                // deliberate 75-column wrapping into real breaks mid-sentence -
+                // and that wrapping is worth keeping, because it makes a
+                // one-word edit a one-line diff in git and Obsidian.
+                //
+                // Consume the whole run here rather than flushing a buffer in
+                // each of the nine block branches above: one insertion point,
+                // nothing to forget when a tenth is added.
+                {
+                    var run = new List<string>();
+                    while (i < lines.Length && IsParagraphContinuation(lines[i]))
+                    {
+                        run.Add(lines[i]);
+                        i++;
+                    }
+                    i--;   // the for-loop will advance past the last consumed line
+
+                    AppendPar(sb, ref firstBlock);
+                    for (int k = 0; k < run.Count; k++)
+                    {
+                        // Two trailing spaces is Markdown's explicit hard break,
+                        // and the one case where the author DID mean a newline.
+                        var hardBreak = run[k].EndsWith("  ");
+                        AppendInlineRtf(sb, run[k].Trim());
+                        if (k < run.Count - 1)
+                            sb.Append(hardBreak ? @"\line " : " ");
+                    }
+                }
             }
 
             // Flush any pending blocks
@@ -182,6 +210,26 @@ namespace Supervertaler.Trados.Core
 
             sb.Append("}");
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Whether a line continues the current paragraph rather than starting
+        /// a new block. Mirrors the block tests in the main loop; keep the two
+        /// in step if a block type is added.
+        /// </summary>
+        private static bool IsParagraphContinuation(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line)) return false;
+
+            var t = line.TrimStart();
+            if (t.StartsWith("```")) return false;
+            if (IsTableRow(line)) return false;
+            if (Regex.IsMatch(t, @"^#{1,6}\s")) return false;
+            if (t.StartsWith("- ") || t.StartsWith("* ")) return false;
+            if (Regex.IsMatch(t, @"^\d+\.\s+")) return false;
+            if (Regex.IsMatch(line.Trim(), @"^[-*_]{3,}$")) return false;
+
+            return true;
         }
 
         /// <summary>
