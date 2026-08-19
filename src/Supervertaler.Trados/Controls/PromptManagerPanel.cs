@@ -215,8 +215,20 @@ namespace Supervertaler.Trados.Controls
             // step-2 mechanism was built for. Bank actions (rename, delete, set
             // active) arrive in step 5.
             _shell.RegisterToolbarButton(_btnRefresh, _ => true);
+
+            // Edit is the one prompt-library button that also means something
+            // for SuperMemory: a bank file is editable, a bank or the
+            // reference folder is not.
+            _shell.RegisterToolbarButton(_btnEdit, node =>
+            {
+                if (node?.Tag is BankNode bn)
+                    return bn.Kind == BankNodeKind.File
+                           && (bn.FilePath ?? "").EndsWith(".md", StringComparison.OrdinalIgnoreCase);
+                return true;
+            });
+
             foreach (var b in new[]
-                     { _btnNew, _btnEdit, _btnDelete, _btnRestore,
+                     { _btnNew, _btnDelete, _btnRestore,
                        _btnMoveUp, _btnMoveDown, _btnNewFolder })
             {
                 _shell.RegisterToolbarButton(b, node => !(node?.Tag is BankNode));
@@ -1193,6 +1205,37 @@ namespace Supervertaler.Trados.Controls
             }
         }
 
+        /// <summary>
+        /// Opens one bank file for editing, then re-reads it into the pane.
+        ///
+        /// <para>Only Markdown. reference/ also holds harvested TMX and other
+        /// non-text material, and offering to edit those in a plain text box
+        /// invites corrupting a file the user cannot easily reconstruct.</para>
+        /// </summary>
+        private void EditBankFile(BankNode bn)
+        {
+            if (bn == null || string.IsNullOrEmpty(bn.FilePath)) return;
+
+            if (!bn.FilePath.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show(this,
+                    "Only Markdown files can be edited here.\n\n"
+                    + "Open the bank folder to work on this one.",
+                    "Supervertaler", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            using (var dlg = new BankFileEditorDialog(bn.FilePath, bn.BankName, bn.ReadIntoPrompts))
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+            }
+
+            // Re-read from disk rather than trusting what the dialog had: the
+            // file is the source of truth, and something else may have written
+            // to it too.
+            ShowBankFile(bn);
+        }
+
         /// <summary>Shows a bank file, read-only, saying whether the AI reads it.</summary>
         private void ShowBankFile(BankNode bn)
         {
@@ -1664,6 +1707,16 @@ namespace Supervertaler.Trados.Controls
 
         private void OnEditPrompt(object sender, EventArgs e)
         {
+            // A bank file uses the same Edit button rather than gaining its own
+            // gesture: one tab, one way to edit the thing you have selected.
+            if (_tvPrompts.SelectedNode != null &&
+                _tvPrompts.SelectedNode.Tag is BankNode bankFile &&
+                bankFile.Kind == BankNodeKind.File)
+            {
+                EditBankFile(bankFile);
+                return;
+            }
+
             // If system prompt node is selected, edit system prompt instead
             if (_tvPrompts.SelectedNode != null &&
                 _tvPrompts.SelectedNode.Tag is string tag && tag == SystemPromptTag)
