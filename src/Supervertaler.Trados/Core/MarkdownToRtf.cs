@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -96,6 +96,23 @@ namespace Supervertaler.Trados.Core
                 }
 
                 // ─── Headings ───────────────────────────────────────
+                // h4-h6 first: longest prefix wins, or "##### x" would be tested
+                // against "### " and fall through to body text, printing its own
+                // hashes. Real files use these - the elycio style guide numbers
+                // every section with #####.
+                //
+                // All three render the same: bold at body size. Below h3 the
+                // point sizes would be indistinguishable anyway, and the useful
+                // signal is "this is a heading", not which of six levels.
+                if (line.StartsWith("###### ") || line.StartsWith("##### ") || line.StartsWith("#### "))
+                {
+                    var hashes = line.Length - line.TrimStart('#').Length;
+                    AppendPar(sb, ref firstBlock);
+                    sb.Append("{\\b").Append(BodySize).Append(" ");
+                    AppendInlineRtf(sb, line.Substring(hashes).Trim());
+                    sb.Append("}").Append(BodySize);
+                    continue;
+                }
                 if (line.StartsWith("### "))
                 {
                     AppendPar(sb, ref firstBlock);

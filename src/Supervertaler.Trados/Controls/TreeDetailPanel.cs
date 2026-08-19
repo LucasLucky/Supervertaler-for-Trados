@@ -175,6 +175,24 @@ namespace Supervertaler.Trados.Controls
                 IsEnabled = isEnabled ?? (_ => true),
                 EnabledColor = button.ForeColor
             });
+
+            // Draw the disabled look ourselves. Setting ForeColor is not enough:
+            // a FlatStyle.Flat button paints its own disabled text and ignores
+            // it, so the buttons went unclickable while still looking live -
+            // which reads as broken rather than as not-applicable. Paint runs
+            // after the base paint, so this overdraws it.
+            //
+            // Faithful because these buttons are flat, borderless and text-only:
+            // there is nothing to reproduce but the label.
+            button.Paint += (s, e) =>
+            {
+                if (button.Enabled) return;
+                e.Graphics.Clear(button.Parent != null ? button.Parent.BackColor : Color.White);
+                TextRenderer.DrawText(
+                    e.Graphics, button.Text, button.Font, button.ClientRectangle,
+                    DisabledForeColor,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            };
         }
 
         /// <summary>
@@ -196,10 +214,11 @@ namespace Supervertaler.Trados.Controls
 
                 if (rule.Button.Enabled != enabled) rule.Button.Enabled = enabled;
 
-                // Set the colour explicitly. A FlatStyle.Flat button with an
-                // explicit ForeColor keeps it when disabled, so without this the
-                // buttons stop working while still looking live - which reads as
-                // broken rather than as not-applicable.
+                // Belt and braces. This alone did NOT work: the flat button
+                // paints its own disabled text and ignores ForeColor, which is
+                // why RegisterToolbarButton also hooks Paint. Kept because it is
+                // correct for any button whose style does honour it, and because
+                // it keeps the enabled colour restored on re-enable.
                 var wanted = enabled ? rule.EnabledColor : DisabledForeColor;
                 if (rule.Button.ForeColor != wanted) rule.Button.ForeColor = wanted;
             }
