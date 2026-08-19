@@ -96,7 +96,7 @@ namespace Supervertaler.Trados.Controls
         private Panel _panelBankFile;
         private Label _lblBankFileName;
         private Label _lblBankFileNote;
-        private TextBox _txtBankFile;
+        private RichTextBox _txtBankFile;
 
         /// <summary>
         /// Fired when the user toggles the per-project active prompt (right-click →
@@ -590,15 +590,23 @@ namespace Supervertaler.Trados.Controls
                 ForeColor = Color.FromArgb(110, 110, 110)
             };
 
-            _txtBankFile = new TextBox
+            // RichTextBox, not TextBox: these files are markdown and are far
+            // easier to scan rendered - terminology.md in particular is a table.
+            // MarkdownToRtf is the same renderer the chat bubbles use.
+            //
+            // It also fixes a real defect the raw view exposed. A TextBox needs
+            // CRLF to break a line, and these files are written by Obsidian and
+            // the Python assistant with LF only, so every one of them displayed
+            // as a single run-on paragraph. The converter normalises line
+            // endings itself.
+            _txtBankFile = new RichTextBox
             {
-                Multiline = true,
                 ReadOnly = true,
-                ScrollBars = ScrollBars.Both,
-                WordWrap = false,
-                Font = new Font("Consolas", 8.5f),
+                ScrollBars = RichTextBoxScrollBars.Vertical,
+                WordWrap = true,
                 BackColor = Color.FromArgb(250, 250, 250),
-                BorderStyle = BorderStyle.FixedSingle
+                BorderStyle = BorderStyle.FixedSingle,
+                DetectUrls = false
             };
 
             _panelBankFile.Controls.Add(_lblBankFileName);
@@ -1194,10 +1202,24 @@ namespace Supervertaler.Trados.Controls
                 : "In memory bank \"" + bn.BankName + "\", reference folder. Kept for you, "
                   + "never read into a prompt - fold anything worth keeping into the bank's own files.";
 
-            try { _txtBankFile.Text = File.ReadAllText(bn.FilePath); }
-            catch (Exception ex) { _txtBankFile.Text = "(could not read this file: " + ex.Message + ")"; }
+            try
+            {
+                var raw = File.ReadAllText(bn.FilePath);
+                // Non-markdown lands in reference/ too (harvested TMX, notes).
+                // Rendering those as markdown is harmless but pointless, so show
+                // them as they are.
+                if (bn.FilePath.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+                    _txtBankFile.Rtf = MarkdownToRtf.Convert(raw);
+                else
+                    _txtBankFile.Text = raw;
+            }
+            catch (Exception ex)
+            {
+                _txtBankFile.Text = "(could not read this file: " + ex.Message + ")";
+            }
 
             _txtBankFile.Select(0, 0);
+            _txtBankFile.ScrollToCaret();
         }
 
         /// <summary>Summary shown for a bank, the SuperMemory root, or reference/.</summary>

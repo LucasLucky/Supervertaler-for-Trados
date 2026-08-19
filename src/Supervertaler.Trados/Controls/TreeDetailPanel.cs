@@ -47,11 +47,24 @@ namespace Supervertaler.Trados.Controls
         private SplitContainer _splitter;
         private bool _splitInitialised;
 
-        // Button -> "should this be enabled for the selected node".
-        private readonly System.Collections.Generic.List<
-            System.Collections.Generic.KeyValuePair<Button, Func<TreeNode, bool>>> _toolbarRules =
-            new System.Collections.Generic.List<
-                System.Collections.Generic.KeyValuePair<Button, Func<TreeNode, bool>>>();
+        /// <summary>A toolbar button, when it applies, and how it looks when it
+        /// does. The enabled colour is captured per button rather than assumed,
+        /// so a consumer that styles one differently still greys correctly.</summary>
+        private class ToolbarRule
+        {
+            public Button Button;
+            public Func<TreeNode, bool> IsEnabled;
+            public Color EnabledColor;
+        }
+
+        /// <summary>Text colour for a button that does not apply to the current
+        /// selection. Light enough to read as inactive at a glance, dark enough
+        /// that the label is still legible - a disabled button should say what it
+        /// would do, not become a grey smudge.</summary>
+        private static readonly Color DisabledForeColor = Color.FromArgb(190, 190, 190);
+
+        private readonly System.Collections.Generic.List<ToolbarRule> _toolbarRules =
+            new System.Collections.Generic.List<ToolbarRule>();
 
         public TreeDetailPanel()
         {
@@ -156,8 +169,12 @@ namespace Supervertaler.Trados.Controls
         public void RegisterToolbarButton(Button button, Func<TreeNode, bool> isEnabled)
         {
             if (button == null) return;
-            _toolbarRules.Add(new System.Collections.Generic.KeyValuePair<Button, Func<TreeNode, bool>>(
-                button, isEnabled ?? (_ => true)));
+            _toolbarRules.Add(new ToolbarRule
+            {
+                Button = button,
+                IsEnabled = isEnabled ?? (_ => true),
+                EnabledColor = button.ForeColor
+            });
         }
 
         /// <summary>
@@ -174,10 +191,17 @@ namespace Supervertaler.Trados.Controls
                 // Fail OPEN. A rule that throws must not leave a button dead for
                 // the rest of the session: a wrongly-enabled button does nothing
                 // when clicked, a wrongly-disabled one blocks the user entirely.
-                try { enabled = rule.Value(node); }
+                try { enabled = rule.IsEnabled(node); }
                 catch { enabled = true; }
 
-                if (rule.Key.Enabled != enabled) rule.Key.Enabled = enabled;
+                if (rule.Button.Enabled != enabled) rule.Button.Enabled = enabled;
+
+                // Set the colour explicitly. A FlatStyle.Flat button with an
+                // explicit ForeColor keeps it when disabled, so without this the
+                // buttons stop working while still looking live - which reads as
+                // broken rather than as not-applicable.
+                var wanted = enabled ? rule.EnabledColor : DisabledForeColor;
+                if (rule.Button.ForeColor != wanted) rule.Button.ForeColor = wanted;
             }
         }
 
