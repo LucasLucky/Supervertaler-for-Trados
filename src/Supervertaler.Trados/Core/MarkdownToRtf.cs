@@ -198,15 +198,36 @@ namespace Supervertaler.Trados.Core
                     }
                     i--;   // the for-loop will advance past the last consumed line
 
-                    AppendPar(sb, ref firstBlock);
+                    // Join BEFORE converting. Converting line by line leaves an
+                    // inline span that crosses the source's wrap point with its
+                    // opening ** on one line and its closing ** on the next, so
+                    // neither half finds its partner and both render literally:
+                    //     ... (H136656, with renumbering), **sibling
+                    //     SKUs** in the same product family ...
+                    //
+                    // Two trailing spaces is Markdown's explicit hard break, and
+                    // the one case where the author did mean a newline - those
+                    // still split the paragraph into separate conversions.
+                    var segments = new List<string>();
+                    var current = new StringBuilder();
                     for (int k = 0; k < run.Count; k++)
                     {
-                        // Two trailing spaces is Markdown's explicit hard break,
-                        // and the one case where the author DID mean a newline.
-                        var hardBreak = run[k].EndsWith("  ");
-                        AppendInlineRtf(sb, run[k].Trim());
-                        if (k < run.Count - 1)
-                            sb.Append(hardBreak ? @"\line " : " ");
+                        if (current.Length > 0) current.Append(' ');
+                        current.Append(run[k].Trim());
+
+                        if (run[k].EndsWith("  ") && k < run.Count - 1)
+                        {
+                            segments.Add(current.ToString());
+                            current.Length = 0;
+                        }
+                    }
+                    if (current.Length > 0) segments.Add(current.ToString());
+
+                    AppendPar(sb, ref firstBlock);
+                    for (int k = 0; k < segments.Count; k++)
+                    {
+                        AppendInlineRtf(sb, segments[k]);
+                        if (k < segments.Count - 1) sb.Append(@"\line ");
                     }
                 }
             }
