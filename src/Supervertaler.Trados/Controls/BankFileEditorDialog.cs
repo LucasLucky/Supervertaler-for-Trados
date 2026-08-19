@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.IO;
 using System.Text;
@@ -167,15 +167,18 @@ namespace Supervertaler.Trados.Controls
             try
             {
                 // Somebody else may have written this file while the dialog was
-                // open - Obsidian, the Python assistant, a harvest. Saying so
+                // open - Obsidian, or the Python assistant. Saying so
                 // beats silently winning.
                 var now = File.Exists(_filePath) ? File.GetLastWriteTimeUtc(_filePath) : _openedWriteTimeUtc;
                 if (now != _openedWriteTimeUtc)
                 {
                     var answer = MessageBox.Show(this,
-                        "This file has changed on disk since you opened it.\n\n"
-                        + "Obsidian, the Supervertaler assistant, or a harvest may have written to it. "
-                        + "Saving now replaces those changes with what is in this window.\n\n"
+                        "Something else wrote to this file while you had it open.\n\n"
+                        + "That would be Obsidian or another editor, or the Supervertaler "
+                        + "assistant. Saving now replaces what they wrote with the text in "
+                        + "this window.\n\n"
+                        + "Choose No to go back \u2014 your text stays in the editor, so you can "
+                        + "copy it somewhere safe and compare before deciding.\n\n"
                         + "Save anyway?",
                         "File changed on disk",
                         MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
