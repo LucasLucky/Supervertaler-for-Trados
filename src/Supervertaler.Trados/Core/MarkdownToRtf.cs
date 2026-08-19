@@ -174,9 +174,11 @@ namespace Supervertaler.Trados.Core
                 // A single newline is a SOFT break in Markdown: consecutive
                 // plain lines are ONE paragraph and reflow at the display width.
                 // Emitting a paragraph per source line turned the memory banks'
-                // deliberate 75-column wrapping into real breaks mid-sentence -
-                // and that wrapping is worth keeping, because it makes a
-                // one-word edit a one-line diff in git and Obsidian.
+                // hard-wrapped prose into real breaks mid-sentence. (Nothing in
+                // this codebase wraps those files - it is simply how the LLM
+                // that wrote them emitted prose. Either way the model reads a
+                // single newline as a soft break, so this was only ever a
+                // display problem, and the display was ours to get right.)
                 //
                 // Consume the whole run here rather than flushing a buffer in
                 // each of the nine block branches above: one insertion point,
