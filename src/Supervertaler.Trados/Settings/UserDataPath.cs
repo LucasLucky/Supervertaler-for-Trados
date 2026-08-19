@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -375,6 +375,144 @@ namespace Supervertaler.Trados.Settings
             catch (Exception ex)
             {
                 error = "Could not create memory bank at\n  " + target + "\n\n" + ex.Message;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Renames a memory bank by moving its folder.
+        ///
+        /// <para><b>The caller must also update
+        /// <c>AiSettings.ActiveMemoryBankName</c> if this bank was the active
+        /// one.</b> That setting stores a NAME, so a rename leaves it pointing
+        /// at a folder that no longer exists - and the reader treats a missing
+        /// bank as an empty one, so SuperMemory would quietly contribute nothing
+        /// to every prompt. Nothing would say so.</para>
+        ///
+        /// <para><c>_shared</c> cannot be renamed: the reader looks it up by
+        /// that exact name to load it alongside the active bank.</para>
+        /// </summary>
+        public static bool TryRenameMemoryBank(string oldName, string rawNewName,
+            out string sanitisedName, out string error)
+        {
+            sanitisedName = string.Empty;
+            error = null;
+
+            if (string.IsNullOrWhiteSpace(oldName))
+            {
+                error = "No memory bank was selected.";
+                return false;
+            }
+
+            if (string.Equals(oldName, Core.MemoryBankReader.SharedBankName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                error = "The '" + Core.MemoryBankReader.SharedBankName + "' bank cannot be renamed - "
+                      + "it is loaded alongside every other bank by that exact name.";
+                return false;
+            }
+
+            var safeName = SanitizeBankName(rawNewName);
+            if (string.IsNullOrEmpty(safeName))
+            {
+                error = "The name must contain at least one lowercase letter, digit, hyphen or underscore.";
+                return false;
+            }
+
+            if (string.Equals(safeName, oldName, StringComparison.Ordinal))
+            {
+                error = null;              // nothing to do, and not a failure
+                sanitisedName = oldName;
+                return true;
+            }
+
+            var source = GetMemoryBankDir(oldName);
+            var target = GetMemoryBankDir(safeName);
+
+            if (!Directory.Exists(source))
+            {
+                error = "That memory bank no longer exists at\n  " + source;
+                return false;
+            }
+
+            // Case-only renames would fail the Exists check on Windows, so let
+            // those through: Directory.Move handles them.
+            if (Directory.Exists(target) &&
+                !string.Equals(safeName, oldName, StringComparison.OrdinalIgnoreCase))
+            {
+                error = "A memory bank named '" + safeName + "' already exists.";
+                return false;
+            }
+
+            try
+            {
+                Directory.Move(source, target);
+                sanitisedName = safeName;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = "Could not rename the memory bank.\n\n" + ex.Message
+                      + "\n\nIf Obsidian or another program has a file open in it, close that first.";
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Removes a memory bank by moving it into <c>memory-banks/.trash/</c>.
+        ///
+        /// <para>Moved rather than deleted, and deliberately not to the Recycle
+        /// Bin. A bank is months of accumulated decisions; recovering it should
+        /// not depend on the Recycle Bin being enabled for that drive, or on the
+        /// user finding it there. <see cref="ListMemoryBanks"/> already skips
+        /// dot-prefixed folders, so the bank disappears from every list while
+        /// staying restorable by renaming the folder back.</para>
+        ///
+        /// <para>Timestamped, so deleting two banks of the same name does not
+        /// destroy the first.</para>
+        /// </summary>
+        public static bool TryDeleteMemoryBank(string name, out string movedTo, out string error)
+        {
+            movedTo = string.Empty;
+            error = null;
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                error = "No memory bank was selected.";
+                return false;
+            }
+
+            if (string.Equals(name, Core.MemoryBankReader.SharedBankName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                error = "The '" + Core.MemoryBankReader.SharedBankName + "' bank cannot be deleted - "
+                      + "it holds the defaults loaded alongside every other bank.";
+                return false;
+            }
+
+            var source = GetMemoryBankDir(name);
+            if (!Directory.Exists(source))
+            {
+                error = "That memory bank no longer exists at\n  " + source;
+                return false;
+            }
+
+            try
+            {
+                var trashRoot = Path.Combine(MemoryBanksRoot, ".trash");
+                Directory.CreateDirectory(trashRoot);
+
+                var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                var target = Path.Combine(trashRoot, name + "-" + stamp);
+
+                Directory.Move(source, target);
+                movedTo = target;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = "Could not remove the memory bank.\n\n" + ex.Message
+                      + "\n\nIf Obsidian or another program has a file open in it, close that first.";
                 return false;
             }
         }

@@ -227,8 +227,17 @@ namespace Supervertaler.Trados.Controls
                 return true;
             });
 
+            // Delete now means something for a bank too - but not for _shared,
+            // and not for a file or the reference folder.
+            _shell.RegisterToolbarButton(_btnDelete, node =>
+            {
+                if (node?.Tag is BankNode bn)
+                    return bn.Kind == BankNodeKind.Bank && !IsSharedBank(bn.BankName);
+                return true;
+            });
+
             foreach (var b in new[]
-                     { _btnNew, _btnDelete, _btnRestore,
+                     { _btnNew, _btnRestore,
                        _btnMoveUp, _btnMoveDown, _btnNewFolder })
             {
                 _shell.RegisterToolbarButton(b, node => !(node?.Tag is BankNode));
@@ -331,10 +340,58 @@ namespace Supervertaler.Trados.Controls
             miFlatSection.Click += (s2, ev2) => ToggleFlatFolder();
             _treeContextMenu.Items.Add(miFlatSection);
 
+            // ─── Memory bank actions ─────────────────────────────
+            var miBankSep = new ToolStripSeparator();
+            _treeContextMenu.Items.Add(miBankSep);
+
+            var miBankSetActive = new ToolStripMenuItem("Set as active memory bank");
+            miBankSetActive.Click += (s2, ev2) => SetSelectedBankActive();
+            _treeContextMenu.Items.Add(miBankSetActive);
+
+            var miBankRename = new ToolStripMenuItem("Rename memory bank\u2026");
+            miBankRename.Click += (s2, ev2) => RenameSelectedBank();
+            _treeContextMenu.Items.Add(miBankRename);
+
+            var miBankDelete = new ToolStripMenuItem("Delete memory bank\u2026");
+            miBankDelete.Click += (s2, ev2) => DeleteSelectedBank();
+            _treeContextMenu.Items.Add(miBankDelete);
+
+            var miBankOpen = new ToolStripMenuItem("Open bank folder");
+            miBankOpen.Click += (s2, ev2) => OpenSelectedBankFolder();
+            _treeContextMenu.Items.Add(miBankOpen);
+
             _treeContextMenu.Opening += (s, ev) =>
             {
                 var node = _tvPrompts.SelectedNode;
                 if (node == null) { ev.Cancel = true; return; }
+
+                // A memory bank gets its own menu entirely: none of the prompt
+                // items below mean anything for it.
+                var bank = node.Tag as BankNode;
+                var isBank = bank != null && bank.Kind == BankNodeKind.Bank;
+                var isShared = isBank && string.Equals(
+                    bank.BankName, Core.MemoryBankReader.SharedBankName,
+                    StringComparison.OrdinalIgnoreCase);
+
+                miBankSep.Visible = isBank;
+                miBankOpen.Visible = isBank;
+                // _shared is loaded by name and holds the cross-client defaults,
+                // so it can be opened but never renamed, deleted or "activated".
+                miBankSetActive.Visible = isBank && !isShared;
+                miBankRename.Visible = isBank && !isShared;
+                miBankDelete.Visible = isBank && !isShared;
+
+                if (bank != null)
+                {
+                    foreach (ToolStripItem it in _treeContextMenu.Items)
+                    {
+                        if (it != miBankSep && it != miBankSetActive && it != miBankRename
+                            && it != miBankDelete && it != miBankOpen)
+                            it.Visible = false;
+                    }
+                    if (!isBank) ev.Cancel = true;   // files and reference/ have no menu yet
+                    return;
+                }
 
                 var prompt = node.Tag as PromptTemplate;
                 var isFolder = node.Tag is string folderPath && folderPath != SystemPromptTag;
@@ -1796,6 +1853,13 @@ namespace Supervertaler.Trados.Controls
 
         private void OnDeletePrompt(object sender, EventArgs e)
         {
+            // Delete means "delete this memory bank" when one is selected.
+            if (GetSelectedBank() != null)
+            {
+                DeleteSelectedBank();
+                return;
+            }
+
             var selected = GetSelectedPrompt();
             if (selected == null)
             {
@@ -2087,10 +2151,203 @@ namespace Supervertaler.Trados.Controls
             {
                 _tvPrompts.SelectedNode = e.Node;
                 if (e.Node.Tag is PromptTemplate ||
+                    e.Node.Tag is BankNode ||
                     (e.Node.Tag is string tag && tag != SystemPromptTag))
                 {
                     _treeContextMenu.Show(_tvPrompts, e.Location);
                 }
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        //  MEMORY BANK ACTIONS
+        // ═══════════════════════════════════════════════════════════
+
+        /// <summary>The selected node's bank, when a whole bank is selected.</summary>
+        private BankNode GetSelectedBank()
+        {
+            var bn = _tvPrompts.SelectedNode?.Tag as BankNode;
+            return (bn != null && bn.Kind == BankNodeKind.Bank) ? bn : null;
+        }
+
+        private static bool IsSharedBank(string name)
+            => string.Equals(name, Core.MemoryBankReader.SharedBankName,
+                             StringComparison.OrdinalIgnoreCase);
+
+        private void SetSelectedBankActive()
+        {
+            var bank = GetSelectedBank();
+            if (bank == null || IsSharedBank(bank.BankName)) return;
+
+            SettingsService.Update(s =>
+            {
+                if (s.AiSettings == null) s.AiSettings = new AiSettings();
+                s.AiSettings.ActiveMemoryBankName = bank.BankName;
+            });
+
+            RefreshTree();
+        }
+
+        private void RenameSelectedBank()
+        {
+            var bank = GetSelectedBank();
+            if (bank == null || IsSharedBank(bank.BankName)) return;
+
+            var newName = PromptForBankName("Rename memory bank",
+                "New name for '" + bank.BankName + "':", bank.BankName);
+            if (string.IsNullOrWhiteSpace(newName)) return;
+
+            string sanitised, error;
+            if (!UserDataPath.TryRenameMemoryBank(bank.BankName, newName, out sanitised, out error))
+            {
+                MessageBox.Show(this, error, "Rename memory bank",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // The active-bank setting stores a NAME. Without this it would point
+            // at a folder that no longer exists, and the reader treats a missing
+            // bank as an empty one - so SuperMemory would contribute nothing to
+            // every prompt, silently.
+            var wasActive = string.Equals(
+                SettingsService.Current?.AiSettings?.ActiveMemoryBankName, bank.BankName,
+                StringComparison.OrdinalIgnoreCase);
+
+            if (wasActive)
+            {
+                SettingsService.Update(s =>
+                {
+                    if (s.AiSettings == null) s.AiSettings = new AiSettings();
+                    s.AiSettings.ActiveMemoryBankName = sanitised;
+                });
+            }
+
+            RefreshTree();
+        }
+
+        private void DeleteSelectedBank()
+        {
+            var bank = GetSelectedBank();
+            if (bank == null || IsSharedBank(bank.BankName)) return;
+
+            // Refuse the active bank rather than silently switching away from
+            // it: which bank is active changes what every prompt is built from,
+            // and that should never be a side effect of deleting something else.
+            var isActive = string.Equals(
+                SettingsService.Current?.AiSettings?.ActiveMemoryBankName, bank.BankName,
+                StringComparison.OrdinalIgnoreCase);
+
+            if (isActive)
+            {
+                MessageBox.Show(this,
+                    "'" + bank.BankName + "' is the active memory bank.\n\n"
+                    + "Switch to another bank first, then delete this one.",
+                    "Delete memory bank", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var answer = MessageBox.Show(this,
+                "Remove the memory bank '" + bank.BankName + "'?\n\n"
+                + "Everything in it goes with it: the brief, the terminology, the style "
+                + "rules and the reference folder.\n\n"
+                + "It is moved to a .trash folder inside memory-banks rather than deleted, "
+                + "so you can put it back by renaming that folder.",
+                "Delete memory bank",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+
+            if (answer != DialogResult.Yes) return;
+
+            string movedTo, error;
+            if (!UserDataPath.TryDeleteMemoryBank(bank.BankName, out movedTo, out error))
+            {
+                MessageBox.Show(this, error, "Delete memory bank",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            RefreshTree();
+
+            MessageBox.Show(this,
+                "Moved to:\n\n" + movedTo + "\n\nRename that folder back into memory-banks to restore it.",
+                "Memory bank removed", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void OpenSelectedBankFolder()
+        {
+            var bank = GetSelectedBank();
+            if (bank == null) return;
+            try
+            {
+                var dir = UserDataPath.GetMemoryBankDir(bank.BankName);
+                if (Directory.Exists(dir))
+                    System.Diagnostics.Process.Start("explorer.exe", dir);
+            }
+            catch { }
+        }
+
+        /// <summary>Small one-line prompt. Bank names are filesystem
+        /// identifiers, so the caller sanitises whatever comes back.</summary>
+        private string PromptForBankName(string title, string label, string initial)
+        {
+            using (var dlg = new Form())
+            {
+                dlg.Icon = Core.IconHelper.AppIcon;
+                dlg.Text = title;
+                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dlg.MinimizeBox = false;
+                dlg.MaximizeBox = false;
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.ClientSize = new Size(420, 132);
+                dlg.BackColor = Color.White;
+
+                dlg.Controls.Add(new Label
+                {
+                    Text = label,
+                    Location = new Point(14, 14),
+                    AutoSize = true,
+                    ForeColor = Color.FromArgb(60, 60, 60)
+                });
+
+                var txt = new TextBox
+                {
+                    Text = initial ?? "",
+                    Location = new Point(14, 40),
+                    Width = dlg.ClientSize.Width - 28,
+                    Font = new Font("Segoe UI", 9.5f)
+                };
+                dlg.Controls.Add(txt);
+
+                var hint = new Label
+                {
+                    Text = "Lowercase letters, digits, hyphens and underscores; spaces become hyphens.",
+                    Location = new Point(14, 68),
+                    AutoSize = false,
+                    Width = dlg.ClientSize.Width - 28,
+                    Height = 16,
+                    Font = new Font("Segoe UI", 7.5f),
+                    ForeColor = Color.FromArgb(140, 140, 140)
+                };
+                dlg.Controls.Add(hint);
+
+                var ok = new Button
+                {
+                    Text = "OK", DialogResult = DialogResult.OK, FlatStyle = FlatStyle.System,
+                    Width = 85, Height = 26,
+                    Location = new Point(dlg.ClientSize.Width - 184, 94)
+                };
+                var cancel = new Button
+                {
+                    Text = "Cancel", DialogResult = DialogResult.Cancel, FlatStyle = FlatStyle.System,
+                    Width = 85, Height = 26,
+                    Location = new Point(dlg.ClientSize.Width - 94, 94)
+                };
+                dlg.Controls.Add(ok);
+                dlg.Controls.Add(cancel);
+                dlg.AcceptButton = ok;
+                dlg.CancelButton = cancel;
+
+                txt.SelectAll();
+                return dlg.ShowDialog(this) == DialogResult.OK ? txt.Text : null;
             }
         }
 
