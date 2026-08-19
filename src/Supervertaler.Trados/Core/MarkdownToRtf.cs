@@ -18,7 +18,13 @@ namespace Supervertaler.Trados.Core
             @"{\rtf1\ansi\deff0" +
             @"{\fonttbl{\f0 Segoe UI;}{\f1 Consolas;}}" +
             @"{\colortbl;\red30\green30\blue30;\red100\green100\blue100;\red43\green43\blue43;}" +
-            @"\f0\fs18\cf1 ";
+            // \sa100 = 5pt after every paragraph. Without it the blocks sit on
+            // consecutive lines and a heading is indistinguishable from the
+            // prose above it. Spacing rather than blank paragraphs, so the gap
+            // does not depend on how many blank lines the author happened to
+            // leave - and so a list does not inherit a full empty line between
+            // every bullet.
+            @"\f0\fs18\cf1\sa100 ";
 
         // Font size constants (in half-points)
         private const string BodySize = @"\fs18";      // 9pt
@@ -145,7 +151,7 @@ namespace Supervertaler.Trados.Core
                     var trimmed = line.TrimStart();
                     var content = trimmed.Substring(2);
                     sb.Append(@"{\li360\fi-180 \u8226?  ");
-                    AppendInlineRtf(sb, content.Trim());
+                    AppendInlineRtf(sb, ConsumeWrappedItem(lines, ref i, content));
                     sb.Append("}");
                     continue;
                 }
@@ -157,7 +163,7 @@ namespace Supervertaler.Trados.Core
                     AppendPar(sb, ref firstBlock);
                     sb.Append(@"{\li360\fi-180 ");
                     sb.Append(numberedMatch.Groups[1].Value).Append(". ");
-                    AppendInlineRtf(sb, numberedMatch.Groups[2].Value.Trim());
+                    AppendInlineRtf(sb, ConsumeWrappedItem(lines, ref i, numberedMatch.Groups[2].Value));
                     sb.Append("}");
                     continue;
                 }
@@ -212,6 +218,27 @@ namespace Supervertaler.Trados.Core
 
             sb.Append("}");
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// A list item's text, including any lines it was wrapped across.
+        ///
+        /// <para>Without this the remainder of a wrapped bullet fell through to
+        /// the paragraph branch and rendered flush left, outside the bullet's
+        /// indent - so a two-line bullet looked like a bullet followed by an
+        /// unrelated sentence.</para>
+        ///
+        /// <para>Advances <paramref name="i"/> past every line it consumes.</para>
+        /// </summary>
+        private static string ConsumeWrappedItem(string[] lines, ref int i, string firstLine)
+        {
+            var text = firstLine.Trim();
+            while (i + 1 < lines.Length && IsParagraphContinuation(lines[i + 1]))
+            {
+                i++;
+                text += " " + lines[i].Trim();
+            }
+            return text;
         }
 
         /// <summary>
