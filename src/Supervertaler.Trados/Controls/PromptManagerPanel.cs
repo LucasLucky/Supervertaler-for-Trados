@@ -99,6 +99,7 @@ namespace Supervertaler.Trados.Controls
         private TextBox _txtImagesFolder;
         private Button _btnImagesBrowse;
         private Button _btnImagesClear;
+        private Label _lblImagesCaveat;
         private Label _lblBankFileName;
         private Label _lblBankFileNote;
         private RichTextBox _txtBankFile;
@@ -691,7 +692,7 @@ namespace Supervertaler.Trados.Controls
             // Where a bank's figures.md comes FROM. Shown on the bank and on
             // figures.md itself, so the artifact carries its own provenance
             // rather than the setting living somewhere unrelated.
-            _panelImagesRow = new Panel { Dock = DockStyle.Bottom, Height = 66, BackColor = Color.White };
+            _panelImagesRow = new Panel { Dock = DockStyle.Bottom, Height = 86, BackColor = Color.White };
 
             // A rule above it. Without one the row sits flush against the
             // rendered content at the very bottom edge and reads as part of it -
@@ -729,6 +730,21 @@ namespace Supervertaler.Trados.Controls
             _btnImagesClear.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             _btnImagesClear.Click += (s, e) => ClearReferenceImages();
 
+            // The folder is groundwork: no code reads it yet. Saying so beats a
+            // setting that looks connected to something and is not.
+            _lblImagesCaveat = new Label
+            {
+                Location = new Point(14, 56),
+                AutoSize = false,
+                Height = 26,
+                Font = new Font("Segoe UI", 7.5f),
+                ForeColor = Color.FromArgb(140, 140, 140),
+                Text = "Nothing reads this folder yet \u2014 the pass that turns drawings into "
+                     + "figures.md is not built. A figures.md you put in the bank yourself IS "
+                     + "read into every prompt."
+            };
+
+            _panelImagesRow.Controls.Add(_lblImagesCaveat);
             _panelImagesRow.Controls.Add(_lblImagesLabel);
             _panelImagesRow.Controls.Add(_txtImagesFolder);
             _panelImagesRow.Controls.Add(_btnImagesBrowse);
@@ -739,6 +755,7 @@ namespace Supervertaler.Trados.Controls
                 var w = _panelImagesRow.Width;
                 if (w < 200) return;
                 _lblImagesLabel.Width = w - 28;
+                _lblImagesCaveat.Width = w - 28;
                 _btnImagesClear.Location = new Point(w - 14 - _btnImagesClear.Width, 27);
                 _btnImagesBrowse.Location = new Point(_btnImagesClear.Left - _btnImagesBrowse.Width - 6, 27);
                 _txtImagesFolder.Width = Math.Max(60, _btnImagesBrowse.Left - 20);
@@ -1394,12 +1411,14 @@ namespace Supervertaler.Trados.Controls
                     "The drawings folder is remembered per project, so open the project first.";
                 _btnImagesBrowse.Enabled = false;
                 _btnImagesClear.Enabled = false;
+                _lblImagesCaveat.Visible = false;
                 _panelBankFile.PerformLayout();
                 return;
             }
 
             _lblImagesLabel.Text = "Reference images for " + (projectName ?? "this project");
             _btnImagesBrowse.Enabled = true;
+            _lblImagesCaveat.Visible = true;
 
             var folder = "";
             try { folder = ProjectSettings.Load(projectPath)?.ReferenceImagesFolder ?? ""; }
