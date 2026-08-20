@@ -5,14 +5,15 @@ version numbers so the App Store never sees a collision):
 
 | Build | Version number | Min studio | Max studio | Checksum (SHA-256) |
 |-------|----------------|------------|------------|--------------------|
-| Studio 2024 | `18.20.184.0` | `18.0` | `18.9` | `b07b35567bcce5c4eaf3710dda3d36acb51e5ef7f73a168556385713eedbc62e` |
-| Studio 2026 | `19.20.184.0` | `19.0` | `19.0.9` | `6684052e543d2c2a8d09e2c8fc29b120dba907716dd696bca66583498e63e77e` |
+| Studio 2024 | `18.20.184.0` | `18.0` | `18.9` | `bac64533022aca209a4df7c7f2ce2209e44f18ef646d70b3a95e934a0bea9b20` |
+| Studio 2026 | `19.20.184.0` | `19.0` | `19.0.9` | `12188608c057dcc9ec736bbb069a925fdb8e0983960a41efa91a4e03b151d57a` |
 
 ---
 
 ## Highlights
 
 - **QuickLauncher has moved from `Ctrl+Q` to `Alt+Q`.**
+- **The Prompts tab is now the Library, and it shows SuperMemory.**
 - **The MCP server works with ChatGPT desktop, and the plugin now sets it up for you.**
 - **Select a term, press Alt+W, and 41 reference sites are one keystroke away**
 
@@ -23,6 +24,13 @@ Everything else is below.
 ## Changelog
 
 ### Added
+- **The Prompts tab is now the Library, and it shows SuperMemory.** Every memory bank and the files inside it appear beneath your prompt folders, so the one thing you could never see from inside the plugin – what the AI actually knows about a client – is now in front of you. Until now the only ways to look at a bank were Explorer or Obsidian.
+- **The tree says two things nothing else did.** `_shared` is marked *“loaded with every bank”* rather than sitting in the list looking like an alternative to the active bank, and `reference/` is greyed and marked *“not read into prompts”* – it is the audit trail, and without that label people keep filing things there and wondering why the AI ignores them.
+- **Bank files render as Markdown** rather than raw text, using the same converter as the chat panel, so a terminology table reads as a table. Select a file and **Edit** opens it for editing.
+- **Rename and delete memory banks from inside the plugin.** Right-click a bank. Previously this meant closing Trados and renaming folders by hand. Deleting moves the bank to a `.trash` folder inside `memory-banks` rather than destroying it, so you can put it back by renaming that folder – and the confirmation tells you where it went.
+- **`_shared` is protected**, and deleting the bank you are currently using is refused rather than quietly switching you to another one: which bank is active decides what every prompt is built from.
+- **A Reference images row** on a bank and on its `figures.md`, naming the folder of drawings the current project points at. Groundwork for the figure-analysis feature; the analysis pass itself is not built yet, so no button pretends otherwise.
+- **Editing a bank file leaves the rest of the file alone.** These files are shared with Obsidian and the Supervertaler assistant, which do not agree on line endings, so a naive save would rewrite every line and bury your one-word change in a whole-file diff. Supervertaler now writes each file back in its own style. If something else changes the file while you have it open, you are told before anything is overwritten.
 - **The MCP server works with ChatGPT desktop, and the plugin now sets it up for you.** Ask ChatGPT about the project open in Studio, search your TMs and termbases, run QA checks — the same live connection Claude Desktop has had. **Settings → AI Settings → Connect AI assistant…** now has a **Set up ChatGPT desktop** button that downloads the server, keeps it in your Supervertaler data folder and registers it, so there is no zip to unpack and no configuration file to edit. Quit ChatGPT from the notification area afterwards — closing the window is not enough — and start it again.
 - **Your existing configuration is backed up first, and nothing else in it is touched.** Only Supervertaler's own entry is written; other MCP servers you have set up are left exactly as they are, and running the button again refreshes the server rather than adding a second copy.
 - **Earlier versions of the documentation said ChatGPT could not be used at all.** That was true when written — it ran MCP servers in the cloud, with no route to a bridge that is local to your machine by design — and has since changed. What still cannot work is a client that runs the server in the cloud, which includes the claude.ai and chatgpt.com **websites**, as opposed to the desktop apps.
@@ -72,6 +80,9 @@ Everything else is below.
 - Documentation for the whole section has been rewritten to match.
 
 ### Fixed
+- **Headings below `###` printed their own hashes.** A file using `#####` for its sections rendered as a wall of text with `##### 4. Title blocks and document metadata` sitting in it literally. Affected the chat panel too, so any AI reply using `####` had the same problem.
+- **Wrapped text lost its formatting and its shape.** Paragraphs broke at whatever column the file happened to wrap at; two-line bullets had their second half thrown to the left margin, outside the bullet; and a **bold** span split across a line break showed its asterisks instead of going bold.
+- **Blocks ran together with no space between them**, so a heading was indistinguishable from the paragraph above it.
 - **The same fix now covers the whole plugin, not just the panels.** Every remaining place that read or wrote settings on its own — the termbase editor, the term picker, the voice strip, the QuickLauncher, the update prompt, SuperSearch's mode and web-resource settings — goes through the one shared copy. Ten of those could previously lose a change outright: they read the file, altered one field and wrote the whole thing back, so anything saved by another part of the plugin in between was reverted.
 - **Anonymous usage statistics could count one installation as two.** The anonymous id was read, checked and written in three separate steps, so two things starting at once could each find it missing and generate a different one. Only affects people who opted in, and only the accuracy of the totals — no additional information was ever collected.
 - **A setting could be undone by a panel that was not even involved.** Change your memory bank in the Supervertaler Assistant, then open Settings from the TermLens panel and click OK: the bank goes back to what it was. Nothing warns you, and the panel afterwards agrees with the reverted value, so the change looks like it never happened rather than like it was lost.

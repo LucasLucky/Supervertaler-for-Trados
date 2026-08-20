@@ -691,11 +691,21 @@ namespace Supervertaler.Trados.Controls
             // Where a bank's figures.md comes FROM. Shown on the bank and on
             // figures.md itself, so the artifact carries its own provenance
             // rather than the setting living somewhere unrelated.
-            _panelImagesRow = new Panel { Dock = DockStyle.Bottom, Height = 62, BackColor = Color.White };
+            _panelImagesRow = new Panel { Dock = DockStyle.Bottom, Height = 66, BackColor = Color.White };
+
+            // A rule above it. Without one the row sits flush against the
+            // rendered content at the very bottom edge and reads as part of it -
+            // missed twice on first use, which is enough evidence.
+            _panelImagesRow.Controls.Add(new Label
+            {
+                Dock = DockStyle.Top,
+                Height = 1,
+                BorderStyle = BorderStyle.Fixed3D
+            });
 
             _lblImagesLabel = new Label
             {
-                Location = new Point(14, 6),
+                Location = new Point(14, 10),
                 AutoSize = false,
                 Height = 15,
                 Font = new Font("Segoe UI", 8.25f, FontStyle.Bold),
@@ -704,7 +714,7 @@ namespace Supervertaler.Trados.Controls
 
             _txtImagesFolder = new TextBox
             {
-                Location = new Point(14, 24),
+                Location = new Point(14, 28),
                 ReadOnly = true,
                 Font = new Font("Segoe UI", 8.25f),
                 BackColor = Color.FromArgb(250, 250, 250),
@@ -729,8 +739,8 @@ namespace Supervertaler.Trados.Controls
                 var w = _panelImagesRow.Width;
                 if (w < 200) return;
                 _lblImagesLabel.Width = w - 28;
-                _btnImagesClear.Location = new Point(w - 14 - _btnImagesClear.Width, 23);
-                _btnImagesBrowse.Location = new Point(_btnImagesClear.Left - _btnImagesBrowse.Width - 6, 23);
+                _btnImagesClear.Location = new Point(w - 14 - _btnImagesClear.Width, 27);
+                _btnImagesBrowse.Location = new Point(_btnImagesClear.Left - _btnImagesBrowse.Width - 6, 27);
                 _txtImagesFolder.Width = Math.Max(60, _btnImagesBrowse.Left - 20);
             };
 

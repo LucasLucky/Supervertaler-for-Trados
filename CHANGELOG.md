@@ -16,6 +16,22 @@
 - **The About box now lists QuickLauncher, its ten slots, and a link to the full shortcut reference.** That list is where you would go to look up a shortcut, and it did not mention `Ctrl+Q` — which is exactly how a flagship feature sat behind a dead key without it being obvious. The link goes to the docs page, which also carries the table of Trados defaults that override other Supervertaler keys and how to clear them.
 - **The insert-term range was listed as `Alt+1…9`**; it is `Alt+0…9`.
 
+### Added (the Library tab – see and edit your memory banks without leaving Trados)
+
+- ★ **The Prompts tab is now the Library, and it shows SuperMemory.** Every memory bank and the files inside it appear beneath your prompt folders, so the one thing you could never see from inside the plugin – what the AI actually knows about a client – is now in front of you. Until now the only ways to look at a bank were Explorer or Obsidian.
+- **The tree says two things nothing else did.** `_shared` is marked *“loaded with every bank”* rather than sitting in the list looking like an alternative to the active bank, and `reference/` is greyed and marked *“not read into prompts”* – it is the audit trail, and without that label people keep filing things there and wondering why the AI ignores them.
+- **Bank files render as Markdown** rather than raw text, using the same converter as the chat panel, so a terminology table reads as a table. Select a file and **Edit** opens it for editing.
+- **Rename and delete memory banks from inside the plugin.** Right-click a bank. Previously this meant closing Trados and renaming folders by hand. Deleting moves the bank to a `.trash` folder inside `memory-banks` rather than destroying it, so you can put it back by renaming that folder – and the confirmation tells you where it went.
+- **`_shared` is protected**, and deleting the bank you are currently using is refused rather than quietly switching you to another one: which bank is active decides what every prompt is built from.
+- **A Reference images row** on a bank and on its `figures.md`, naming the folder of drawings the current project points at. Groundwork for the figure-analysis feature; the analysis pass itself is not built yet, so no button pretends otherwise.
+- **Editing a bank file leaves the rest of the file alone.** These files are shared with Obsidian and the Supervertaler assistant, which do not agree on line endings, so a naive save would rewrite every line and bury your one-word change in a whole-file diff. Supervertaler now writes each file back in its own style. If something else changes the file while you have it open, you are told before anything is overwritten.
+
+### Fixed (Markdown rendering, everywhere it is used)
+
+- **Headings below `###` printed their own hashes.** A file using `#####` for its sections rendered as a wall of text with `##### 4. Title blocks and document metadata` sitting in it literally. Affected the chat panel too, so any AI reply using `####` had the same problem.
+- **Wrapped text lost its formatting and its shape.** Paragraphs broke at whatever column the file happened to wrap at; two-line bullets had their second half thrown to the left margin, outside the bullet; and a **bold** span split across a line break showed its asterisks instead of going bold.
+- **Blocks ran together with no space between them**, so a heading was indistinguishable from the paragraph above it.
+
 ### Fixed (the settings fix, finished off everywhere else)
 
 - **The same fix now covers the whole plugin, not just the panels.** Every remaining place that read or wrote settings on its own — the termbase editor, the term picker, the voice strip, the QuickLauncher, the update prompt, SuperSearch's mode and web-resource settings — goes through the one shared copy. Ten of those could previously lose a change outright: they read the file, altered one field and wrote the whole thing back, so anything saved by another part of the plugin in between was reverted.
