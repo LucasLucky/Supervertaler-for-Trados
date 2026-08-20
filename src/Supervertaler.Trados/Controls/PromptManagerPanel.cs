@@ -1452,28 +1452,26 @@ namespace Supervertaler.Trados.Controls
             }
             catch { }
 
-            using (var dlg = new FolderBrowserDialog())
+            // FolderPicker, not FolderBrowserDialog: the latter is still the
+            // Windows 2000-era tree with no address bar and nowhere to paste a
+            // path. This wrapper already existed for exactly that reason - see
+            // Controls/FolderPicker.cs, which uses IFileOpenDialog with
+            // FOS_PICKFOLDERS and falls back only if the COM call fails.
+            var chosen = FolderPicker.Show(
+                this, "Choose the folder holding this project's drawings", start);
+            if (string.IsNullOrEmpty(chosen)) return;
+
+            var images = Core.ReferenceImages.List(chosen);
+            if (images.Count == 0)
             {
-                dlg.Description = "Choose the folder holding this project's drawings.";
-                dlg.ShowNewFolderButton = false;
-                if (!string.IsNullOrEmpty(start) && Directory.Exists(start))
-                    dlg.SelectedPath = start;
-
-                if (dlg.ShowDialog(this) != DialogResult.OK) return;
-
-                var chosen = dlg.SelectedPath;
-                var images = Core.ReferenceImages.List(chosen);
-                if (images.Count == 0)
-                {
-                    var go = MessageBox.Show(this,
-                        "No images found in\n\n" + chosen + "\n\nUse it anyway?",
-                        "Reference images",
-                        MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
-                    if (go != DialogResult.Yes) return;
-                }
-
-                SaveReferenceImagesFolder(projectPath, chosen);
+                var go = MessageBox.Show(this,
+                    "No images found in\n\n" + chosen + "\n\nUse it anyway?",
+                    "Reference images",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+                if (go != DialogResult.Yes) return;
             }
+
+            SaveReferenceImagesFolder(projectPath, chosen);
 
             UpdateImagesRow(_tvPrompts.SelectedNode?.Tag as BankNode);
         }
