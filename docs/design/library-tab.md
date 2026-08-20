@@ -1,6 +1,7 @@
 # The Library tab
 
-**Status:** design, not started
+**Status:** steps 1-5 built and verified in Studio (2026-08-20). Step 6 (the
+reference-images row) is the remainder.
 **Date:** 2026-08-16
 **Supersedes:** `supermemory-settings-tab.md` (same day), which proposed a
 separate SuperMemory tab and argued against merging. The reversal is recorded
