@@ -94,6 +94,11 @@ namespace Supervertaler.Trados.Controls
         }
 
         private Panel _panelBankFile;
+        private Panel _panelImagesRow;
+        private Label _lblImagesLabel;
+        private TextBox _txtImagesFolder;
+        private Button _btnImagesBrowse;
+        private Button _btnImagesClear;
         private Label _lblBankFileName;
         private Label _lblBankFileNote;
         private RichTextBox _txtBankFile;
@@ -682,13 +687,63 @@ namespace Supervertaler.Trados.Controls
             _panelBankFile.Controls.Add(_lblBankFileNote);
             _panelBankFile.Controls.Add(_txtBankFile);
 
+            // ─── Reference images ────────────────────────────────
+            // Where a bank's figures.md comes FROM. Shown on the bank and on
+            // figures.md itself, so the artifact carries its own provenance
+            // rather than the setting living somewhere unrelated.
+            _panelImagesRow = new Panel { Dock = DockStyle.Bottom, Height = 62, BackColor = Color.White };
+
+            _lblImagesLabel = new Label
+            {
+                Location = new Point(14, 6),
+                AutoSize = false,
+                Height = 15,
+                Font = new Font("Segoe UI", 8.25f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(60, 60, 60)
+            };
+
+            _txtImagesFolder = new TextBox
+            {
+                Location = new Point(14, 24),
+                ReadOnly = true,
+                Font = new Font("Segoe UI", 8.25f),
+                BackColor = Color.FromArgb(250, 250, 250),
+                BorderStyle = BorderStyle.FixedSingle
+            };
+
+            _btnImagesBrowse = TreeDetailPanel.CreateToolbarButton("Browse\u2026", 70);
+            _btnImagesBrowse.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            _btnImagesBrowse.Click += (s, e) => BrowseForReferenceImages();
+
+            _btnImagesClear = TreeDetailPanel.CreateToolbarButton("Clear", 55);
+            _btnImagesClear.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            _btnImagesClear.Click += (s, e) => ClearReferenceImages();
+
+            _panelImagesRow.Controls.Add(_lblImagesLabel);
+            _panelImagesRow.Controls.Add(_txtImagesFolder);
+            _panelImagesRow.Controls.Add(_btnImagesBrowse);
+            _panelImagesRow.Controls.Add(_btnImagesClear);
+
+            _panelImagesRow.Resize += (s, e) =>
+            {
+                var w = _panelImagesRow.Width;
+                if (w < 200) return;
+                _lblImagesLabel.Width = w - 28;
+                _btnImagesClear.Location = new Point(w - 14 - _btnImagesClear.Width, 23);
+                _btnImagesBrowse.Location = new Point(_btnImagesClear.Left - _btnImagesBrowse.Width - 6, 23);
+                _txtImagesFolder.Width = Math.Max(60, _btnImagesBrowse.Left - 20);
+            };
+
+            _panelBankFile.Controls.Add(_panelImagesRow);
+
             _panelBankFile.Resize += (s, e) =>
             {
                 var w = _panelBankFile.Width - 28;
                 if (w < 40) return;
                 _lblBankFileNote.Width = w;
                 _txtBankFile.Location = new Point(14, 72);
-                _txtBankFile.Size = new Size(w, Math.Max(40, _panelBankFile.Height - 86));
+                var below = _panelImagesRow.Visible ? _panelImagesRow.Height : 0;
+                _txtBankFile.Size = new Size(w, Math.Max(40, _panelBankFile.Height - 86 - below));
             };
         }
 
@@ -1293,6 +1348,161 @@ namespace Supervertaler.Trados.Controls
             ShowBankFile(bn);
         }
 
+        /// <summary>
+        /// Shows or hides the reference-images row, and fills it in.
+        ///
+        /// <para>Visible for a bank and for its <c>figures.md</c>: the folder is
+        /// where that file comes from, so it belongs beside it. Hidden for
+        /// everything else.</para>
+        ///
+        /// <para>The setting is per PROJECT while this tab is bank-shaped, so
+        /// the label names the project. With no project open there is nothing to
+        /// attach a folder to, and the row says so rather than offering a Browse
+        /// button that would have nowhere to save.</para>
+        /// </summary>
+        private void UpdateImagesRow(BankNode bn)
+        {
+            var isBank = bn != null && bn.Kind == BankNodeKind.Bank;
+            var isFigures = bn != null && bn.Kind == BankNodeKind.File
+                            && string.Equals(Path.GetFileName(bn.FilePath ?? ""), "figures.md",
+                                             StringComparison.OrdinalIgnoreCase);
+
+            _panelImagesRow.Visible = isBank || isFigures;
+            if (!_panelImagesRow.Visible)
+            {
+                _panelBankFile.PerformLayout();
+                return;
+            }
+
+            var projectPath = TermLensEditorViewPart.GetCurrentProjectPath();
+            var projectName = TermLensEditorViewPart.GetCurrentProjectName();
+
+            if (string.IsNullOrEmpty(projectPath))
+            {
+                _lblImagesLabel.Text = "Reference images \u2014 no Trados project is open";
+                _txtImagesFolder.Text =
+                    "The drawings folder is remembered per project, so open the project first.";
+                _btnImagesBrowse.Enabled = false;
+                _btnImagesClear.Enabled = false;
+                _panelBankFile.PerformLayout();
+                return;
+            }
+
+            _lblImagesLabel.Text = "Reference images for " + (projectName ?? "this project");
+            _btnImagesBrowse.Enabled = true;
+
+            var folder = "";
+            try { folder = ProjectSettings.Load(projectPath)?.ReferenceImagesFolder ?? ""; }
+            catch { }
+
+            var resolved = Core.ReferenceImages.Resolve(folder);
+            if (!string.IsNullOrEmpty(resolved))
+            {
+                var count = Core.ReferenceImages.List(resolved).Count;
+                _txtImagesFolder.Text = resolved + "   (" + count + " image" + (count == 1 ? "" : "s") + ")";
+                _btnImagesClear.Enabled = true;
+            }
+            else if (!string.IsNullOrEmpty(folder))
+            {
+                _txtImagesFolder.Text = folder + "   \u2014 this folder is missing";
+                _btnImagesClear.Enabled = true;
+            }
+            else
+            {
+                _txtImagesFolder.Text = "(none set)";
+                _btnImagesClear.Enabled = false;
+            }
+
+            _panelBankFile.PerformLayout();
+        }
+
+        /// <summary>
+        /// Picks the drawings folder for the open project.
+        ///
+        /// <para>Starts wherever <c>ReferenceImages.Suggest</c> proposes, which
+        /// is only ever a suggestion: a folder found by walking up the tree can
+        /// belong to a different job, and drawings from the wrong matter are
+        /// worse than none because the output still reads plausibly. So the
+        /// dialog opens there and the user confirms.</para>
+        /// </summary>
+        private void BrowseForReferenceImages()
+        {
+            var projectPath = TermLensEditorViewPart.GetCurrentProjectPath();
+            if (string.IsNullOrEmpty(projectPath)) return;
+
+            var start = "";
+            try
+            {
+                start = ProjectSettings.Load(projectPath)?.ReferenceImagesFolder ?? "";
+                if (string.IsNullOrEmpty(start))
+                {
+                    var suggestions = Core.ReferenceImages.Suggest(projectPath);
+                    if (suggestions.Count > 0) start = suggestions[0];
+                }
+            }
+            catch { }
+
+            using (var dlg = new FolderBrowserDialog())
+            {
+                dlg.Description = "Choose the folder holding this project's drawings.";
+                dlg.ShowNewFolderButton = false;
+                if (!string.IsNullOrEmpty(start) && Directory.Exists(start))
+                    dlg.SelectedPath = start;
+
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+                var chosen = dlg.SelectedPath;
+                var images = Core.ReferenceImages.List(chosen);
+                if (images.Count == 0)
+                {
+                    var go = MessageBox.Show(this,
+                        "No images found in\n\n" + chosen + "\n\nUse it anyway?",
+                        "Reference images",
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+                    if (go != DialogResult.Yes) return;
+                }
+
+                SaveReferenceImagesFolder(projectPath, chosen);
+            }
+
+            UpdateImagesRow(_tvPrompts.SelectedNode?.Tag as BankNode);
+        }
+
+        private void ClearReferenceImages()
+        {
+            var projectPath = TermLensEditorViewPart.GetCurrentProjectPath();
+            if (string.IsNullOrEmpty(projectPath)) return;
+
+            SaveReferenceImagesFolder(projectPath, "");
+            UpdateImagesRow(_tvPrompts.SelectedNode?.Tag as BankNode);
+        }
+
+        /// <summary>
+        /// Writes the folder into the project's own settings.
+        ///
+        /// <para>Read-modify-write on the stored object rather than through
+        /// TermLensSettings.ExtractProjectSettings, which rebuilds a
+        /// ProjectSettings from the GLOBAL settings and would blank every
+        /// per-project field this one does not know about.</para>
+        /// </summary>
+        private void SaveReferenceImagesFolder(string projectPath, string folder)
+        {
+            try
+            {
+                var ps = ProjectSettings.Load(projectPath) ?? new ProjectSettings();
+                ps.ReferenceImagesFolder = folder ?? "";
+                if (string.IsNullOrEmpty(ps.ProjectPath)) ps.ProjectPath = projectPath;
+                if (string.IsNullOrEmpty(ps.ProjectName))
+                    ps.ProjectName = TermLensEditorViewPart.GetCurrentProjectName() ?? "";
+                ProjectSettings.Save(projectPath, ps);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not save the reference images folder.\n\n" + ex.Message,
+                    "Reference images", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
         /// <summary>Shows a bank file, read-only, saying whether the AI reads it.</summary>
         private void ShowBankFile(BankNode bn)
         {
@@ -1601,6 +1811,7 @@ namespace Supervertaler.Trados.Controls
             {
                 if (bankNode.Kind == BankNodeKind.File) ShowBankFile(bankNode);
                 else ShowBankSummary(bankNode, e.Node);
+                UpdateImagesRow(bankNode);
                 _shell.ShowDetail(_panelBankFile);
             }
             else if (e.Node.Tag is string tagStr && tagStr == SystemPromptTag)
