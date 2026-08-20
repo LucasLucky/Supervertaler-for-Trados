@@ -2197,8 +2197,24 @@ namespace Supervertaler.Trados.Controls
                 "New name for '" + bank.BankName + "':", bank.BankName);
             if (string.IsNullOrWhiteSpace(newName)) return;
 
+            // Our own inbox watcher holds a handle on the ACTIVE bank's
+            // reference/ folder, and Windows will not rename a folder above an
+            // open handle. Without this, renaming the active bank always failed
+            // and blamed Obsidian.
             string sanitised, error;
-            if (!UserDataPath.TryRenameMemoryBank(bank.BankName, newName, out sanitised, out error))
+            bool renamed;
+            AiAssistantViewPart.ReleaseMemoryBankHandles();
+            try
+            {
+                renamed = UserDataPath.TryRenameMemoryBank(
+                    bank.BankName, newName, out sanitised, out error);
+            }
+            finally
+            {
+                AiAssistantViewPart.ReacquireMemoryBankHandles();
+            }
+
+            if (!renamed)
             {
                 MessageBox.Show(this, error, "Rename memory bank",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -2220,6 +2236,12 @@ namespace Supervertaler.Trados.Controls
                     if (s.AiSettings == null) s.AiSettings = new AiSettings();
                     s.AiSettings.ActiveMemoryBankName = sanitised;
                 });
+
+                // Re-point the watcher at the renamed folder. The reacquire above
+                // ran while the setting still named the old bank, so it attached
+                // to nothing.
+                AiAssistantViewPart.ReleaseMemoryBankHandles();
+                AiAssistantViewPart.ReacquireMemoryBankHandles();
             }
 
             RefreshTree();
@@ -2258,7 +2280,18 @@ namespace Supervertaler.Trados.Controls
             if (answer != DialogResult.Yes) return;
 
             string movedTo, error;
-            if (!UserDataPath.TryDeleteMemoryBank(bank.BankName, out movedTo, out error))
+            bool removed;
+            AiAssistantViewPart.ReleaseMemoryBankHandles();
+            try
+            {
+                removed = UserDataPath.TryDeleteMemoryBank(bank.BankName, out movedTo, out error);
+            }
+            finally
+            {
+                AiAssistantViewPart.ReacquireMemoryBankHandles();
+            }
+
+            if (!removed)
             {
                 MessageBox.Show(this, error, "Delete memory bank",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);

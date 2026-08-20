@@ -12095,6 +12095,48 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         }
 
         /// <summary>
+        /// Lets go of everything this ViewPart holds open inside the memory-bank
+        /// folders, so another part of the plugin can rename or move one.
+        ///
+        /// <para>The inbox watcher is the reason this is needed: a
+        /// FileSystemWatcher holds a handle on the directory it watches, and
+        /// Windows will not rename a folder above an open handle. Renaming the
+        /// ACTIVE bank therefore failed with "Access to the path is denied" and
+        /// blamed Obsidian, when the program holding it open was this one.</para>
+        ///
+        /// <para>Always pair with <see cref="ReacquireMemoryBankHandles"/> in a
+        /// finally block: leaving the watcher off means the inbox count silently
+        /// stops updating for the rest of the session.</para>
+        /// </summary>
+        public static void ReleaseMemoryBankHandles()
+        {
+            var instance = _currentInstance;
+            if (instance == null) return;
+
+            try { instance._inboxWatcher?.Dispose(); } catch { }
+            instance._inboxWatcher = null;
+
+            // The cached reader is bound to a bank directory by name, so it has
+            // to go too or it would keep answering from the old path.
+            instance._kbReader = null;
+            instance._kbReaderBankName = null;
+        }
+
+        /// <summary>
+        /// Re-attaches after <see cref="ReleaseMemoryBankHandles"/>. Safe to call
+        /// even if the bank has been renamed or removed - StartInboxWatcher reads
+        /// the active bank from settings each time.
+        /// </summary>
+        public static void ReacquireMemoryBankHandles()
+        {
+            var instance = _currentInstance;
+            if (instance == null) return;
+
+            try { instance.StartInboxWatcher(); } catch { }
+            try { instance.RefreshSuperMemoryInboxCount(); } catch { }
+        }
+
+        /// <summary>
         /// Brings this panel into line with the settings after the dialog has
         /// committed. Called by <see cref="SettingsDialog"/> for every gear
         /// icon, including ones in other panels — which is why it is static and
