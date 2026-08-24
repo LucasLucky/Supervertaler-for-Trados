@@ -1,7 +1,9 @@
 # The Library tab
 
-**Status:** steps 1-5 built and verified in Studio (2026-08-20). Step 6 (the
-reference-images row) is the remainder.
+**Status:** complete. Steps 1-6 built and verified in Studio (2026-08-21).
+Step 6 shipped deliberately *without* the Re-analyse button: nothing consumes the
+folder yet, so the row records the folder and says so on its face. The analysis
+pass that would give it meaning is `reference-images.md` and issue #69.
 **Date:** 2026-08-16
 **Supersedes:** `supermemory-settings-tab.md` (same day), which proposed a
 separate SuperMemory tab and argued against merging. The reversal is recorded
@@ -119,9 +121,10 @@ the output still reads plausibly.
 The folder itself stays in `ProjectSettings` (per project), for reasons in the
 next section, even though it is surfaced here next to a bank.
 
-## Open: per project or per bank?
+## Resolved: per project
 
-Unresolved, and worth deciding before the browse button is wired.
+Decided per project and shipped that way; `ProjectSettings.ReferenceImagesFolder`
+is what the Browse button writes. The reasoning:
 
 **Per project** — what `ProjectSettings.ReferenceImagesFolder` does today — is
 always correct, because drawings belong to a job. It also handles sibling BE/EP
@@ -136,6 +139,9 @@ and `taya` read as per-client and would span many jobs with different drawings;
 per-bank would attach one job's figures to all of them.
 
 Per project is the safer default: never wrong, only sometimes repetitive.
+
+If per-bank ever earns its place, it belongs as a *fallback* under the per-project
+setting, not as a replacement for it.
 
 ## What the tree must say that nothing currently does
 
