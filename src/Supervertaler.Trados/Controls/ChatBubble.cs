@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -71,6 +71,12 @@ namespace Supervertaler.Trados.Controls
         private bool _isExpanded;
         private string _fullMarkdownForExpand;
         private int _expandLinkHeight;
+        // Whether the expand link should occupy space. NOT _expandLink.Visible:
+        // that walks the parent chain, so a bubble measured while its TabPage
+        // is unselected reports false, gets no link height, and never lays the
+        // link out - which is exactly what happened to messages added from the
+        // Batch Operations tab.
+        private bool _expandLinkShown;
 
         private readonly List<PictureBox> _imageThumbs = new List<PictureBox>();
 
@@ -144,6 +150,7 @@ namespace Supervertaler.Trados.Controls
 
             Controls.Add(_expandLink);
             _expandLinkHeight = UiScale.Pixels(18);
+            _expandLinkShown = true;
 
             // Recalculate to accommodate the link
             CalculateSize(Width);
@@ -173,6 +180,7 @@ namespace Supervertaler.Trados.Controls
 
             // Hide the expand link
             _expandLink.Visible = false;
+            _expandLinkShown = false;
 
             // Recalculate and notify parent
             CalculateSize(Width);
@@ -369,7 +377,7 @@ namespace Supervertaler.Trados.Controls
             var contentHeight = MeasureRtbHeight(textWidth);
 
             // Extra height for the "Show full response" link when visible
-            var linkAreaHeight = (_expandLink != null && _expandLink.Visible) ? _expandLinkHeight + 4 : 0;
+            var linkAreaHeight = (_expandLink != null && _expandLinkShown) ? _expandLinkHeight + 4 : 0;
 
             _bubbleWidth = maxBubble;
             _bubbleHeight = _imageAreaHeight + contentHeight + linkAreaHeight + BubblePadding * 2 + TimestampHeight;
@@ -408,7 +416,7 @@ namespace Supervertaler.Trados.Controls
             _rtb.Size = new Size(textWidth, contentHeight);
 
             // Position the expand link below the RTB
-            if (_expandLink != null && _expandLink.Visible)
+            if (_expandLink != null && _expandLinkShown)
             {
                 _expandLink.Location = new Point(
                     _bubbleRect.X + BubblePadding,
@@ -586,10 +594,20 @@ namespace Supervertaler.Trados.Controls
                 var saveToKbItem = new ToolStripMenuItem("Save to memory bank");
                 saveToKbItem.Click += (s, e) =>
                 {
+                    // Keep the Markdown. This used to call StripMarkdown, which
+                    // turned a table into pipe-separated lines with the
+                    // |---|---| separator row deleted - no longer a table in
+                    // Obsidian or in the Library tab, both of which render these
+                    // files as Markdown. Headings and emphasis went too. The
+                    // destination is a .md file in a Markdown vault.
+                    //
+                    // The other StripMarkdown callers are right to strip:
+                    // _plainContent feeds apply-to-target, where a Trados
+                    // segment must not receive "**".
                     var fullText = FullMarkdownContent ?? _markdownContent;
                     var textToSave = string.IsNullOrEmpty(fullText)
                         ? _plainContent
-                        : MarkdownToRtf.StripMarkdown(fullText);
+                        : fullText;
                     if (!string.IsNullOrEmpty(textToSave))
                         SaveToMemoryBankRequested?.Invoke(this, textToSave);
                 };

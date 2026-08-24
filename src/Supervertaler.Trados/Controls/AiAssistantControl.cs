@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -1625,13 +1625,25 @@ namespace Supervertaler.Trados.Controls
             // rendered bubble is shortened.
             var displayMessage = message;
             string fullMarkdown = null;
+            int displayedChars = 0;
 
             if (message.Role != ChatRole.User &&
                 message.Content != null &&
                 message.Content.Length > BubbleTruncateThreshold)
             {
                 fullMarkdown = message.Content;
-                var truncated = message.Content.Substring(0, BubbleTruncateDisplayChars);
+
+                // Cut at the last line break inside the budget, not at an exact
+                // character count. A hard cut lands mid-table-row and the
+                // markdown renderer shows the fragment raw - "| 17 | 1 | De
+                // elektrol". Only honour the line break if it keeps at least
+                // half the budget, so a single enormous line still gets cut.
+                var cut = Math.Min(BubbleTruncateDisplayChars, message.Content.Length);
+                var lastBreak = message.Content.LastIndexOf('\n', cut - 1);
+                if (lastBreak > BubbleTruncateDisplayChars / 2) cut = lastBreak;
+
+                displayedChars = cut;
+                var truncated = message.Content.Substring(0, cut);
 
                 displayMessage = new ChatMessage
                 {
@@ -1648,7 +1660,7 @@ namespace Supervertaler.Trados.Controls
             if (fullMarkdown != null)
             {
                 bubble.FullMarkdownContent = fullMarkdown;
-                var remaining = fullMarkdown.Length - BubbleTruncateDisplayChars;
+                var remaining = fullMarkdown.Length - displayedChars;
                 bubble.SetTruncationSource(fullMarkdown, remaining);
                 bubble.ExpandedChanged += (s, e) =>
                 {
@@ -2009,6 +2021,16 @@ namespace Supervertaler.Trados.Controls
                     ? $"Reports  \u26A0 {issueCount}"
                     : "Reports";
             }
+        }
+
+        /// <summary>
+        /// Switches to the Chat tab. Resolves the tab by label, not by index,
+        /// for the same reason <see cref="SwitchToReportsTab"/> does.
+        /// </summary>
+        public void SwitchToChatTab()
+        {
+            var page = FindTabByLabelStart("Chat");
+            if (page != null) _tabControl.SelectedTab = page;
         }
 
         /// <summary>

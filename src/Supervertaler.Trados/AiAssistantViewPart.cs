@@ -276,6 +276,7 @@ namespace Supervertaler.Trados
             batchControl.CopyToClipboardRequested += OnCopyToClipboardRequested;
             batchControl.PasteFromClipboardRequested += OnPasteFromClipboardRequested;
             batchControl.PreviewPromptRequested += OnPreviewPromptRequested;
+            batchControl.ReferenceNumeralsRequested += OnReferenceNumeralsRequested;
             batchControl.TranslateViaWorkbenchRequested += OnTranslateViaWorkbenchRequested;
             batchControl.ModelChangeRequested += OnModelChangeRequested;
             batchControl.CustomProfilesSource = GetCustomProfileMenuItems;
@@ -6454,12 +6455,40 @@ namespace Supervertaler.Trados
                 sb.AppendLine();
                 sb.AppendLine(assistantContent);
 
-                File.WriteAllText(filePath, sb.ToString(), new System.Text.UTF8Encoding(false));
+                // Normalise to CRLF before writing. StringBuilder.AppendLine
+                // emits CRLF, but the content it wraps arrives with bare LF -
+                // models emit LF, and so does any string we build with "\n" -
+                // so the file ended up mixed, and Markdown editors announce it.
+                // These are new files, so picking one convention is enough;
+                // CRLF matches what the rest of the bank uses. (Editing an
+                // EXISTING bank file is the opposite problem - see
+                // BankFileEditorDialog, which detects and restores whatever
+                // that file already had.)
+                var noteText = sb.ToString()
+                    .Replace("\r\n", "\n")
+                    .Replace("\r", "\n")
+                    .Replace("\n", "\r\n");
+                File.WriteAllText(filePath, noteText, new System.Text.UTF8Encoding(false));
 
-                // Confirmation in chat
+                // Confirmation in chat.
+                //
+                // Says the folder, not just the bank, and says what the folder
+                // does. This used to read "run Process Inbox to compile it into
+                // the knowledge base", which was wrong twice: Process Inbox is
+                // not implemented in this plugin (the toolbar event was dead and
+                // was removed), and reference/ is never read into a prompt -
+                // MemoryBankReader globs the bank root with TopDirectoryOnly.
+                // A note the user believes is feeding the AI, that silently is
+                // not, is the worst version of this.
                 ShowSuperMemoryMessage(
-                    $"Saved to memory bank **{bankName}** \u2014 " +
-                    "run **Process Inbox** to compile it into the knowledge base.");
+                    $"Saved to memory bank **{bankName}**:\n" +
+                    $"`reference/{fileName}`\n\n" +
+                    "The `reference` folder is the audit trail - it is kept so a claim "
+                    + "can be traced back to what it came from, and it is **not read into "
+                    + "prompts**. Anything you want the AI to use goes in a `.md` at the "
+                    + "bank root - `brief.md`, `terminology.md`, `style.md`, or one of "
+                    + "your own "
+                    + "(Settings \u2192 Library).");
 
                 RefreshSuperMemoryInboxCount();
             });
@@ -9173,6 +9202,84 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         /// the user sees in the preview is identical to what the LLM would receive.
         /// Does NOT trigger an actual API call.
         /// </summary>
+
+        /// <summary>
+        /// Lists every parenthesised reference numeral in the open document,
+        /// with the sentences citing each, and posts the result into the chat.
+        /// Makes no AI call.
+        ///
+        /// <para>Passes a NULL reconciliation, deliberately, rather than an
+        /// empty one. <c>NumeralInventory.Reconcile</c> given no drawings puts
+        /// every numeral into <c>TextOnly</c>, and the formatter then reports
+        /// the lot as "cited in the text but not found in the drawings" - a
+        /// confident finding about drawings that nothing has ever looked at.
+        /// Null omits that section, which is the truth: no vision pass exists
+        /// yet. See issue #69.</para>
+        /// </summary>
+        private void OnReferenceNumeralsRequested(object sender, EventArgs e)
+        {
+            SafeInvoke(() =>
+            {
+                var batchControl = _control.Value.BatchTranslateControl;
+
+                if (_activeDocument == null)
+                {
+                    batchControl.AppendLog("No document open.", true);
+                    return;
+                }
+
+                // The whole document, never the batch Scope. An inventory of
+                // part of a patent is worse than no inventory, because it reads
+                // as complete - it would report "34 distinct numerals" having
+                // looked at a third of the file.
+                var sources = new List<string>();
+                foreach (var pair in _activeDocument.SegmentPairs)
+                {
+                    var text = TermLensEditorViewPart.GetPlainText(pair?.Source);
+                    if (!string.IsNullOrWhiteSpace(text)) sources.Add(text);
+                }
+
+                var report = Core.NumeralInventory.Extract(sources);
+                var markdown = Core.NumeralInventory.Format(report, null);
+
+                markdown += "\n\n*Scanned all " + sources.Count
+                          + " segments of the open document. A reference numeral here means a "
+                          + "1-3 digit number in parentheses, such as (12). Nothing has examined "
+                          + "the drawings themselves, so this says what the text cites, not what "
+                          + "the figures contain.*";
+
+                // Switch BEFORE adding. A bubble measured while its TabPage is
+                // unselected sees Visible == false all the way up the parent
+                // chain, and the "Show full response" link gets no height and no
+                // position - so a truncated report simply stopped mid-table with
+                // no way to see the rest.
+                _control.Value.SwitchToChatTab();
+
+                // Into the history as well as onto the screen. Without this the
+                // report is visible to the user but invisible to the assistant -
+                // so "which numerals are only cited once?" could not be answered
+                // about a table sitting right there - and it vanishes on restart.
+                _chatHistory.Add(new ChatMessage
+                {
+                    Role = ChatRole.Assistant,
+                    Content = markdown
+                });
+                _control.Value.AddMessage(new ChatMessage
+                {
+                    Role = ChatRole.Assistant,
+                    Content = markdown
+                });
+                SaveChatHistory();
+
+                batchControl.AppendLog(
+                    report.HasAny
+                        ? "Reference numerals: " + report.Citations.Count
+                          + " distinct numerals across " + sources.Count
+                          + " segments - see the Chat tab."
+                        : "Reference numerals: none found in this document.");
+            });
+        }
+
         private void OnPreviewPromptRequested(object sender, EventArgs e)
         {
             SafeInvoke(() =>

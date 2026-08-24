@@ -62,6 +62,7 @@ namespace Supervertaler.Trados.Controls
         private CheckBox _chkAddComments;
         private LinkLabel _lnkGeneratePrompt;
         private LinkLabel _lnkPreviewPrompt;
+        private LinkLabel _lnkNumerals;
 
         // Clipboard Mode
         private CheckBox _chkClipboardMode;
@@ -126,6 +127,12 @@ namespace Supervertaler.Trados.Controls
         /// exactly what would be sent to the AI (system prompt + termbase + document
         /// context + bilingual segment list), regardless of mode (API or Clipboard).</summary>
         public event EventHandler PreviewPromptRequested;
+
+        /// <summary>Raised when the user asks for the reference-numeral
+        /// inventory: every parenthesised numeral cited in the source, with the
+        /// sentences citing it. No AI call - it is a scan of the open
+        /// document.</summary>
+        public event EventHandler ReferenceNumeralsRequested;
 
         /// <summary>Gets the current batch mode.</summary>
         public BatchMode CurrentMode => _currentMode;
@@ -603,6 +610,37 @@ namespace Supervertaler.Trados.Controls
             _btnPasteFromClipboard.SizeChanged += (s, ev) => RepositionPreviewPromptLink();
 
             y += Px(38);
+
+            // ─── Reference numerals link ─────────────────────
+            // Its own row, deliberately. The action row above already holds
+            // Translate, Translate via Workbench and the Preview prompt link,
+            // and RepositionPreviewPromptLink() pushes Preview past whichever
+            // is widest - so a fourth item lands off the right edge of a docked
+            // panel and renders as "...numerals". Left-aligned here, it cannot
+            // be clipped at any panel width.
+            //
+            // Same species as Preview prompt otherwise: instant, no API call,
+            // tells you about the document rather than changing it. Patent-
+            // shaped, but harmless elsewhere - a document with no parenthesised
+            // numerals simply says so.
+            _lnkNumerals = new LinkLabel
+            {
+                Text = "№  Reference numerals",
+                AutoSize = true,
+                Font = bodyFont,
+                Location = new Point(leftMargin, y)
+            };
+            _lnkNumerals.LinkClicked += (s, ev) =>
+                ReferenceNumeralsRequested?.Invoke(this, EventArgs.Empty);
+            var numeralsTip = new ToolTip();
+            numeralsTip.SetToolTip(_lnkNumerals,
+                "List every parenthesised reference numeral in the open document,\r\n" +
+                "with how often each is cited and the first sentence citing it.\r\n" +
+                "Scans the whole document regardless of the Scope setting, and makes\r\n" +
+                "no AI call. The report opens in the Chat tab.");
+            Controls.Add(_lnkNumerals);
+
+            y += Px(26);
 
             // ─── TMX Backup ──────────────────────────────────────
             _chkTmxBackup = new CheckBox
