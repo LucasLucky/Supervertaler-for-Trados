@@ -9331,36 +9331,46 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 }
                 sb.AppendLine();
 
-                // Which mode applies. This is the actual question.
-                sb.AppendLine("### Which mode applies");
+                // What is here, and what is still missing to use it. NOT a
+                // recommendation: the shape of a job varies per client and per
+                // document, and one sample is not a rule.
+                sb.AppendLine("### What this means");
                 sb.AppendLine();
                 if (totalImages == 0)
                 {
-                    sb.AppendLine("These documents carry no images, so the drawings live somewhere "
-                                + "else \u2013 a separate figures file or a PDF. **Folder mode**: point "
-                                + "the Reference images folder at them.");
-                }
-                else if (totalAnchored == 0)
-                {
-                    sb.AppendLine("The images carry no surrounding text, so there is nothing to anchor "
-                                + "them to \u2013 typical of a patent\u0027s separate drawings file, where the "
-                                + "figure number is drawn inside the picture rather than written beside "
-                                + "it. **Folder mode**, with the labels read off the drawings.");
-                }
-                else if (totalLabelled == 0)
-                {
-                    sb.AppendLine("The images have no figure labels but they do sit among text. This is "
-                                + "the case a folder cannot serve: **document mode**, anchored to the "
-                                + "surrounding text.");
+                    sb.AppendLine("Nothing visual was found in these Word files. If the job has "
+                                + "drawings, they are somewhere this does not look yet \u2013 a PDF, a "
+                                + "file elsewhere, or a document type not read here. Point the "
+                                + "Reference images folder at them so they are at least on record.");
                 }
                 else
                 {
-                    sb.AppendLine("The images are labelled and anchored, so either mode works; "
-                                + "**document mode** keeps the anchors, which a folder cannot.");
+                    sb.AppendLine("Found **" + totalImages + "** image(s): "
+                        + totalLabelled + " carry a figure label in the text, "
+                        + totalAnchored + " sit among text that could anchor them.");
+                    sb.AppendLine();
+
+                    if (totalLabelled < totalImages)
+                    {
+                        sb.AppendLine("- " + (totalImages - totalLabelled) + " have no label in the "
+                                    + "document. Where the number is drawn inside the picture, only "
+                                    + "looking at the image can recover it.");
+                    }
+                    if (totalAnchored < totalImages)
+                    {
+                        sb.AppendLine("- " + (totalImages - totalAnchored) + " have no surrounding "
+                                    + "text, so nothing ties them to a place in the translation.");
+                    }
+                    if (totalLabelled == totalImages && totalAnchored == totalImages)
+                    {
+                        sb.AppendLine("- Every image has both a label and surrounding text, which is "
+                                    + "the easiest case there is.");
+                    }
                 }
                 sb.AppendLine();
-                sb.AppendLine("*Nothing here reaches the AI yet \u2013 the pass that turns drawings into "
-                            + "figures.md is issue #69, step 3.*");
+                sb.AppendLine("*None of this reaches the AI yet. Getting any visual in a document "
+                            + "through to the model \u2013 labelled or not, anchored or not \u2013 is issue "
+                            + "#69.*");
 
                 var markdown = sb.ToString().TrimEnd();
 

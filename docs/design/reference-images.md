@@ -39,36 +39,73 @@ a name**:
 3. **Proximity** — it sits between these paragraphs, and nothing refers to it at
    all. Everything else.
 
-### Corrected by a real patent (2026-08-24)
+### Corrected against a real job, then corrected again (2026-08-24)
 
-The note originally said the anchor *always* exists. It does not, and the job
-open at the time is the counter-example. BRANTS CIRC-002-BE-WO:
+The note originally said the anchor *always* exists. One real job disproved
+that. BRANTS CIRC-002-BE-WO:
 
 | File | Paragraphs | Images | Text runs |
 |---|---|---|---|
 | `Application as filed.docx` | 303 | **0** | many |
 | `Figures as filed.docx` | 21 | **5** | **0** |
 
-The drawings are a **separate document with no text in it at all** — not one
-`w:t` run in the whole part. The figure numbers are drawn *inside* the images,
-because that is what a patent drawing is. So for a patent there is no caption,
-no proximity, and no citation in the file holding the pictures; all three routes
-fail at once, and document mode yields images with nothing attached.
+The drawings arrived as a separate document with not one `w:t` run in the whole
+part; the figure numbers are drawn *inside* the pictures. Citation, caption and
+proximity all fail together.
 
-The translator's own workspace already showed the answer: an `Images/` folder
-holding `Fig. 1.png`, `Fig. 2A.png` … `Fig. 2D.png`, named by hand after
-reading the numbers off the drawings.
+**But the first conclusion drawn from that was wrong too.** It said "folder mode
+is the patent path". That is one client's habit on one job — in Michael's words,
+*"only something they do sometimes"*. A patent just as often arrives as a single
+DOCX with the drawings inline. One sample is not a rule, and neither shape
+should be privileged.
 
-So the two modes are not "one good, one legacy":
+The `Images/` folder of neatly named `Fig. 1.png` … `Fig. 2D.png` beside that job
+is **not a workflow to design around either.** The translator opened the
+drawings, read the numbers off them by eye, and typed them into filenames. That
+is the manual work this feature exists to remove — evidence of a gap, not of a
+convention.
 
-- **Folder mode is the patent path**, and the missing piece there is reading the
-  label off the drawing — a vision job, not a parsing job.
-- **Document mode is the manual/report path**, where images sit inline and the
-  anchor is real.
+## The actual requirement
 
-Neither subsumes the other, and picking per project is not a fallback — it is
-the design. `OnDocumentImagesRequested` reports which one applies rather than
-guessing.
+> Any kind of figure, image, or anything visual in a text document can be sent
+> as context to the AI.
+
+Not "patents". Not "labelled figures". Not "images we can anchor". Everything
+visual, whatever shape it arrives in.
+
+That reorders the whole design. Anchoring is not the organising principle — it
+is how we choose *which* visuals accompany *which* request. An image with no
+label and no anchor is still usable: it is one of five drawings in this job, and
+for a five-drawing job that is frequently enough.
+
+### Four stages, in order
+
+1. **Collect.** Every visual the job has, from wherever it is: inline in the
+   source document, in a sibling document, in a configured folder, later from a
+   PDF. Inline images, but also the ones easy to forget — inside tables, headers,
+   text boxes, and vector EMF/WMF, which is what a patent drawing usually is.
+
+2. **Identify.** A ladder, first hit wins:
+   1. a label in the text near it (document mode)
+   2. a label in its filename (folder mode)
+   3. **read the label off the image itself** — vision. This is the rung that
+      removes the manual renaming above, and nothing implements it.
+   4. none: it is "image 3 of 5", which is still an identity.
+
+3. **Anchor.** Citation → caption → proximity → the job as a whole. The last is a
+   real answer, not a failure: a small drawing set can simply travel with every
+   request that plausibly needs it.
+
+4. **Deliver.** Two paths, not exclusive:
+   - **Distilled** — one vision pass over the collected visuals produces a text
+     manifest the user can read and correct, injected into every prompt. Cheap,
+     survives non-vision providers, persists to the next job in the family.
+   - **Attached** — the actual picture sent with the requests that genuinely
+     need it, chosen by whatever anchor stage 3 produced.
+
+Stage 2.3 and stage 4 are the missing pieces. Stages 1 and 3 are largely built:
+`DocxImageExtractor` does document collection with anchors, `ReferenceImages`
+does folder collection, and `OnDocumentImagesRequested` reports what a job has.
 
 So the unit of this feature should not be *"a folder of images with figure
 numbers"*. It should be **an image with an anchor**:
