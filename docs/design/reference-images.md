@@ -161,6 +161,73 @@ So: **two modes, and the anchor is what both produce.**
 The plugin can do this without a new dependency: `DocxImporter` already uses
 `DocumentFormat.OpenXml.Packaging.WordprocessingDocument`.
 
+## Stage 4 in detail: how a visual actually reaches a model
+
+There are several routes, and they are easy to mistake for alternatives to each
+other. They are not. They differ along **two independent axes**.
+
+**Form** — what the model receives:
+- **Pixels.** The image itself, base64 in a vision request. What Workbench does.
+- **Text.** A description, distilled once, injected as context. What a
+  `figures.md` in a memory bank does.
+
+**Control** — who decides what is included, and when:
+- **Pull.** An agent with tools fetches what it wants, when it wants
+  (MCP, Claude Desktop). The model decides; cost is paid per fetch.
+- **Push.** We assemble the payload before the call (Batch Translate over the
+  API). We decide, up front, with no idea which segment will need what.
+
+That gives four cells, and all four are legitimate:
+
+| | **Pixels** | **Text** |
+|---|---|---|
+| **Pull** (MCP agent) | agent opens image files from a folder as it sees fit — **no tool for this yet** | agent reads `figures.md` via `search_supermemory` — **works today** |
+| **Push** (batch API) | base64 images attached to requests — Workbench's `figure_context_manager` | `figures.md` injected into the system prompt — **works today for a hand-written file** |
+
+### What follows from that
+
+**The inventory is shared; only delivery differs.** Collect and identify once
+(stages 1–2); every cell above consumes the same result. This is the reason not
+to build any one channel as a special case.
+
+**Cost separates push from pull decisively.** A batch run is N requests. Attaching
+five drawings to each is 5N image payloads, paid every run. The distilled
+manifest is one vision pass ever, then roughly a kilobyte per request. For push,
+text is the default and pixels are the exception. For pull the arithmetic
+reverses: the agent fetches an image only when it has decided it needs one, so
+pixels are cheap and precise.
+
+**Only text can be reviewed.** The user can read a manifest, disagree, and
+correct it. Nobody can audit what a model saw in a JPEG. This note already
+argues that an occasionally-wrong description injected into every prompt is the
+worst failure available here — which is an argument for review, and review needs
+text. It is also an argument against text being the *only* form: a description
+is lossy and fixed at the moment it was written, and cannot answer a question
+its author did not anticipate.
+
+**Push cannot ask.** In a chat the agent can decide "I need to look at figure 3
+now". In batch we must guess before the run starts. So the two want different
+defaults:
+
+- **MCP / chat:** the manifest as a cheap always-on default, *plus* a tool that
+  lists the job's visuals and returns one on request. The agent then escalates
+  to pixels by itself, which is exactly the behaviour we want and cannot
+  hand-code.
+- **Batch / API:** the manifest always. Pixels only for segments that actually
+  cite a figure — which is what Workbench's `figure_context_manager` already
+  decides, and it needs a label to do it.
+
+### The two gaps
+
+1. **No vision pass anywhere.** Nothing turns a picture into text, in either
+   product. Every text-form cell above therefore depends on the user writing
+   `figures.md` by hand — which is the same manual work as renaming the files.
+2. **No image tool in MCP.** 50 tools; three read SuperMemory, none can see a
+   picture. So the pull-pixels cell is empty, even though it is the cheapest
+   and most precise of the four, because the model only looks when it needs to.
+
+Gap 2 is much the smaller piece of work and does not depend on gap 1.
+
 ## Where this meets `figures.md`
 
 The handoff's argument for distilling to text — run vision once, cache, inject
