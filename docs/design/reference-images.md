@@ -166,6 +166,7 @@ every prompt is exactly the silent-wrong failure this codebase keeps producing.
 2. **Document-mode extraction** — DOCX → `(image, label, caption, anchor)`,
    porting the detection logic from Workbench's extractor rather than
    reinventing it. No AI involved; testable on its own.
+   **Built** (`Core/DocxImageExtractor.cs`), not yet wired to any UI.
 3. **The distillation pass** — images + anchors + source text → `figures.md` as
    an image manifest. The piece nothing has.
 4. **Review before first use.**
