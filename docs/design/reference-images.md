@@ -39,6 +39,37 @@ a name**:
 3. **Proximity** — it sits between these paragraphs, and nothing refers to it at
    all. Everything else.
 
+### Corrected by a real patent (2026-08-24)
+
+The note originally said the anchor *always* exists. It does not, and the job
+open at the time is the counter-example. BRANTS CIRC-002-BE-WO:
+
+| File | Paragraphs | Images | Text runs |
+|---|---|---|---|
+| `Application as filed.docx` | 303 | **0** | many |
+| `Figures as filed.docx` | 21 | **5** | **0** |
+
+The drawings are a **separate document with no text in it at all** — not one
+`w:t` run in the whole part. The figure numbers are drawn *inside* the images,
+because that is what a patent drawing is. So for a patent there is no caption,
+no proximity, and no citation in the file holding the pictures; all three routes
+fail at once, and document mode yields images with nothing attached.
+
+The translator's own workspace already showed the answer: an `Images/` folder
+holding `Fig. 1.png`, `Fig. 2A.png` … `Fig. 2D.png`, named by hand after
+reading the numbers off the drawings.
+
+So the two modes are not "one good, one legacy":
+
+- **Folder mode is the patent path**, and the missing piece there is reading the
+  label off the drawing — a vision job, not a parsing job.
+- **Document mode is the manual/report path**, where images sit inline and the
+  anchor is real.
+
+Neither subsumes the other, and picking per project is not a fallback — it is
+the design. `OnDocumentImagesRequested` reports which one applies rather than
+guessing.
+
 So the unit of this feature should not be *"a folder of images with figure
 numbers"*. It should be **an image with an anchor**:
 

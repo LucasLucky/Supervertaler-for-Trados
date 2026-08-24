@@ -63,6 +63,7 @@ namespace Supervertaler.Trados.Controls
         private LinkLabel _lnkGeneratePrompt;
         private LinkLabel _lnkPreviewPrompt;
         private LinkLabel _lnkNumerals;
+        private LinkLabel _lnkDocImages;
 
         // Clipboard Mode
         private CheckBox _chkClipboardMode;
@@ -133,6 +134,10 @@ namespace Supervertaler.Trados.Controls
         /// sentences citing it. No AI call - it is a scan of the open
         /// document.</summary>
         public event EventHandler ReferenceNumeralsRequested;
+
+        /// <summary>Raised when the user asks what images this project's Word
+        /// documents contain, and how each is tied to the text. No AI call.</summary>
+        public event EventHandler DocumentImagesRequested;
 
         /// <summary>Gets the current batch mode.</summary>
         public BatchMode CurrentMode => _currentMode;
@@ -639,6 +644,25 @@ namespace Supervertaler.Trados.Controls
                 "Scans the whole document regardless of the Scope setting, and makes\r\n" +
                 "no AI call. The report opens in the Chat tab.");
             Controls.Add(_lnkNumerals);
+            y += Px(22);
+
+            // Its own row for the same reason as the one above: a docked
+            // panel is narrow and these two together would not fit.
+            _lnkDocImages = new LinkLabel
+            {
+                Text = "▣  Document images",
+                AutoSize = true,
+                Font = bodyFont,
+                Location = new Point(leftMargin, y)
+            };
+            _lnkDocImages.LinkClicked += (s, ev) =>
+                DocumentImagesRequested?.Invoke(this, EventArgs.Empty);
+            var imagesTip = new ToolTip();
+            imagesTip.SetToolTip(_lnkDocImages,
+                "List the images in this project's Word documents, with any figure\r\n" +
+                "label and the text each one sits among. Also reports the reference\r\n" +
+                "images folder, if one is set. Makes no AI call.");
+            Controls.Add(_lnkDocImages);
 
             y += Px(26);
 

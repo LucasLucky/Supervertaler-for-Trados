@@ -277,6 +277,7 @@ namespace Supervertaler.Trados
             batchControl.PasteFromClipboardRequested += OnPasteFromClipboardRequested;
             batchControl.PreviewPromptRequested += OnPreviewPromptRequested;
             batchControl.ReferenceNumeralsRequested += OnReferenceNumeralsRequested;
+            batchControl.DocumentImagesRequested += OnDocumentImagesRequested;
             batchControl.TranslateViaWorkbenchRequested += OnTranslateViaWorkbenchRequested;
             batchControl.ModelChangeRequested += OnModelChangeRequested;
             batchControl.CustomProfilesSource = GetCustomProfileMenuItems;
@@ -9202,6 +9203,184 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         /// the user sees in the preview is identical to what the LLM would receive.
         /// Does NOT trigger an actual API call.
         /// </summary>
+
+        /// <summary>
+        /// Reports the images in this project's Word documents, each with any
+        /// figure label and the text it sits among, plus the reference-images
+        /// folder if one is set. No AI call.
+        ///
+        /// <para>It scans the project folder AND its parent, which is not
+        /// tidiness. A patent job keeps the drawings beside the Studio folder,
+        /// in a separate "Figures as filed" document: the file being translated
+        /// has no images in it at all. A report that looked only at the active
+        /// file would say "no images" on exactly the documents this feature
+        /// exists for.</para>
+        /// </summary>
+        private void OnDocumentImagesRequested(object sender, EventArgs e)
+        {
+            SafeInvoke(() =>
+            {
+                var batchControl = _control.Value.BatchTranslateControl;
+
+                var anchorPath = ResolveProjectAnchorPathCore();
+                if (string.IsNullOrEmpty(anchorPath))
+                {
+                    batchControl.AppendLog("No project open.", true);
+                    return;
+                }
+
+                // The project folder and one level up. Deduplicated, because a
+                // single-file project can have both resolve to the same place.
+                var dirs = new List<string>();
+                try
+                {
+                    var d = Path.GetDirectoryName(anchorPath);
+                    if (!string.IsNullOrEmpty(d) && Directory.Exists(d)) dirs.Add(d);
+                    var up = Path.GetDirectoryName(d);
+                    if (!string.IsNullOrEmpty(up) && Directory.Exists(up)
+                        && !string.Equals(up, d, StringComparison.OrdinalIgnoreCase))
+                        dirs.Add(up);
+                }
+                catch { }
+
+                var docxFiles = new List<string>();
+                foreach (var d in dirs)
+                {
+                    try
+                    {
+                        foreach (var f in Directory.GetFiles(d, "*.docx", SearchOption.TopDirectoryOnly))
+                        {
+                            // Word's lock files are not documents.
+                            if (Path.GetFileName(f).StartsWith("~$")) continue;
+                            if (!docxFiles.Contains(f)) docxFiles.Add(f);
+                        }
+                    }
+                    catch { }
+                }
+
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("## Document images");
+                sb.AppendLine();
+
+                int totalImages = 0, totalLabelled = 0, totalAnchored = 0;
+
+                if (docxFiles.Count == 0)
+                {
+                    sb.AppendLine("No Word documents found beside this project.");
+                    sb.AppendLine();
+                }
+
+                foreach (var f in docxFiles)
+                {
+                    var images = Core.DocxImageExtractor.Extract(f);
+                    var labelled = images.Count(i => !string.IsNullOrEmpty(i.Label));
+                    var anchored = images.Count(i => !string.IsNullOrWhiteSpace(i.Anchor));
+                    totalImages += images.Count;
+                    totalLabelled += labelled;
+                    totalAnchored += anchored;
+
+                    sb.AppendLine("### " + Path.GetFileName(f));
+                    sb.AppendLine();
+
+                    if (images.Count == 0)
+                    {
+                        sb.AppendLine("No images.");
+                        sb.AppendLine();
+                        continue;
+                    }
+
+                    sb.AppendLine("**" + images.Count + " image(s)** \u2013 "
+                        + labelled + " with a figure label, "
+                        + anchored + " with surrounding text.");
+                    sb.AppendLine();
+                    sb.AppendLine("| # | Label | Sits among |");
+                    sb.AppendLine("|---|---|---|");
+                    foreach (var img in images)
+                    {
+                        var a = (img.Anchor ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
+                        if (a.Length > 90) a = a.Substring(0, 87) + "\u2026";
+                        if (a.Length == 0) a = "*(no text near it)*";
+                        a = a.Replace("|", "\\|");
+                        sb.AppendLine("| " + img.Ordinal + " | "
+                            + (img.Label ?? "*(none)*") + " | " + a + " |");
+                    }
+                    sb.AppendLine();
+                }
+
+                // The folder half of the picture.
+                string folder = "";
+                try
+                {
+                    var projectPath = TermLensEditorViewPart.GetCurrentProjectPath();
+                    if (!string.IsNullOrEmpty(projectPath))
+                        folder = Settings.ProjectSettings.Load(projectPath)?.ReferenceImagesFolder ?? "";
+                }
+                catch { }
+
+                sb.AppendLine("### Reference images folder");
+                sb.AppendLine();
+                if (string.IsNullOrEmpty(folder))
+                {
+                    sb.AppendLine("Not set for this project. (Settings \u2192 Library \u2192 the bank\u0027s "
+                                + "Reference images row.)");
+                }
+                else
+                {
+                    var listed = Core.ReferenceImages.List(folder);
+                    sb.AppendLine("`" + folder + "` \u2013 " + listed.Count + " image file(s).");
+                }
+                sb.AppendLine();
+
+                // Which mode applies. This is the actual question.
+                sb.AppendLine("### Which mode applies");
+                sb.AppendLine();
+                if (totalImages == 0)
+                {
+                    sb.AppendLine("These documents carry no images, so the drawings live somewhere "
+                                + "else \u2013 a separate figures file or a PDF. **Folder mode**: point "
+                                + "the Reference images folder at them.");
+                }
+                else if (totalAnchored == 0)
+                {
+                    sb.AppendLine("The images carry no surrounding text, so there is nothing to anchor "
+                                + "them to \u2013 typical of a patent\u0027s separate drawings file, where the "
+                                + "figure number is drawn inside the picture rather than written beside "
+                                + "it. **Folder mode**, with the labels read off the drawings.");
+                }
+                else if (totalLabelled == 0)
+                {
+                    sb.AppendLine("The images have no figure labels but they do sit among text. This is "
+                                + "the case a folder cannot serve: **document mode**, anchored to the "
+                                + "surrounding text.");
+                }
+                else
+                {
+                    sb.AppendLine("The images are labelled and anchored, so either mode works; "
+                                + "**document mode** keeps the anchors, which a folder cannot.");
+                }
+                sb.AppendLine();
+                sb.AppendLine("*Nothing here reaches the AI yet \u2013 the pass that turns drawings into "
+                            + "figures.md is issue #69, step 3.*");
+
+                var markdown = sb.ToString().TrimEnd();
+
+                _control.Value.SwitchToChatTab();
+                _chatHistory.Add(new ChatMessage
+                {
+                    Role = ChatRole.Assistant,
+                    Content = markdown
+                });
+                _control.Value.AddMessage(new ChatMessage
+                {
+                    Role = ChatRole.Assistant,
+                    Content = markdown
+                });
+                SaveChatHistory();
+
+                batchControl.AppendLog("Document images: " + totalImages
+                    + " across " + docxFiles.Count + " document(s) - see the Chat tab.");
+            });
+        }
 
         /// <summary>
         /// Lists every parenthesised reference numeral in the open document,
