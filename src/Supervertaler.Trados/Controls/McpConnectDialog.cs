@@ -108,14 +108,18 @@ namespace Supervertaler.Trados.Controls
             }
             catch { /* status is best-effort */ }
 
+            // Ask this session's listener, not the shared handshake file: with two
+            // Studios open that file belongs to whichever started last, so the older
+            // one reported the other's bridge as "this Trados session".
             bool bridgeUp = false;
-            try { bridgeUp = File.Exists(UserDataPath.SupervertalerBridgeFile); } catch { }
+            try { bridgeUp = AiAssistantViewPart.IsBridgeRunning; } catch { }
 
             root.Controls.Add(StatusLine(bridgeUp,
                 bridgeUp
                     ? "Supervertaler bridge is running in this Trados session."
-                    : "Supervertaler bridge not running yet – it starts when you open a document " +
-                      "in the editor."));
+                    : "Supervertaler bridge not running yet – it starts on its own shortly after Trados " +
+                      "Studio does; no document or panel needs to be open. If it stays like this, check " +
+                      "that the AI Assistant is enabled in Settings, or restart Studio."));
 
             // Version handshake: only shown once an AI app has actually connected
             // this session (LastSeenExeVersion > 0). Outdated = the exe predates a

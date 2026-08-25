@@ -1503,6 +1503,9 @@ namespace Supervertaler.Trados.Core
             "restart the app. Everything else keeps working meanwhile - the tool list is " +
             "read from the plugin at runtime, so this old build still has the current tools.";
 
+        /// <summary>When this bridge started listening; fixed for the session.</summary>
+        private string _startedAtUtc;
+
         private HttpListener _listener;
         private Thread _listenerThread;
         private CancellationTokenSource _cts;
@@ -1600,6 +1603,7 @@ namespace Supervertaler.Trados.Core
 
             BridgeLog.Write("Start() entered");
             _token = Guid.NewGuid().ToString("N");
+            _startedAtUtc = DateTime.UtcNow.ToString("o");
 
             // Before advertising ourselves, clear out instances that died without
             // running Stop() – otherwise we look like the second of two live
@@ -1675,9 +1679,25 @@ namespace Supervertaler.Trados.Core
         // that is still running, so an older client sees a dead handshake instead
         // of a live one.
         //
-        // Both hooks fire on an orderly exit and neither fires on a kill, which is
-        // what the stale-file sweep in Start() is for. Stop() is idempotent, so
-        // being called from Dispose and again from a hook is harmless.
+        // NOT RELIED UPON. Measured in Trados on 2026-08-25: closing Studio normally
+        // fires neither this nor the view part's Dispose, so the handshake outlives
+        // the process either way. The recovery that actually works is on the other
+        // side — SweepStaleInstanceFiles and ClaimSharedHandshakeIfAbandoned, run by
+        // whichever Studio is still alive. This hook stays because it is correct
+        // when it does fire (Dispose, and hosts that shut the CLR down properly),
+        // and costs nothing when it does not. Do not build anything on it.
+        //
+        // Stop() is idempotent, so being called from Dispose and again from the hook
+        // is harmless.
+        //
+        // DO NOT ALSO HOOK System.Windows.Forms.Application.ApplicationExit.
+        // It fires whenever *a* message loop ends, not when Studio quits, and
+        // Studio runs a short-lived loop while it starts up. Observed 2026-08-25:
+        // the event arrived 258 ms after Start() completed, so the bridge tore its
+        // own handshake down and closed its listener seconds into the session —
+        // live on a port, discoverable by nobody, for as long as Studio stayed
+        // open. Nothing in the log said anything was wrong; the only symptom was
+        // an empty runtime folder.
 
         private bool _shutdownHooked;
 
@@ -1687,7 +1707,6 @@ namespace Supervertaler.Trados.Core
             _shutdownHooked = true;
             try
             {
-                System.Windows.Forms.Application.ApplicationExit += OnProcessShutdown;
                 AppDomain.CurrentDomain.ProcessExit += OnProcessShutdown;
             }
             catch (Exception ex)
@@ -1700,7 +1719,6 @@ namespace Supervertaler.Trados.Core
         {
             if (!_shutdownHooked) return;
             _shutdownHooked = false;
-            try { System.Windows.Forms.Application.ApplicationExit -= OnProcessShutdown; } catch { }
             try { AppDomain.CurrentDomain.ProcessExit -= OnProcessShutdown; } catch { }
         }
 
@@ -1709,7 +1727,13 @@ namespace Supervertaler.Trados.Core
             try
             {
                 BridgeLog.Write("process shutdown – releasing handshake");
-                Stop();
+
+                // Only the handshake, NOT the listener: at genuine process exit the
+                // OS reclaims the socket anyway, and keeping the teardown out of
+                // this path means a hook that ever fires when it should not costs a
+                // rewritable file rather than a dead bridge. Learned the hard way —
+                // see the ApplicationExit note above.
+                ReleaseHandshakeFiles();
             }
             catch { /* never throw out of a shutdown handler */ }
         }
@@ -1722,6 +1746,16 @@ namespace Supervertaler.Trados.Core
             try { _listener?.Close(); } catch { /* ignore */ }
             _listener = null;
 
+            ReleaseHandshakeFiles();
+        }
+
+        /// <summary>
+        /// Withdraw this process's handshake so no client is pointed at a bridge
+        /// that is going away, and hand the shared file to a Studio still running.
+        /// Safe to call more than once.
+        /// </summary>
+        private void ReleaseHandshakeFiles()
+        {
             var myPid = 0;
             try { myPid = Process.GetCurrentProcess().Id; } catch { }
 
@@ -1759,9 +1793,9 @@ namespace Supervertaler.Trados.Core
 
             PromoteSurvivingInstanceToSharedHandshake(myPid);
 
-            // Don't Join the thread – HttpListener.Stop unblocks GetContext
-            // but the thread cleanup is best-effort. It's a background thread
-            // and will die with the process anyway.
+            // Note on the listener thread: HttpListener.Stop unblocks GetContext,
+            // but the thread cleanup is best-effort. It's a background thread and
+            // will die with the process anyway, so Stop() never joins it.
         }
 
         public void Dispose()
@@ -4027,7 +4061,14 @@ namespace Supervertaler.Trados.Core
                 Port = _port,
                 Token = _token,
                 Pid = proc.Id,
-                StartedAt = DateTime.UtcNow.ToString("o"),
+                // The moment the bridge came up, NOT the moment this file is being
+                // written. RefreshInstanceFile rewrites the handshake on every
+                // document change, so stamping "now" here would restamp it — and
+                // clients break the two-instance tie on newest startedAt, so the
+                // Studio you last clicked in would silently take over from the one
+                // that started last. Observed before it was fixed: a handshake
+                // 18 seconds "newer" than its own bridge.
+                StartedAt = _startedAtUtc ?? DateTime.UtcNow.ToString("o"),
                 // 18.x targets Studio 2024, 19.x targets Studio 2026 – the same
                 // mapping the update check uses to keep the two generations apart.
                 StudioVersion = asmVersion == null ? null
@@ -4055,10 +4096,48 @@ namespace Supervertaler.Trados.Core
         public void RefreshInstanceFile()
         {
             if (!IsRunning) return;
-            try { WriteHandshakeFile(includeShared: false); }
+            try
+            {
+                WriteHandshakeFile(includeShared: false);
+
+                // Tidy up after sessions that ended while we were running, and take
+                // over the shared handshake if its owner is gone. Both are here
+                // rather than only in Start() because a long-lived Studio has to
+                // cope with others coming and going around it.
+                SweepStaleInstanceFiles();
+                ClaimSharedHandshakeIfAbandoned();
+            }
             catch (Exception ex)
             {
                 BridgeLog.Write($"RefreshInstanceFile failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Take over <c>bridge.json</c> when whoever wrote it has gone.
+        ///
+        /// The handover cannot be done by the Studio that is closing: Trados runs
+        /// neither our Dispose nor AppDomain.ProcessExit on a normal close (both
+        /// verified in the field on 2026-08-25 — the handshake simply outlived the
+        /// process, with nothing in the log). So the SURVIVOR claims the file
+        /// instead. Only ever claims from a dead owner, so two live Studios never
+        /// fight over it and the last-to-start rule still holds while both are up.
+        /// </summary>
+        private void ClaimSharedHandshakeIfAbandoned()
+        {
+            try
+            {
+                var myPid = Process.GetCurrentProcess().Id;
+                var shared = ReadHandshakeFile(UserDataPath.SupervertalerBridgeFile);
+                if (shared != null && (shared.Pid == myPid || IsInstanceAlive(shared)))
+                    return;
+
+                File.WriteAllBytes(UserDataPath.SupervertalerBridgeFile, SerializeJson(BuildHandshake()));
+                BridgeLog.Write("claimed the shared handshake (previous owner is gone)");
+            }
+            catch (Exception ex)
+            {
+                BridgeLog.Write($"could not claim shared handshake: {ex.GetType().Name}: {ex.Message}");
             }
         }
 

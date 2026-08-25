@@ -1010,6 +1010,22 @@ namespace Supervertaler.Trados
         }
 
         /// <summary>
+        /// True when THIS Studio process has a bridge listening. The Connect dialog
+        /// used to answer this by testing whether bridge.json existed, which stopped
+        /// being about this session the moment a second Studio could overwrite that
+        /// file — the first Studio would cheerfully report the second one's bridge as
+        /// its own. Asking the live listener is exact and needs no file at all.
+        /// </summary>
+        public static bool IsBridgeRunning
+        {
+            get
+            {
+                try { return _currentInstance?._supervertalerBridge?.IsRunning == true; }
+                catch { return false; }
+            }
+        }
+
+        /// <summary>
         /// Identity for this Studio process's bridge handshake: which project and
         /// document it has open. When two Studio versions run side by side, this is
         /// what lets an MCP client tell the user which one it is talking to rather
