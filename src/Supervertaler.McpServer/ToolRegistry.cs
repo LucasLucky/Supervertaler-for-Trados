@@ -13,7 +13,54 @@ public sealed record ToolDef(
     string Path,                   // bridge path, e.g. /v1/segments
     IReadOnlyDictionary<string, string> ParamMap,   // mcp arg name -> bridge param name
     IReadOnlyDictionary<string, JsonNode?> FixedQuery,
-    IReadOnlyDictionary<string, JsonNode?> FixedBody);
+    IReadOnlyDictionary<string, JsonNode?> FixedBody,
+    ToolAccess Access,
+    IReadOnlyList<string> WriteWhen)
+{
+    /// <summary>
+    /// Whether THIS call writes, given its arguments.
+    ///
+    /// Deliberately not derived from <see cref="Method"/>: GET/POST nearly
+    /// matches read/write across the registry but not quite —
+    /// <c>get_tracked_changes(save=true)</c> is a GET that persists revision
+    /// pairs into a memory bank, and serving that from the wrong Studio writes
+    /// one project's revisions into another project's bank.
+    /// </summary>
+    public bool IsWrite(IReadOnlyDictionary<string, JsonElement> args) => Access switch
+    {
+        ToolAccess.Read => false,
+        // An empty writeWhen makes the condition unanswerable, so it falls back
+        // to the safe reading rather than silently becoming a read.
+        ToolAccess.Conditional => WriteWhen.Count == 0 || WriteWhen.Any(p => IsTruthy(args, p)),
+        _ => true,
+    };
+
+    private static bool IsTruthy(IReadOnlyDictionary<string, JsonElement> args, string name)
+    {
+        if (!args.TryGetValue(name, out var v)) return false;
+        return v.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Null or JsonValueKind.Undefined => false,
+            JsonValueKind.String => bool.TryParse(v.GetString(), out var b) && b,
+            JsonValueKind.Number => v.TryGetDouble(out var d) && d != 0,
+            _ => true,
+        };
+    }
+}
+
+/// <summary>Whether a tool changes anything, which decides what happens when
+/// more than one Studio instance is live (issue #72).</summary>
+public enum ToolAccess
+{
+    /// <summary>Changes nothing. Served under ambiguity, with a warning.</summary>
+    Read,
+    /// <summary>Changes something. Refused under ambiguity.</summary>
+    Write,
+    /// <summary>A write only when one of <see cref="ToolDef.WriteWhen"/> is set truthy.</summary>
+    Conditional
+}
 
 /// <summary>
 /// Loads the tool registry the exe exposes. Source of truth is the plugin's
@@ -110,9 +157,39 @@ public static class ToolRegistry
                 o["path"]?.GetValue<string>() ?? "",
                 ToStringMap(o["paramMap"]),
                 ToNodeMap(o["fixedQuery"]),
-                ToNodeMap(o["fixedBody"])));
+                ToNodeMap(o["fixedBody"]),
+                ParseAccess(o["access"]),
+                ToStringList(o["writeWhen"])));
         }
         return result;
+    }
+
+    /// <summary>
+    /// Fail closed. A registry with no "access" fields is a real possibility —
+    /// the disk cache and the bundled fallback can both predate the annotation —
+    /// and the safe reading of "unknown" is "write". The cost is an over-strict
+    /// refusal while two Studios are live, until the cache refreshes from a live
+    /// bridge; the alternative is an unannotated update_segments waved through
+    /// as a read into whichever project happened to start last.
+    /// </summary>
+    private static ToolAccess ParseAccess(JsonNode? n)
+    {
+        var s = n?.GetValue<string>();
+        return s?.ToLowerInvariant() switch
+        {
+            "read" => ToolAccess.Read,
+            "conditional" => ToolAccess.Conditional,
+            _ => ToolAccess.Write,
+        };
+    }
+
+    private static IReadOnlyList<string> ToStringList(JsonNode? n)
+    {
+        var list = new List<string>();
+        if (n is JsonArray a)
+            foreach (var item in a)
+                if (item != null) list.Add(item.GetValue<string>());
+        return list;
     }
 
     private static IReadOnlyDictionary<string, string> ToStringMap(JsonNode? n)

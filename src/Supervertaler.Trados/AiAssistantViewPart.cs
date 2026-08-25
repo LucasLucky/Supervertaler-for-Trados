@@ -406,6 +406,11 @@ namespace Supervertaler.Trados
                     _control.Value.BatchTranslateControl.Reset();
                 });
             }
+
+            // Keep the bridge handshake's project/document name current, so a
+            // client naming this instance to the user names the right project.
+            try { _supervertalerBridge?.RefreshInstanceFile(); }
+            catch { /* never let handshake bookkeeping break document switching */ }
         }
 
         private void OnActiveSegmentChanged(object sender, EventArgs e)
@@ -993,7 +998,8 @@ namespace Supervertaler.Trados
                     markReviewed: BridgeMarkReviewed,
                     getCoverage: BridgeGetCoverage,
                     getTrackedChanges: BridgeGetTrackedChanges,
-                    importTermbase: BridgeImportTermbase);
+                    importTermbase: BridgeImportTermbase,
+                    getInstanceInfo: BuildBridgeInstanceInfo);
                 _supervertalerBridge.Start();
             }
             catch (Exception ex)
@@ -1001,6 +1007,25 @@ namespace Supervertaler.Trados
                 BridgeLog.Write($"StartSupervertalerBridge() THREW: {ex.GetType().Name}: {ex.Message}\r\n{ex.StackTrace}");
                 _supervertalerBridge = null;
             }
+        }
+
+        /// <summary>
+        /// Identity for this Studio process's bridge handshake: which project and
+        /// document it has open. When two Studio versions run side by side, this is
+        /// what lets an MCP client tell the user which one it is talking to rather
+        /// than guessing between two indistinguishable ports (issue #72).
+        /// Called on the UI thread, from bridge start and ActiveDocumentChanged.
+        /// </summary>
+        private BridgeInstanceInfo BuildBridgeInstanceInfo()
+        {
+            string activeFile = null;
+            try { activeFile = _activeDocument?.ActiveFile?.Name; } catch { /* between documents */ }
+
+            return new BridgeInstanceInfo
+            {
+                ProjectName = TermLensEditorViewPart.GetCurrentProjectName(),
+                ActiveFile = activeFile
+            };
         }
 
         /// <summary>

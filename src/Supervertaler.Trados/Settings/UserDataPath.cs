@@ -94,6 +94,21 @@ namespace Supervertaler.Trados.Settings
         /// </summary>
         public static string SupervertalerBridgeFile => Path.Combine(TradosRuntimeDir, "bridge.json");
 
+        /// <summary>
+        /// One handshake file per live Studio process, so two Studio versions
+        /// running side by side stay tellable apart. <see cref="SupervertalerBridgeFile"/>
+        /// is still written (last writer wins, as before) for older MCP server
+        /// exes and for Workbench's Sidekick Chat; new clients enumerate this
+        /// folder instead and get <c>studioVersion</c> / <c>projectName</c> with
+        /// each entry so they can name the instance they are talking to.
+        /// See issue #72.
+        /// </summary>
+        public static string TradosInstancesDir => Path.Combine(TradosRuntimeDir, "instances");
+
+        /// <summary>Handshake file for one Studio process: <c>bridge-&lt;pid&gt;.json</c>.</summary>
+        public static string SupervertalerBridgeInstanceFile(int pid)
+            => Path.Combine(TradosInstancesDir, "bridge-" + pid + ".json");
+
         // ── Memory banks (multi-bank layout) ─────────────────────────
         //
         // The Supervertaler Assistant supports several memory banks side by side,

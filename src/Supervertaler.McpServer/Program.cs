@@ -70,10 +70,27 @@ builder.Services
         var args = ctx.Params?.Arguments ?? new Dictionary<string, JsonElement>();
         try
         {
+            // Which Studio are we talking to? With two open (e.g. Studio 2024 and
+            // 2026 side by side) this is genuinely ambiguous, and the two halves
+            // of that are not equally dangerous: a read from the wrong instance is
+            // misleading, a write into the wrong instance destroys work. So writes
+            // are refused until an instance is selected, and reads go through with
+            // a warning naming the instance they came from. See issue #72.
+            var selection = bridge.Resolve();
+
+            // isError:false to match the bridge-unavailable path below: the whole
+            // value of this refusal is the AI reading it and asking the user which
+            // Studio they meant, so it goes back as ordinary tool output.
+            if (selection.IsAmbiguous && def.IsWrite(args))
+                return TextResult(RefuseAmbiguousWrite(def.Name, selection), isError: false);
+
             string result = def.Method == "POST"
-                ? await bridge.PostAsync(def.Path, BuildBody(def, args), ct)
-                : await bridge.GetAsync(def.Path + BuildQuery(def, args), ct);
-            return TextResult(result);
+                ? await bridge.PostAsync(selection.Chosen, def.Path, BuildBody(def, args), ct)
+                : await bridge.GetAsync(selection.Chosen, def.Path + BuildQuery(def, args), ct);
+
+            return selection.IsAmbiguous
+                ? WarnedResult(AmbiguousReadWarning(selection), result)
+                : TextResult(result);
         }
         catch (Exception ex) when (ex is BridgeUnavailableException or HttpRequestException or TaskCanceledException)
         {
@@ -135,6 +152,53 @@ static CallToolResult TextResult(string text, bool isError = false) => new()
     IsError = isError,
     Content = new List<ContentBlock> { new TextContentBlock { Text = text } }
 };
+
+// Warning and payload as separate content blocks, so the tool's JSON stays
+// parseable — prepending the warning into the string would corrupt it.
+static CallToolResult WarnedResult(string warning, string text) => new()
+{
+    IsError = false,
+    Content = new List<ContentBlock>
+    {
+        new TextContentBlock { Text = warning },
+        new TextContentBlock { Text = text },
+    }
+};
+
+// Deliberately on EVERY ambiguous read, not just the first: the failure this
+// guards against is an agent acting confidently on the wrong project's data,
+// and a warning issued forty turns ago has been compacted away. Kept to two
+// lines because every byte returned is re-sent on every later turn — the exact
+// cost session_report exists to measure.
+static string AmbiguousReadWarning(BridgeSelection sel) =>
+    $"⚠ Multiple Trados instances are live. This result is from {sel.Chosen.Label}. "
+    + string.Join("; ", sel.Others.Select(o => o.Label)) + " also running.\n"
+    + "Writes are refused until one instance is selected. Tell the user which instance this describes.";
+
+static string RefuseAmbiguousWrite(string toolName, BridgeSelection sel)
+{
+    var instances = sel.Live
+        .Select(i => new
+        {
+            studioVersion = i.StudioVersion,
+            project = i.ProjectName,
+            activeFile = i.ActiveFile,
+            pid = i.Pid,
+        })
+        .ToList();
+
+    return JsonSerializer.Serialize(new
+    {
+        ok = false,
+        error = $"Refusing to run '{toolName}': {sel.Live.Count} Trados Studio instances are running and "
+              + "nothing says which one to write to. Writing to the wrong one would edit the wrong project's "
+              + "document. Ask the user which instance they mean, then either close the other Studio, or set "
+              + "SUPERVERTALER_BRIDGE_FILE for this MCP server to that instance's handshake file "
+              + "(trados\\runtime\\instances\\bridge-<pid>.json) and restart the chat app.",
+        instances,
+        note = "Read-only tools still work and report which instance answered.",
+    });
+}
 
 // Stable fingerprint of the advertised tool set (names + descriptions), so the
 // watcher only fires tools/list_changed on a real change.

@@ -193,6 +193,50 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "token", Order = 2)] public string Token { get; set; }
         [DataMember(Name = "pid", Order = 3)] public int Pid { get; set; }
         [DataMember(Name = "startedAt", Order = 4)] public string StartedAt { get; set; }
+
+        // ── Instance identity (issue #72) ────────────────────────────────
+        //
+        // Added on version 1 deliberately: the MCP exe does not validate
+        // `version` at all, and Workbench's Sidekick Chat reads this same file
+        // from another repo under a convention of strict version equality
+        // (cf. WorkbenchBridgeClient). Additive fields keep every existing
+        // reader working; a bump would not.
+        //
+        // All EmitDefaultValue = false, so a plain bridge.json written by this
+        // build is byte-identical to the old one when no project is open.
+
+        /// <summary>"2024" or "2026" – derived from the plugin build major
+        /// (18.x targets Studio 2024, 19.x targets Studio 2026).</summary>
+        [DataMember(Name = "studioVersion", Order = 5, EmitDefaultValue = false)] public string StudioVersion { get; set; }
+
+        /// <summary>Full plugin assembly version, so a client can report a mismatch.</summary>
+        [DataMember(Name = "pluginVersion", Order = 6, EmitDefaultValue = false)] public string PluginVersion { get; set; }
+
+        /// <summary>Active project name, refreshed on project switch. Null when none is open.</summary>
+        [DataMember(Name = "projectName", Order = 7, EmitDefaultValue = false)] public string ProjectName { get; set; }
+
+        /// <summary>Active document name, best-effort. Null when none is open.</summary>
+        [DataMember(Name = "activeFile", Order = 8, EmitDefaultValue = false)] public string ActiveFile { get; set; }
+
+        /// <summary>
+        /// Process name that wrote this file ("SDLTradosStudio"). Readers pair it
+        /// with <c>pid</c> for liveness: Windows reuses PIDs, and a recycled PID
+        /// would otherwise make a dead instance look live – which for a write
+        /// gate means routing an edit at a process that is not Studio at all.
+        /// Stored rather than hard-coded so it stays right if the exe is ever
+        /// renamed between Studio generations.
+        /// </summary>
+        [DataMember(Name = "processName", Order = 9, EmitDefaultValue = false)] public string ProcessName { get; set; }
+    }
+
+    /// <summary>
+    /// The bits of instance identity the bridge cannot work out for itself:
+    /// they come from the editor and must be read on the UI thread.
+    /// </summary>
+    public class BridgeInstanceInfo
+    {
+        public string ProjectName { get; set; }
+        public string ActiveFile { get; set; }
     }
 
     [DataContract]
@@ -1361,6 +1405,7 @@ namespace Supervertaler.Trados.Core
         private const int HandshakeVersion = 1;
 
         private readonly Func<BridgeContextSnapshot> _getContext;
+        private readonly Func<BridgeInstanceInfo> _getInstanceInfo; // project/document identity for the handshake (UI thread)
         private readonly Func<string, string> _insertText; // returns null on success, error message otherwise
         private readonly Func<BridgeProjectSnapshot> _getProject;
         private readonly Func<BridgeSegmentsQuery, BridgeSegmentsResponse> _getSegments;
@@ -1498,8 +1543,10 @@ namespace Supervertaler.Trados.Core
             Func<BridgeMarkReviewedRequest, BridgeMarkReviewedResponse> markReviewed = null,
             Func<BridgeCoverageResponse> getCoverage = null,
             Func<BridgeTrackedChangesQuery, BridgeTrackedChangesResponse> getTrackedChanges = null,
-            Func<BridgeImportTermbaseRequest, BridgeImportTermbaseResponse> importTermbase = null)
+            Func<BridgeImportTermbaseRequest, BridgeImportTermbaseResponse> importTermbase = null,
+            Func<BridgeInstanceInfo> getInstanceInfo = null)
         {
+            _getInstanceInfo = getInstanceInfo;
             _getContext = getContext ?? throw new ArgumentNullException(nameof(getContext));
             _insertText = insertText ?? throw new ArgumentNullException(nameof(insertText));
             _getProject = getProject;
@@ -1554,6 +1601,11 @@ namespace Supervertaler.Trados.Core
             BridgeLog.Write("Start() entered");
             _token = Guid.NewGuid().ToString("N");
 
+            // Before advertising ourselves, clear out instances that died without
+            // running Stop() – otherwise we look like the second of two live
+            // Studios and clients start refusing writes for no reason.
+            SweepStaleInstanceFiles();
+
             // HttpListener doesn't accept "port 0 = OS-pick" so we try a
             // handful of random high ports until one is free.
             var rng = new Random();
@@ -1599,7 +1651,7 @@ namespace Supervertaler.Trados.Core
 
             try
             {
-                WriteHandshakeFile();
+                WriteHandshakeFile(includeShared: true);
                 BridgeLog.Write($"handshake file written at {UserDataPath.SupervertalerBridgeFile}");
             }
             catch (Exception ex)
@@ -1618,15 +1670,42 @@ namespace Supervertaler.Trados.Core
             try { _listener?.Close(); } catch { /* ignore */ }
             _listener = null;
 
+            var myPid = 0;
+            try { myPid = Process.GetCurrentProcess().Id; } catch { }
+
             try
             {
+                // Only delete the shared handshake if it is still OURS. Deleting it
+                // unconditionally is what left a second Studio listening but
+                // undiscoverable: its bridge was fine, its handshake was gone.
                 if (File.Exists(UserDataPath.SupervertalerBridgeFile))
-                    File.Delete(UserDataPath.SupervertalerBridgeFile);
+                {
+                    var shared = ReadHandshakeFile(UserDataPath.SupervertalerBridgeFile);
+                    if (shared == null || shared.Pid == myPid)
+                        File.Delete(UserDataPath.SupervertalerBridgeFile);
+                    else
+                        BridgeLog.Write($"shared handshake belongs to PID {shared.Pid} – left in place");
+                }
             }
             catch (Exception ex)
             {
                 BridgeLog.Write($"[SupervertalerBridge] failed to delete handshake file: {ex.Message}");
             }
+
+            try
+            {
+                if (myPid > 0)
+                {
+                    var mine = UserDataPath.SupervertalerBridgeInstanceFile(myPid);
+                    if (File.Exists(mine)) File.Delete(mine);
+                }
+            }
+            catch (Exception ex)
+            {
+                BridgeLog.Write($"[SupervertalerBridge] failed to delete instance handshake: {ex.Message}");
+            }
+
+            PromoteSurvivingInstanceToSharedHandshake(myPid);
 
             // Don't Join the thread – HttpListener.Stop unblocks GetContext
             // but the thread cleanup is best-effort. It's a background thread
@@ -3835,21 +3914,210 @@ namespace Supervertaler.Trados.Core
 
         // ── Handshake file ───────────────────────────────────────────────
 
-        private void WriteHandshakeFile()
+        /// <param name="includeShared">
+        /// Whether to (re)claim the shared <c>bridge.json</c>. True at startup only.
+        /// A refresh must NOT touch it: rewriting it on every document change would
+        /// make the two Studios trade the shared handshake back and forth as the user
+        /// switches documents, so an older client would hop between instances
+        /// mid-conversation. Claiming it once at start keeps the old, predictable
+        /// last-to-start-wins behaviour for those readers.
+        /// </param>
+        private void WriteHandshakeFile(bool includeShared)
         {
             Directory.CreateDirectory(UserDataPath.TradosRuntimeDir);
 
-            var handshake = new BridgeHandshake
+            var handshake = BuildHandshake();
+            var bytes = SerializeJson(handshake);
+
+            // Shared file: kept for older MCP exes and Workbench's Sidekick
+            // Chat. Last writer still wins here – that is what the per-instance
+            // file below exists to fix, not something we can change without
+            // breaking those readers.
+            if (includeShared)
+                File.WriteAllBytes(UserDataPath.SupervertalerBridgeFile, bytes);
+
+            try
+            {
+                Directory.CreateDirectory(UserDataPath.TradosInstancesDir);
+                File.WriteAllBytes(UserDataPath.SupervertalerBridgeInstanceFile(handshake.Pid), bytes);
+            }
+            catch (Exception ex)
+            {
+                // Non-fatal: a new client falls back to bridge.json, an old one
+                // never looked here anyway.
+                BridgeLog.Write($"failed to write instance handshake: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private BridgeHandshake BuildHandshake()
+        {
+            var proc = Process.GetCurrentProcess();
+            var asmVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+
+            string projectName = null, activeFile = null;
+            try
+            {
+                // Reads the editor, so it must be whatever thread the caller is
+                // on – Start() and RefreshInstanceFile() are both called from the
+                // UI thread. Never let a null document break the handshake.
+                var info = _getInstanceInfo?.Invoke();
+                projectName = info?.ProjectName;
+                activeFile = info?.ActiveFile;
+            }
+            catch (Exception ex)
+            {
+                BridgeLog.Write($"instance info unavailable: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            return new BridgeHandshake
             {
                 Version = HandshakeVersion,
                 Port = _port,
                 Token = _token,
-                Pid = Process.GetCurrentProcess().Id,
-                StartedAt = DateTime.UtcNow.ToString("o")
+                Pid = proc.Id,
+                StartedAt = DateTime.UtcNow.ToString("o"),
+                // 18.x targets Studio 2024, 19.x targets Studio 2026 – the same
+                // mapping the update check uses to keep the two generations apart.
+                StudioVersion = asmVersion == null ? null
+                    : asmVersion.Major == 18 ? "2024"
+                    : asmVersion.Major == 19 ? "2026"
+                    : null,
+                PluginVersion = asmVersion?.ToString(),
+                ProjectName = projectName,
+                ActiveFile = activeFile,
+                ProcessName = SafeProcessName(proc)
             };
+        }
 
-            var bytes = SerializeJson(handshake);
-            File.WriteAllBytes(UserDataPath.SupervertalerBridgeFile, bytes);
+        private static string SafeProcessName(Process p)
+        {
+            try { return p.ProcessName; } catch { return null; }
+        }
+
+        /// <summary>
+        /// Rewrite this instance's handshake so <c>projectName</c> / <c>activeFile</c>
+        /// track the editor. Called on ActiveDocumentChanged: the names are what a
+        /// client shows the user when it has to say which Studio it is talking to,
+        /// and a stale name there is worse than none.
+        /// </summary>
+        public void RefreshInstanceFile()
+        {
+            if (!IsRunning) return;
+            try { WriteHandshakeFile(includeShared: false); }
+            catch (Exception ex)
+            {
+                BridgeLog.Write($"RefreshInstanceFile failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Drop instance handshakes whose process is gone. Studio does not always
+        /// get to run <see cref="Stop"/> – a crash or a kill leaves the file behind,
+        /// and a stale entry makes a client believe two instances are live and
+        /// refuse writes that were never ambiguous.
+        /// </summary>
+        private static void SweepStaleInstanceFiles()
+        {
+            try
+            {
+                if (!Directory.Exists(UserDataPath.TradosInstancesDir)) return;
+
+                foreach (var file in Directory.GetFiles(UserDataPath.TradosInstancesDir, "bridge-*.json"))
+                {
+                    try
+                    {
+                        var hs = ReadHandshakeFile(file);
+                        if (hs != null && IsInstanceAlive(hs)) continue;
+                        File.Delete(file);
+                        BridgeLog.Write($"swept stale instance handshake {Path.GetFileName(file)}");
+                    }
+                    catch { /* next file */ }
+                }
+            }
+            catch (Exception ex)
+            {
+                BridgeLog.Write($"instance sweep failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// After we shut down, republish a surviving instance into the shared
+        /// <c>bridge.json</c>. Clients that predate per-instance discovery only
+        /// read that file, so without this, closing the Studio that happened to
+        /// write it last leaves the other one running but invisible to them —
+        /// the orphaning bug, just displaced onto older clients.
+        /// Newest survivor wins, matching how new clients break the same tie.
+        /// </summary>
+        private static void PromoteSurvivingInstanceToSharedHandshake(int excludePid)
+        {
+            try
+            {
+                if (File.Exists(UserDataPath.SupervertalerBridgeFile)) return;   // still owned by someone else
+                if (!Directory.Exists(UserDataPath.TradosInstancesDir)) return;
+
+                BridgeHandshake best = null;
+                string bestStartedAt = null;
+
+                foreach (var file in Directory.GetFiles(UserDataPath.TradosInstancesDir, "bridge-*.json"))
+                {
+                    var hs = ReadHandshakeFile(file);
+                    if (hs == null || hs.Pid == excludePid || !IsInstanceAlive(hs)) continue;
+                    if (best == null || string.CompareOrdinal(hs.StartedAt, bestStartedAt) > 0)
+                    {
+                        best = hs;
+                        bestStartedAt = hs.StartedAt;
+                    }
+                }
+
+                if (best == null) return;
+
+                File.WriteAllBytes(UserDataPath.SupervertalerBridgeFile, SerializeJson(best));
+                BridgeLog.Write($"promoted instance PID {best.Pid} into the shared handshake");
+            }
+            catch (Exception ex)
+            {
+                BridgeLog.Write($"handshake promotion failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private static BridgeHandshake ReadHandshakeFile(string path)
+        {
+            try
+            {
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    var serializer = new DataContractJsonSerializer(typeof(BridgeHandshake));
+                    return serializer.ReadObject(fs) as BridgeHandshake;
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// PID liveness, plus a process-name match where the handshake records one.
+        /// Windows reuses PIDs, and a recycled PID would otherwise resurrect a dead
+        /// instance – which on the client side means a write gate pointed at a
+        /// process that is not Studio.
+        /// </summary>
+        private static bool IsInstanceAlive(BridgeHandshake hs)
+        {
+            if (hs == null || hs.Pid <= 0) return false;
+            try
+            {
+                using (var p = Process.GetProcessById(hs.Pid))
+                {
+                    if (p.HasExited) return false;
+                    if (string.IsNullOrEmpty(hs.ProcessName)) return true;
+                    return string.Equals(SafeProcessName(p), hs.ProcessName, StringComparison.OrdinalIgnoreCase);
+                }
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         // ── Cost instrumentation ─────────────────────────────────────────
