@@ -193,14 +193,38 @@ namespace Supervertaler.Trados.Controls
 
             var stepHint = new Label
             {
-                Text = "1.  Download the extension file (Supervertaler-MCP-Server.mcpb).\r\n" +
-                       "2.  In Claude Desktop: Settings → Extensions → Advanced settings → Install extension…\r\n" +
-                       "3.  Restart Claude Desktop and ask: \"What's the status of my Trados project?\"",
+                Text = extensionInstalled
+                    ? "Replacing the installed extension (Claude Desktop cannot delete the server while it is running):\r\n" +
+                      "1.  Download the new extension file (Supervertaler-MCP-Server.mcpb).\r\n" +
+                      "2.  Quit Claude Desktop completely — closing the window is not enough, it keeps\r\n" +
+                      "     running in the notification area. Then start it again.\r\n" +
+                      "3.  Settings → Extensions → Advanced settings → Install extension…\r\n" +
+                      "4.  Restart Claude Desktop and ask: \"What's the status of my Trados project?\""
+                    : "1.  Download the extension file (Supervertaler-MCP-Server.mcpb).\r\n" +
+                      "2.  In Claude Desktop: Settings → Extensions → Advanced settings → Install extension…\r\n" +
+                      "3.  Restart Claude Desktop and ask: \"What's the status of my Trados project?\"",
                 AutoSize = true,
                 MaximumSize = new Size(UiScale.Pixels(520), 0),
                 Margin = new Padding(0, 0, 0, UiScale.Pixels(6))
             };
             root.Controls.Add(stepHint);
+
+            if (extensionInstalled)
+            {
+                // Skipping the quit step fails with a raw "EPERM: operation not
+                // permitted, unlink …SupervertalerMcpServer.exe", which reads like a
+                // broken download rather than a running process holding the file.
+                var lockNote = new Label
+                {
+                    Text = "If you skip step 2 the install fails with an \"EPERM … unlink\" error. The "
+                         + "uninstall is then queued: quit Claude Desktop, start it again, and install once more.",
+                    AutoSize = true,
+                    ForeColor = Color.FromArgb(110, 110, 110),
+                    MaximumSize = new Size(UiScale.Pixels(520), 0),
+                    Margin = new Padding(0, 0, 0, UiScale.Pixels(6))
+                };
+                root.Controls.Add(lockNote);
+            }
 
             var btnDownload = new Button
             {

@@ -1,6 +1,9 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -87,6 +90,49 @@ namespace Supervertaler.Trados.Core
             public string Message;
             public string BackupPath;
             public bool Downloaded;
+            /// <summary>True when an existing server was replaced rather than first installed.</summary>
+            public bool Updated;
+        }
+
+        // ── Server version ───────────────────────────────────────────────
+        //
+        // The plugin and the server exe ship from the same release and share a
+        // version TAIL: plugin 18.20.184 (Studio 2024) / 19.20.184 (Studio 2026),
+        // exe stamped 1.20.184 by tools/build_mcpb.py. Only the tail is
+        // comparable — the major encodes the Studio generation on the plugin and
+        // the bundle scheme on the exe, so comparing whole versions would say the
+        // exe is permanently behind. Exes built before the stamp exist in the wild reporting
+        // 1.0.0.0, which reads as "older than anything" and so offers an update.
+
+        /// <summary>Version of the server exe on disk, or null when absent/unreadable.</summary>
+        public static Version InstalledServerVersion
+        {
+            get
+            {
+                try
+                {
+                    if (!File.Exists(ServerExePath)) return null;
+                    var raw = FileVersionInfo.GetVersionInfo(ServerExePath).FileVersion;
+                    return Version.TryParse(raw, out var v) ? v : null;
+                }
+                catch { return null; }
+            }
+        }
+
+        /// <summary>Minor.Build of a version — the part the plugin and the exe share.</summary>
+        private static Version Tail(Version v)
+            => v == null ? null : new Version(Math.Max(v.Minor, 0), Math.Max(v.Build, 0));
+
+        /// <summary>
+        /// True when a server is installed but predates this plugin build. Never
+        /// true when nothing is installed — that is "absent", handled separately.
+        /// </summary>
+        public static bool IsServerOutdated()
+        {
+            var installed = Tail(InstalledServerVersion);
+            if (installed == null) return false;
+            var plugin = Tail(Assembly.GetExecutingAssembly().GetName().Version);
+            return plugin != null && installed < plugin;
         }
 
         /// <summary>
@@ -101,11 +147,24 @@ namespace Supervertaler.Trados.Core
 
             try
             {
-                if (!File.Exists(ServerExePath))
+                var hadServer = File.Exists(ServerExePath);
+                var outdated = hadServer && IsServerOutdated();
+
+                // Until 20.185 this only ever downloaded when the file was ABSENT,
+                // so anyone set up once kept that exe for ever — including past a
+                // bump in the exe's own protocol level, which the plugin could
+                // detect (ExeOutdated) but not act on.
+                if (!hadServer || outdated)
                 {
-                    Say("Downloading the MCP server…");
-                    await DownloadServerAsync().ConfigureAwait(false);
+                    Say(hadServer ? "Updating the MCP server…" : "Downloading the MCP server…");
+                    var error = await DownloadServerAsync().ConfigureAwait(false);
+                    if (error != null)
+                    {
+                        result.Message = error;
+                        return result;
+                    }
                     result.Downloaded = true;
+                    result.Updated = hadServer;
                 }
 
                 if (!File.Exists(ServerExePath))
@@ -120,7 +179,9 @@ namespace Supervertaler.Trados.Core
 
                 result.Success = true;
                 result.Message =
-                    "ChatGPT desktop is set up.\r\n\r\n"
+                    (result.Updated
+                        ? "The MCP server has been updated and ChatGPT desktop is set up.\r\n\r\n"
+                        : "ChatGPT desktop is set up.\r\n\r\n")
                     + "Quit ChatGPT completely — closing the window is not enough, it keeps "
                     + "running in the notification area — then start it again and ask:\r\n\r\n"
                     + "    What Trados project is open?";
@@ -137,30 +198,117 @@ namespace Supervertaler.Trados.Core
             }
         }
 
-        private static async Task DownloadServerAsync()
+        /// <summary>
+        /// Fetch the server and put it in place. Returns null on success, or a
+        /// user-facing message explaining what stopped it.
+        /// </summary>
+        private static async Task<string> DownloadServerAsync()
         {
             var assetUrl = await ResolveAssetUrlAsync().ConfigureAwait(false);
-            if (assetUrl == null) return;
+            if (assetUrl == null)
+                return "Could not find the MCP server download on the latest release. Check your "
+                     + "internet connection, or install it by hand — see the documentation.";
 
             Directory.CreateDirectory(ServerDir);
-            var zipPath = Path.Combine(ServerDir, AssetName);
+            SweepReplacedServers();
 
+            var zipPath = Path.Combine(ServerDir, AssetName);
             await UpdateChecker.DownloadFileAsync(assetUrl, zipPath).ConfigureAwait(false);
 
-            // ExtractToDirectory refuses to overwrite, so unpack the one entry
-            // we want by hand — a half-extracted retry would otherwise dead-end.
-            using (var zip = ZipFile.OpenRead(zipPath))
+            // Unpack beside the target rather than onto it. ExtractToFile truncates
+            // before it writes, so extracting straight onto a live server exe turns
+            // a failed download into no working server at all.
+            var staged = ServerExePath + ".new";
+            try
             {
-                foreach (var entry in zip.Entries)
+                try { if (File.Exists(staged)) File.Delete(staged); } catch { }
+
+                using (var zip = ZipFile.OpenRead(zipPath))
                 {
-                    if (!string.Equals(entry.Name, ExeName, StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    entry.ExtractToFile(ServerExePath, overwrite: true);
-                    break;
+                    var entry = zip.Entries.FirstOrDefault(e =>
+                        string.Equals(e.Name, ExeName, StringComparison.OrdinalIgnoreCase));
+                    if (entry == null)
+                        return "The downloaded package did not contain " + ExeName + ".";
+                    entry.ExtractToFile(staged, overwrite: true);
+                }
+
+                return InstallStagedServer(staged);
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLog.Log(LogCategory, $"Download failed: {ex}");
+                try { if (File.Exists(staged)) File.Delete(staged); } catch { }
+                return "The MCP server could not be downloaded: " + ex.Message;
+            }
+            finally
+            {
+                try { File.Delete(zipPath); } catch { /* leaving it is harmless */ }
+            }
+        }
+
+        /// <summary>
+        /// Swap the staged server into place. Returns null on success, or a
+        /// user-facing message.
+        /// </summary>
+        private static string InstallStagedServer(string staged)
+        {
+            try
+            {
+                if (!File.Exists(ServerExePath))
+                {
+                    File.Move(staged, ServerExePath);
+                    return null;
+                }
+
+                // Windows refuses to DELETE a running executable but is happy to
+                // RENAME one. So retire the old server sideways and move the new
+                // one into its place: a ChatGPT that is running right now keeps
+                // using the renamed file until it restarts, and nothing has to be
+                // quit first. Overwriting in place, by contrast, fails outright
+                // with "the process cannot access the file" — which is exactly the
+                // wall people hit updating the Claude Desktop extension.
+                var retired = ServerExePath + ".old";
+                try { if (File.Exists(retired)) File.Delete(retired); } catch { }
+
+                File.Move(ServerExePath, retired);
+                try
+                {
+                    File.Move(staged, ServerExePath);
+                }
+                catch
+                {
+                    // Put the working server back rather than leaving none.
+                    try { File.Move(retired, ServerExePath); } catch { }
+                    throw;
+                }
+
+                // Fails while the retired server is still running; harmless, and
+                // the next run sweeps it.
+                try { File.Delete(retired); } catch { }
+                return null;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                DiagnosticLog.Log(LogCategory, $"Server replace failed: {ex}");
+                try { if (File.Exists(staged)) File.Delete(staged); } catch { }
+                return "The MCP server file is locked and could not be replaced. Quit ChatGPT from "
+                     + "the notification area (closing the window is not enough), then press this "
+                     + "button again. Your existing server keeps working in the meantime.";
+            }
+        }
+
+        /// <summary>Delete servers retired by an earlier update, once nothing holds them.</summary>
+        private static void SweepReplacedServers()
+        {
+            try
+            {
+                foreach (var leftover in Directory.GetFiles(ServerDir, ExeName + ".old")
+                    .Concat(Directory.GetFiles(ServerDir, ExeName + ".new")))
+                {
+                    try { File.Delete(leftover); } catch { /* still running – next time */ }
                 }
             }
-
-            try { File.Delete(zipPath); } catch { /* leaving it is harmless */ }
+            catch { /* best effort */ }
         }
 
         /// <summary>Finds the exe zip on the latest GitHub release.</summary>

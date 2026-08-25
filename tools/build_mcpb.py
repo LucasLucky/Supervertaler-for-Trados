@@ -75,7 +75,12 @@ def main() -> int:
             ["dotnet", "publish", "-c", "Release", "-r", "win-x64",
              "--self-contained", "true",
              "-p:PublishSingleFile=true",
-             "-p:IncludeNativeLibrariesForSelfExtract=true"],
+             "-p:IncludeNativeLibrariesForSelfExtract=true",
+             # Stamp the version onto the exe. ChatGptMcpSetup reads it back with
+             # FileVersionInfo to decide whether the server it installed earlier is
+             # behind the plugin; without a stamp every build reports 1.0.0.0 and
+             # an existing install could never be recognised as out of date.
+             f"-p:Version={args.version}"],
             cwd=PROJECT, check=True)
 
     exe = PUBLISH_DIR / "SupervertalerMcpServer.exe"
