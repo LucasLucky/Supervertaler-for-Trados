@@ -383,18 +383,39 @@ public sealed class BridgeClient
     private static bool IsInstanceAlive(BridgeInstance inst)
     {
         if (inst.Pid <= 0) return false;
+
+        Process proc;
         try
         {
-            using var p = Process.GetProcessById(inst.Pid);
-            if (p.HasExited) return false;
-            if (string.IsNullOrEmpty(inst.ProcessName)) return true;
-            if (!string.Equals(p.ProcessName, inst.ProcessName, StringComparison.OrdinalIgnoreCase))
-                return false;
-            return StartedBeforeHandshake(p, inst.StartedAt);
+            // Throws when no such process exists — that, not HasExited, is how a
+            // dead PID is detected.
+            proc = Process.GetProcessById(inst.Pid);
         }
         catch
         {
             return false;
+        }
+
+        using (proc)
+        {
+            // DO NOT call proc.HasExited: it throws "Access is denied" across the
+            // 32/64-bit boundary (Studio 2024 is 32-bit, Studio 2026 is 64-bit),
+            // which would report a perfectly live Studio as gone. ProcessName and
+            // StartTime work fine there; HasExited does not. Same trap as the
+            // plugin side — see SupervertalerBridge.IsInstanceAlive.
+            string? name;
+            try { name = proc.ProcessName; } catch { name = null; }
+
+            if (string.IsNullOrEmpty(inst.ProcessName)) return true;
+
+            // Unreadable name proves nothing; treat as alive rather than hiding a
+            // running Studio.
+            if (string.IsNullOrEmpty(name)) return true;
+
+            if (!string.Equals(name, inst.ProcessName, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            return StartedBeforeHandshake(proc, inst.StartedAt);
         }
     }
 

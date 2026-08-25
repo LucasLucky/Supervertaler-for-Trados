@@ -4283,20 +4283,42 @@ namespace Supervertaler.Trados.Core
         private static bool IsInstanceAlive(BridgeHandshake hs)
         {
             if (hs == null || hs.Pid <= 0) return false;
+
+            Process proc;
             try
             {
-                using (var p = Process.GetProcessById(hs.Pid))
-                {
-                    if (p.HasExited) return false;
-                    if (string.IsNullOrEmpty(hs.ProcessName)) return true;
-                    if (!string.Equals(SafeProcessName(p), hs.ProcessName, StringComparison.OrdinalIgnoreCase))
-                        return false;
-                    return StartedBeforeHandshake(p, hs.StartedAt);
-                }
+                // Throws ArgumentException when no such process exists – that,
+                // not HasExited, is how a dead PID is detected here.
+                proc = Process.GetProcessById(hs.Pid);
             }
             catch
             {
                 return false;
+            }
+
+            using (proc)
+            {
+                // DO NOT call proc.HasExited. It throws Win32Exception "Access is
+                // denied" when a 32-bit Studio 2024 asks about a 64-bit Studio
+                // 2026 — precisely the pairing this whole feature exists for.
+                // Measured 2026-08-25: Studio 2024 swept Studio 2026's live
+                // handshake at startup, so the second Studio became invisible to
+                // the Connect dialog and to any client that had not already read
+                // it. ProcessName and StartTime both work across that boundary;
+                // only HasExited does not.
+                var name = SafeProcessName(proc);
+
+                if (string.IsNullOrEmpty(hs.ProcessName)) return true;
+
+                // Name unreadable: we cannot prove it is dead, and the cost of
+                // guessing wrong that way is deleting a live instance's
+                // handshake. Guessing "alive" only risks a spurious refusal.
+                if (string.IsNullOrEmpty(name)) return true;
+
+                if (!string.Equals(name, hs.ProcessName, StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                return StartedBeforeHandshake(proc, hs.StartedAt);
             }
         }
 
