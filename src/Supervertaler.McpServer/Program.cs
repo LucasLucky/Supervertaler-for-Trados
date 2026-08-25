@@ -26,6 +26,17 @@ builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 
 var bridge = new BridgeClient();
 
+// --instance <selector> pins this server to one Studio, for a client whose config
+// format has no env block. ChatGptMcpSetup writes `args`, so it can set this.
+for (var i = 0; i < args.Length - 1; i++)
+{
+    if (args[i] is "--instance" or "-i")
+    {
+        bridge.CommandLineSelector = args[i + 1];
+        break;
+    }
+}
+
 // Lazily loaded, refreshed on each tools/list so a plugin update (new tools)
 // is picked up on the next Claude Desktop connection – no reinstall.
 List<ToolDef> tools = new();
@@ -49,25 +60,46 @@ builder.Services
     .WithListToolsHandler(async (ctx, ct) =>
     {
         var defs = await GetToolsAsync(ct, forceRefresh: true);
-        return new ListToolsResult
+        var tools = defs.Select(d => new Tool
         {
-            Tools = defs.Select(d => new Tool
-            {
-                Name = d.Name,
-                Description = d.Description,
-                InputSchema = d.InputSchema,
-            }).ToList()
-        };
+            Name = d.Name,
+            Description = d.Description,
+            InputSchema = d.InputSchema,
+        }).ToList();
+
+        // The instance tools are the exe's own – no bridge can answer "which
+        // bridge?" – so they are appended rather than coming from the registry.
+        tools.AddRange(LocalTools.Definitions().Select(d => new Tool
+        {
+            Name = d.Name,
+            Description = d.Description,
+            InputSchema = d.Schema,
+        }));
+
+        return new ListToolsResult { Tools = tools };
     })
     .WithCallToolHandler(async (ctx, ct) =>
     {
         var name = ctx.Params?.Name ?? "";
+        var callArgs = ctx.Params?.Arguments ?? new Dictionary<string, JsonElement>();
+
+        // Answered here, not forwarded: these decide which bridge everything else
+        // goes to, so they must work even while the choice is ambiguous.
+        if (LocalTools.Handles(name))
+        {
+            try { return TextResult(LocalTools.Invoke(name, callArgs, bridge)); }
+            catch (Exception ex)
+            {
+                return TextResult(JsonSerializer.Serialize(new { ok = false, error = ex.Message }));
+            }
+        }
+
         var defs = await GetToolsAsync(ct);
         var def = defs.FirstOrDefault(d => d.Name == name);
         if (def == null)
             return TextResult($"{{\"ok\":false,\"error\":\"unknown tool '{name}'\"}}", isError: true);
 
-        var args = ctx.Params?.Arguments ?? new Dictionary<string, JsonElement>();
+        var args = callArgs;
         try
         {
             // Which Studio are we talking to? With two open (e.g. Studio 2024 and
@@ -173,7 +205,8 @@ static CallToolResult WarnedResult(string warning, string text) => new()
 static string AmbiguousReadWarning(BridgeSelection sel) =>
     $"⚠ Multiple Trados instances are live. This result is from {sel.Chosen.Label}. "
     + string.Join("; ", sel.Others.Select(o => o.Label)) + " also running.\n"
-    + "Writes are refused until one instance is selected. Tell the user which instance this describes.";
+    + "Tell the user which instance this describes. Editing is refused until one is chosen — "
+    + "ask which project they mean, then call select_trados_instance.";
 
 static string RefuseAmbiguousWrite(string toolName, BridgeSelection sel)
 {
@@ -190,11 +223,11 @@ static string RefuseAmbiguousWrite(string toolName, BridgeSelection sel)
     return JsonSerializer.Serialize(new
     {
         ok = false,
-        error = $"Refusing to run '{toolName}': {sel.Live.Count} Trados Studio instances are running and "
-              + "nothing says which one to write to. Writing to the wrong one would edit the wrong project's "
-              + "document. Ask the user which instance they mean, then either close the other Studio, or set "
-              + "SUPERVERTALER_BRIDGE_FILE for this MCP server to that instance's handshake file "
-              + "(trados\\runtime\\instances\\bridge-<pid>.json) and restart the chat app.",
+        error = $"Refusing to run '{toolName}': {sel.Candidates.Count} Trados Studio instances are running "
+              + "and nothing says which one to write to. Writing to the wrong one would edit the wrong "
+              + "project's document. Ask the user which project they mean, then call "
+              + "select_trados_instance with \"2024\", \"2026\", or part of the project name — and run "
+              + "this tool again. Closing the other Studio works too.",
         instances,
         note = "Read-only tools still work and report which instance answered.",
     });

@@ -121,6 +121,26 @@ namespace Supervertaler.Trados.Controls
                       "Studio does; no document or panel needs to be open. If it stays like this, check " +
                       "that the AI Assistant is enabled in Settings, or restart Studio."));
 
+            // A second Studio decides whether the AI will accept an edit at all, and
+            // there is no way to tell from inside this one. Say so here rather than
+            // letting the refusal be the user's first news of it.
+            try
+            {
+                var others = Core.SupervertalerBridge.ListOtherLiveInstances();
+                if (others.Count > 0)
+                {
+                    var note = StatusLine(false,
+                        "Another Trados Studio is running with Supervertaler: "
+                        + string.Join(", ", others.Select(o => o.Describe())) + ". "
+                        + "AI apps can read from either, but will refuse to change segments until you say "
+                        + "which one to use – ask the assistant to work with a named project or Studio "
+                        + "version, or close the other Studio.");
+                    note.ForeColor = Color.FromArgb(190, 110, 0);
+                    root.Controls.Add(note);
+                }
+            }
+            catch { /* status is best-effort */ }
+
             // Version handshake: only shown once an AI app has actually connected
             // this session (LastSeenExeVersion > 0). Outdated = the exe predates a
             // feature this plugin needs; the AI also relays the same nudge in chat.

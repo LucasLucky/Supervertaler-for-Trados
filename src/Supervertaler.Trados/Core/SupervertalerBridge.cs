@@ -4211,6 +4211,53 @@ namespace Supervertaler.Trados.Core
             }
         }
 
+        /// <summary>One other Studio the user has open, for the Connect dialog.</summary>
+        public class LiveInstanceInfo
+        {
+            public string StudioVersion { get; set; }
+            public string ProjectName { get; set; }
+            public int Pid { get; set; }
+
+            /// <summary>e.g. "Studio 2026 – BRANTS (CIRC-002-BE-WO)".</summary>
+            public string Describe()
+            {
+                var studio = string.IsNullOrEmpty(StudioVersion) ? "Trados Studio" : "Studio " + StudioVersion;
+                return string.IsNullOrEmpty(ProjectName) ? studio + " – no project open" : studio + " – " + ProjectName;
+            }
+        }
+
+        /// <summary>
+        /// Every live bridge EXCEPT this process's own. Used by the Connect dialog to
+        /// warn that a second Studio is running, because that is what decides whether
+        /// the AI will accept an edit — and it is invisible from inside one Studio.
+        /// </summary>
+        public static List<LiveInstanceInfo> ListOtherLiveInstances()
+        {
+            var result = new List<LiveInstanceInfo>();
+            try
+            {
+                var myPid = Process.GetCurrentProcess().Id;
+                if (!Directory.Exists(UserDataPath.TradosInstancesDir)) return result;
+
+                foreach (var file in Directory.GetFiles(UserDataPath.TradosInstancesDir, "bridge-*.json"))
+                {
+                    var hs = ReadHandshakeFile(file);
+                    if (hs == null || hs.Pid == myPid || !IsInstanceAlive(hs)) continue;
+                    result.Add(new LiveInstanceInfo
+                    {
+                        StudioVersion = hs.StudioVersion,
+                        ProjectName = hs.ProjectName,
+                        Pid = hs.Pid
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                BridgeLog.Write($"ListOtherLiveInstances failed: {ex.GetType().Name}: {ex.Message}");
+            }
+            return result;
+        }
+
         private static BridgeHandshake ReadHandshakeFile(string path)
         {
             try

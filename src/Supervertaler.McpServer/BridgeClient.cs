@@ -43,15 +43,29 @@ public sealed record BridgeInstance(
 /// <summary>
 /// Which instance a call will go to, and what else was live at the time.
 /// </summary>
-public sealed record BridgeSelection(BridgeInstance Chosen, IReadOnlyList<BridgeInstance> Live)
+/// <param name="Chosen">The instance this call goes to.</param>
+/// <param name="Live">Every live instance, selector or not — what the user actually has open.</param>
+/// <param name="Candidates">The live instances the selector allows; equal to <paramref name="Live"/> when none is set.</param>
+/// <param name="Selector">The selector in force, or null.</param>
+public sealed record BridgeSelection(
+    BridgeInstance Chosen,
+    IReadOnlyList<BridgeInstance> Live,
+    IReadOnlyList<BridgeInstance> Candidates,
+    string? Selector)
 {
-    /// <summary>More than one Studio is live and nothing has said which to use.
-    /// Writes are refused in this state; reads are served from <see cref="Chosen"/>
-    /// with a warning. See issue #72.</summary>
-    public bool IsAmbiguous => Live.Count > 1;
+    /// <summary>
+    /// More than one Studio is still in the running after the selector has had its
+    /// say. Writes are refused in this state; reads are served from
+    /// <see cref="Chosen"/> with a warning. A selector that picks out exactly one
+    /// instance resolves the ambiguity — that is the point of it. See issue #72.
+    /// </summary>
+    public bool IsAmbiguous => Candidates.Count > 1;
 
-    /// <summary>The instances that were NOT chosen, for the warning text.</summary>
-    public IEnumerable<BridgeInstance> Others => Live.Where(i => i.Pid != Chosen.Pid);
+    /// <summary>The candidates that were NOT chosen, for the warning text.</summary>
+    public IEnumerable<BridgeInstance> Others => Candidates.Where(i => i.Pid != Chosen.Pid);
+
+    /// <summary>True when a selector narrowed a multi-Studio setup down to one.</summary>
+    public bool SelectorResolved => Selector != null && Live.Count > 1 && Candidates.Count == 1;
 }
 
 /// <summary>
@@ -169,6 +183,58 @@ public sealed class BridgeClient
     /// Find every live Studio instance and pick the one calls go to.
     /// Throws <see cref="BridgeUnavailableException"/> when none is running.
     /// </summary>
+    // ── Instance selection ───────────────────────────────────────────────
+    //
+    // Three ways to say which Studio this client drives, most volatile first:
+    //   1. select_trados_instance, set by the AI mid-conversation (this session)
+    //   2. --instance <selector> on the command line
+    //   3. SUPERVERTALER_TRADOS_INSTANCE in the environment
+    // A runtime choice beats configuration because the user just made it out loud.
+    //
+    // Selectors match on WHAT a Studio is, never on its PID by default, so the
+    // selection survives that Studio being restarted — a PID pin would break at
+    // the first restart, which is the whole problem with the pre-#72 workaround.
+
+    /// <summary>Set by <c>select_trados_instance</c>; lasts for this server process.</summary>
+    public string? SessionSelector { get; set; }
+
+    /// <summary>Set from <c>--instance</c> at startup.</summary>
+    public string? CommandLineSelector { get; set; }
+
+    private static string? EnvSelector => Environment.GetEnvironmentVariable("SUPERVERTALER_TRADOS_INSTANCE");
+
+    /// <summary>The selector in force, or null when the client has not said.</summary>
+    public string? ActiveSelector
+    {
+        get
+        {
+            foreach (var s in new[] { SessionSelector, CommandLineSelector, EnvSelector })
+                if (!string.IsNullOrWhiteSpace(s)) return s!.Trim();
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Does this instance answer to <paramref name="selector"/>?
+    ///   "2024" / "2026"  – the Studio generation
+    ///   "pid:1234"       – one exact process, deliberately awkward to type: it
+    ///                      stops working the moment that Studio restarts
+    ///   anything else    – case-insensitive substring of the project name
+    /// </summary>
+    public static bool Matches(BridgeInstance inst, string selector)
+    {
+        selector = selector.Trim();
+
+        if (selector.StartsWith("pid:", StringComparison.OrdinalIgnoreCase))
+            return int.TryParse(selector[4..], out var pid) && pid == inst.Pid;
+
+        if (selector is "2024" or "2026")
+            return string.Equals(inst.StudioVersion, selector, StringComparison.OrdinalIgnoreCase);
+
+        return inst.ProjectName is { Length: > 0 } p
+            && p.Contains(selector, StringComparison.OrdinalIgnoreCase);
+    }
+
     public BridgeSelection Resolve() => Resolve(ResolveRuntimeDir());
 
     /// <summary>Resolve against an explicit runtime directory. Test seam.</summary>
@@ -184,14 +250,34 @@ public sealed class BridgeClient
                 "the bridge enabled (Supervertaler settings > AI Assistant).");
         }
 
+        var selector = ActiveSelector;
+        var candidates = live;
+
+        if (selector != null)
+        {
+            candidates = live.Where(i => Matches(i, selector)).ToList();
+
+            // A selector that matches nothing must NOT quietly fall back to
+            // "whichever is newest" — that is precisely the silent misrouting
+            // this machinery exists to prevent, and it would strike exactly when
+            // the user thought they had pinned things down.
+            if (candidates.Count == 0)
+            {
+                throw new BridgeUnavailableException(
+                    $"No running Trados Studio matches the selected instance \"{selector}\". "
+                    + "Running now: " + string.Join("; ", live.Select(i => i.Label)) + ". "
+                    + "Either open that project, or choose one of these with select_trados_instance.");
+            }
+        }
+
         // Newest first. Ordinal works because StartedAt is round-trip ("o")
         // UTC, which sorts lexicographically; a handshake without one (there
         // should be none) sorts last rather than throwing.
-        var chosen = live
+        var chosen = candidates
             .OrderByDescending(i => i.StartedAt ?? "", StringComparer.Ordinal)
             .First();
 
-        return new BridgeSelection(chosen, live);
+        return new BridgeSelection(chosen, live, candidates, selector);
     }
 
     private static List<BridgeInstance> DiscoverLiveInstances(string runtimeDir)

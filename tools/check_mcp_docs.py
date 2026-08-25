@@ -25,10 +25,16 @@ DOCS_PAGE = REPO_ROOT.parent / "Supervertaler-Help" / "trados" / "mcp-server.md"
 # tool names never start a line with "| `", so this only matches table rows.
 TABLE_ROW = re.compile(r"^\|\s*`([a-z0-9_]+)`\s*\|")
 
+# Tools the MCP server exe answers itself, so they are NOT in mcp-tools.json.
+# They pick which Studio instance to talk to, which no single bridge can answer
+# (issue #72). They belong in the docs table like any other tool, so they are
+# added to the shipped set here. Keep in step with LocalTools.cs.
+LOCAL_TOOLS = {"list_trados_instances", "select_trados_instance"}
+
 
 def main() -> int:
     with open(TOOLS_JSON, encoding="utf-8") as f:
-        shipped = {t["name"] for t in json.load(f)["tools"]}
+        shipped = {t["name"] for t in json.load(f)["tools"]} | LOCAL_TOOLS
 
     if not DOCS_PAGE.exists():
         print(f"  WARNING: help docs page not found ({DOCS_PAGE})")

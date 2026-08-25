@@ -23,6 +23,13 @@
 - **A failed download can no longer leave you with no server at all.** The download used to unpack straight onto the existing file, which empties it before writing — so a download that failed half way took the working server with it. It now unpacks alongside and only swaps once the file is complete.
 - **Installing the Claude Desktop extension over an older one** fails with an `EPERM … unlink` error, for the same reason: Claude Desktop leaves the server running while it replaces the extension's files. The Connect dialog now spells out the extra step — quit Claude Desktop from the notification area first — and explains the error if you hit it anyway. (Only when an extension is already installed; a first install is unaffected.)
 
+### Added (tell the AI which Trados Studio to work in)
+
+- ★ **With two Studios open, you can now say which one the AI works in – and drive both at once from two different chat apps.** Say *"work with the 2026 one"* or *"use the BRANTS project"* and editing is enabled again for the rest of the chat, aimed at that Studio alone. A second chat app can be pointed at the other Studio at the same time, each writing only into its own project. Two new tools do this: **list_trados_instances** (what is open, and which one am I talking to) and **select_trados_instance** (work with this one).
+- **The choice follows the project, not the process**, so it survives that Studio being closed and reopened – you do not have to say it again.
+- **A chat app can be tied to one Studio permanently**, for people who always keep the same pairing: add `--instance 2024` to the server's arguments in the app's MCP configuration, or set `SUPERVERTALER_TRADOS_INSTANCE`. An app pinned this way never asks, and refuses to quietly use a different Studio if the one it wants is not running.
+- **The Connect dialog warns when a second Studio is running**, and names its project – there is no way to tell from inside the first one, and it decides whether the AI will accept an edit at all.
+
 ### Fixed (two Trados versions open at once no longer send the AI to the wrong one)
 
 - ★ **With Trados Studio 2024 and 2026 both open, an AI assistant could edit the wrong project without anything going wrong on screen.** Each Studio runs its own Supervertaler bridge, but they announced themselves in a single shared file, and whichever started last overwrote the other. So a chat app you had pointed at your 2024 project would quietly send its edits to the 2026 one instead — no error, no warning, the segments simply landed in the wrong document. Each Studio now publishes its own entry, carrying its Studio version and the project it has open.
