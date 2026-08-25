@@ -155,6 +155,26 @@ Tooling:
 
 ---
 
+## Confidentiality: never use real client names in examples
+
+**Use `Acme` for a client and `PROJ-001` for a case or job reference.** Real customer
+names and case numbers must not appear in anything that leaves this machine – docs,
+`CHANGELOG.md`, App Store release notes, GitHub issues and comments, commit messages,
+design notes under `docs/design/`, or source comments.
+
+The work here is patent and legal translation under confidentiality, and the examples
+read exactly as well with a placeholder. This is not hypothetical: on 2026-08-25 a
+client name was found on the public docs site, and the sweep that followed found it in
+four docs pages, the changelog, three App Store release-note files, four source files,
+several design notes, a published GitHub release body and two issue comments. It had
+been public since roughly v18.20.153.
+
+**The trap is real project output.** With a project open, its name appears in
+`bridge.log`, in the handshake files under `trados/runtime/`, and in any MCP tool
+result. Pasting a real session's output into an issue, a changelog entry or a doc is
+how it happened – substitute before writing, not after. Treat anything matching
+`XXXX-000-XX-XX` as identifying.
+
 ## Naming conventions
 
 - **Plugin name**: "Supervertaler for Trados" (visible in Trados docking header and plugin manager)
