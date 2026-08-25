@@ -302,11 +302,43 @@ public sealed class BridgeClient
             using var p = Process.GetProcessById(inst.Pid);
             if (p.HasExited) return false;
             if (string.IsNullOrEmpty(inst.ProcessName)) return true;
-            return string.Equals(p.ProcessName, inst.ProcessName, StringComparison.OrdinalIgnoreCase);
+            if (!string.Equals(p.ProcessName, inst.ProcessName, StringComparison.OrdinalIgnoreCase))
+                return false;
+            return StartedBeforeHandshake(p, inst.StartedAt);
         }
         catch
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// A live instance always started BEFORE it wrote its handshake — Studio
+    /// launches, then the plugin initialises. A process that started afterwards
+    /// cannot be the one that wrote it: Windows has reused the PID for another
+    /// Studio. Without this, the name check alone passes (both are
+    /// "SDLTradosStudio") and a dead session returns as a phantom second
+    /// instance, refusing writes that were never ambiguous.
+    /// </summary>
+    private static bool StartedBeforeHandshake(Process p, string? startedAtUtc)
+    {
+        if (string.IsNullOrEmpty(startedAtUtc)) return true;
+        try
+        {
+            if (!DateTime.TryParse(startedAtUtc, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind, out var handshakeUtc))
+                return true;
+
+            // Slack for clock adjustments between process start and handshake
+            // write. Erring towards "alive" costs a spurious refusal; erring the
+            // other way disconnects a Studio that is working fine.
+            return p.StartTime.ToUniversalTime() <= handshakeUtc.ToUniversalTime().AddSeconds(30);
+        }
+        catch
+        {
+            // StartTime is denied for some processes – fall back to trusting the
+            // PID and name, which is what we did before this check.
+            return true;
         }
     }
 

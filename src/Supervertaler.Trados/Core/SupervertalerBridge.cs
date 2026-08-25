@@ -1660,11 +1660,63 @@ namespace Supervertaler.Trados.Core
                 // Bridge is still usable, just not discoverable – not fatal.
             }
 
+            HookProcessShutdown();
+
             BridgeLog.Write($"Start() complete. Bridge live on http://127.0.0.1:{_port}/ with token {_token.Substring(0, 8)}…");
+        }
+
+        // ── Shutdown hooks ───────────────────────────────────────────────
+        //
+        // AiAssistantViewPart.Dispose() calls Stop(), but Trados does not reliably
+        // dispose its view parts on the way out: observed in the field, a normal
+        // Studio close left both handshake files behind and wrote no shutdown line
+        // to the log. Nothing breaks — readers reject a handshake whose process is
+        // gone — but the shared bridge.json is then never handed over to a Studio
+        // that is still running, so an older client sees a dead handshake instead
+        // of a live one.
+        //
+        // Both hooks fire on an orderly exit and neither fires on a kill, which is
+        // what the stale-file sweep in Start() is for. Stop() is idempotent, so
+        // being called from Dispose and again from a hook is harmless.
+
+        private bool _shutdownHooked;
+
+        private void HookProcessShutdown()
+        {
+            if (_shutdownHooked) return;
+            _shutdownHooked = true;
+            try
+            {
+                System.Windows.Forms.Application.ApplicationExit += OnProcessShutdown;
+                AppDomain.CurrentDomain.ProcessExit += OnProcessShutdown;
+            }
+            catch (Exception ex)
+            {
+                BridgeLog.Write($"could not hook process shutdown: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private void UnhookProcessShutdown()
+        {
+            if (!_shutdownHooked) return;
+            _shutdownHooked = false;
+            try { System.Windows.Forms.Application.ApplicationExit -= OnProcessShutdown; } catch { }
+            try { AppDomain.CurrentDomain.ProcessExit -= OnProcessShutdown; } catch { }
+        }
+
+        private void OnProcessShutdown(object sender, EventArgs e)
+        {
+            try
+            {
+                BridgeLog.Write("process shutdown – releasing handshake");
+                Stop();
+            }
+            catch { /* never throw out of a shutdown handler */ }
         }
 
         public void Stop()
         {
+            UnhookProcessShutdown();
             try { _cts?.Cancel(); } catch { /* ignore */ }
             try { _listener?.Stop(); } catch { /* ignore */ }
             try { _listener?.Close(); } catch { /* ignore */ }
@@ -4111,12 +4163,44 @@ namespace Supervertaler.Trados.Core
                 {
                     if (p.HasExited) return false;
                     if (string.IsNullOrEmpty(hs.ProcessName)) return true;
-                    return string.Equals(SafeProcessName(p), hs.ProcessName, StringComparison.OrdinalIgnoreCase);
+                    if (!string.Equals(SafeProcessName(p), hs.ProcessName, StringComparison.OrdinalIgnoreCase))
+                        return false;
+                    return StartedBeforeHandshake(p, hs.StartedAt);
                 }
             }
             catch
             {
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// A live instance always started BEFORE it wrote its handshake — Studio
+        /// launches, then the plugin initialises. So a process that started after
+        /// the handshake was written cannot be the one that wrote it: Windows has
+        /// reused the PID for another Studio. Without this, the name check alone
+        /// passes (both are "SDLTradosStudio") and a dead session comes back as a
+        /// phantom second instance, refusing writes that were never ambiguous.
+        /// </summary>
+        private static bool StartedBeforeHandshake(Process p, string startedAtUtc)
+        {
+            if (string.IsNullOrEmpty(startedAtUtc)) return true;
+            try
+            {
+                if (!DateTime.TryParse(startedAtUtc, System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.RoundtripKind, out var handshakeUtc))
+                    return true;
+
+                // Slack for clock adjustments between process start and handshake
+                // write. Erring towards "alive" here costs a spurious refusal;
+                // erring the other way disconnects a Studio that is working fine.
+                return p.StartTime.ToUniversalTime() <= handshakeUtc.ToUniversalTime().AddSeconds(30);
+            }
+            catch
+            {
+                // StartTime is denied for some processes – fall back to trusting
+                // the PID and name, which is what we did before this check.
+                return true;
             }
         }
 
