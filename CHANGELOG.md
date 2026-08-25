@@ -52,6 +52,10 @@
 - **A Reference images row** on a bank and on its `figures.md`, naming the folder of drawings the current project points at. Groundwork for the figure-analysis feature; the analysis pass itself is not built yet, so no button pretends otherwise.
 - **Editing a bank file leaves the rest of the file alone.** These files are shared with Obsidian and the Supervertaler assistant, which do not agree on line endings, so a naive save would rewrite every line and bury your one-word change in a whole-file diff. Supervertaler now writes each file back in its own style. If something else changes the file while you have it open, you are told before anything is overwritten.
 
+### Fixed (the term editor's hinted fields looked dead when you clicked them)
+
+- **Clicking Abbreviation, or either synonym box, showed no text cursor.** The field had the focus and typing worked, but the grey hint sits on top of the box and the cursor was blinking behind it, so the field looked like it was not accepting input. The hint now steps aside the moment you click in, rather than waiting for the first keystroke. Affects the four hinted fields in **Edit term entry**; the other boxes were never affected.
+
 ### Fixed (Markdown rendering, everywhere it is used)
 
 - **Headings below `###` printed their own hashes.** A file using `#####` for its sections rendered as a wall of text with `##### 4. Title blocks and document metadata` sitting in it literally. Affected the chat panel too, so any AI reply using `####` had the same problem.

@@ -1447,6 +1447,14 @@ namespace Supervertaler.Trados.Controls
         /// This overlays a label inside the textbox instead, so the colour is
         /// ours. The textbox's own Text is never touched, so nothing that reads
         /// the field has to know a placeholder exists.
+        ///
+        /// The hint hides as soon as the field has focus, not only once
+        /// something is typed. The label is docked over the whole client area,
+        /// so while it is visible the caret blinks behind it: the field looked
+        /// dead when clicked, even though it had focus and typing worked.
+        /// Keeping the hint through focus - the way an HTML placeholder behaves -
+        /// would need the hint painted onto the textbox rather than parented
+        /// inside it. Not worth it for a hint the user has already acted on.
         /// </summary>
         private static void SetLightPlaceholder(TextBox textBox, string placeholder)
         {
@@ -1469,8 +1477,12 @@ namespace Supervertaler.Trados.Controls
             // abbreviation while "non-translatable" is ticked).
             textBox.BackColorChanged += (s, e) => hint.BackColor = textBox.BackColor;
 
-            hint.Visible = textBox.Text.Length == 0;
-            textBox.TextChanged += (s, e) => hint.Visible = textBox.Text.Length == 0;
+            void Sync() => hint.Visible = textBox.Text.Length == 0 && !textBox.Focused;
+
+            Sync();
+            textBox.TextChanged += (s, e) => Sync();
+            textBox.Enter += (s, e) => Sync();
+            textBox.Leave += (s, e) => Sync();
             textBox.Controls.Add(hint);
         }
 
