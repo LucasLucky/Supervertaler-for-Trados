@@ -52,6 +52,10 @@
 - **A Reference images row** on a bank and on its `figures.md`, naming the folder of drawings the current project points at. Groundwork for the figure-analysis feature; the analysis pass itself is not built yet, so no button pretends otherwise.
 - **Editing a bank file leaves the rest of the file alone.** These files are shared with Obsidian and the Supervertaler assistant, which do not agree on line endings, so a naive save would rewrite every line and bury your one-word change in a whole-file diff. Supervertaler now writes each file back in its own style. If something else changes the file while you have it open, you are told before anything is overwritten.
 
+### Changed (Alt+W no longer opens the SuperSearch panel as well)
+
+- **A web search opens the browser window and nothing else.** `Alt+W` used to pop the SuperSearch panel open at the same time, which cost editor height for no benefit — the browser window already names the term, the resource count and a tab per site, and it raises itself, often on another monitor where the panel is not even in view. `Alt+S` still opens the panel, because that is where its results appear.
+
 ### Fixed (the term editor's hinted fields looked dead when you clicked them)
 
 - **Clicking Abbreviation, or either synonym box, showed no text cursor.** The field had the focus and typing worked, but the grey hint sits on top of the box and the cursor was blinking behind it, so the field looked like it was not accepting input. The hint now steps aside the moment you click in, rather than waiting for the first keystroke. Affects the four hinted fields in **Edit term entry**; the other boxes were never affected.

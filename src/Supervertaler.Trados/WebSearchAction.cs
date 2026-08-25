@@ -72,23 +72,17 @@ namespace Supervertaler.Trados
                 }
                 catch { /* selection API may not be available in all contexts */ }
 
-                // Bring the panel up so the status line and the Web button are
-                // visible — the search itself opens a browser window, but the
-                // user should be able to see what ran and adjust the resources.
-                try
-                {
-                    if (SuperSearchViewPart.IsHostedInAssistantTab())
-                    {
-                        AiAssistantViewPart.ActivateSuperSearchTab();
-                    }
-                    else
-                    {
-                        var viewPart = SdlTradosStudio.Application.GetController<SuperSearchViewPart>();
-                        viewPart?.Activate();
-                    }
-                }
-                catch { /* Activate may not be available in all Trados versions */ }
-
+                // Deliberately does NOT bring the SuperSearch panel up. Alt+W's
+                // output is the browser window, which raises itself and carries
+                // its own status line ("8 resource(s) · <term> · WebView2 …") plus
+                // a tab per resource — so the panel had nothing to add, and
+                // popping it open stole editor height for a result the user was
+                // already reading somewhere else, often on another monitor.
+                //
+                // Alt+S still activates the panel: its results genuinely appear
+                // there. GetControl() below returns the shared controller's
+                // control, created on demand, so nothing here depends on the
+                // panel having been shown.
                 var control = SuperSearchViewPart.GetControl();
                 if (control == null) return;
 
