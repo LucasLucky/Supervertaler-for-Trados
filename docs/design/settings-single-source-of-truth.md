@@ -25,10 +25,10 @@ long-lived ones above are not.
 
 ### The observed sequence
 
-1. `TermLensEditorViewPart` loads its copy at start-up: bank = **TRAX-005**.
-2. The user switches to **BARI-001** in the Assistant pane. The Assistant's copy
+1. `TermLensEditorViewPart` loads its copy at start-up: bank = **PROJ-001**.
+2. The user switches to **PROJ-001** in the Assistant pane. The Assistant's copy
    is updated and saved. `settings.json` is now correct.
-3. TermLens's copy still says TRAX-005. Nothing told it.
+3. TermLens's copy still says PROJ-001. Nothing told it.
 4. The user opens Settings **from the TermLens pane** and clicks OK. The dialog
    was handed TermLens's stale object, so the save reverts the bank.
 

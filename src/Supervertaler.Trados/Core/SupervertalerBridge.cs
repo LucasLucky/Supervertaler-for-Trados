@@ -4218,7 +4218,7 @@ namespace Supervertaler.Trados.Core
             public string ProjectName { get; set; }
             public int Pid { get; set; }
 
-            /// <summary>e.g. "Studio 2026 – BRANTS (CIRC-002-BE-WO)".</summary>
+            /// <summary>e.g. "Studio 2026 – Acme (PROJ-001)".</summary>
             public string Describe()
             {
                 var studio = string.IsNullOrEmpty(StudioVersion) ? "Trados Studio" : "Studio " + StudioVersion;

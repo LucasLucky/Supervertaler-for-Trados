@@ -139,7 +139,7 @@ never applies one on its own, because a folder guessed by walking up the tree ca
 belong to a different job (see that class's remarks).
 
 **Scoped to the project, not the bank, and labelled to say so** — e.g.
-*"Reference images for BRANTS (BARI-001-BE-EP)"*. This is the one place the tab's
+*"Reference images for Acme (PROJ-001)"*. This is the one place the tab's
 bank-centric framing and the setting disagree, and the label has to carry the
 difference.
 
@@ -201,7 +201,7 @@ behaves" controls, fits them better. Worth considering on its own merits, not as
 part of this tab.
 
 **Prompts and banks are already entangled, and the fix runs the other way.** The
-production prompt for BRANTS BARI-001-BE-EP contains a long *"STRUCTURAL FACTS
+production prompt for Acme (PROJ-001) contains a long *"STRUCTURAL FACTS
 DERIVED FROM THE DRAWINGS"* section — numeral disambiguations, why *schot* and
 *scheiding* must not collapse into one English word, what `(15)` is. That is
 knowledge about a filing living inside a task instruction.

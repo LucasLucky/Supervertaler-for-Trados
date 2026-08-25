@@ -105,7 +105,7 @@ So:
   `brief.md`. Nothing special.
 - **The images folder is provenance**, and belongs with the artifact rather than
   in a settings row somewhere. Selecting `figures.md` shows its content with its
-  origin above it — *Generated from: …\BARI-001-BE-EP\Images* — plus **Browse…**
+  origin above it — *Generated from: …\PROJ-001\Images* — plus **Browse…**
   and **Re-analyse**.
 - **When a bank has no `figures.md`**, selecting the bank offers **Add figures
   from drawings…**, which asks for the folder and runs the analysis.

@@ -42,7 +42,7 @@ a name**:
 ### Corrected against a real job, then corrected again (2026-08-24)
 
 The note originally said the anchor *always* exists. One real job disproved
-that. BRANTS CIRC-002-BE-WO:
+that. Acme (PROJ-001):
 
 | File | Paragraphs | Images | Text runs |
 |---|---|---|---|

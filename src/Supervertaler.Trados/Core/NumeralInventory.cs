@@ -97,7 +97,7 @@ namespace Supervertaler.Trados.Core
                 // the numeral genuinely is not in any figure.
                 TextOnly = new SortedSet<int>(text.Except(drawn)),
                 // Drawn but never cited: a source defect worth surfacing. The
-                // worked example (BRANTS BARI-001-BE-EP) had exactly one.
+                // worked example (Acme (PROJ-001) had exactly one.
                 DrawingsOnly = new SortedSet<int>(drawn.Except(text))
             };
         }

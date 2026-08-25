@@ -628,7 +628,7 @@ namespace Supervertaler.Trados.TranslationProviders
             // v4.20.33: stamp OriginSystem with the specific bridged TM so
             // Studio's per-hit "origin" labels (the small grey strip at the
             // bottom of the Translation Results pane) say e.g.
-            // "Supervertaler: BRANTS (URSU-008-BE-EP)" instead of just
+            // "Supervertaler: Acme (PROJ-001)" instead of just
             // "Supervertaler" when several bridges are attached at once.
             var origin = _tmInfo != null && !string.IsNullOrEmpty(_tmInfo.Name)
                 ? "Supervertaler: " + _tmInfo.Name

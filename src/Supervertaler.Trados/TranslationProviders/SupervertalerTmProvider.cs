@@ -262,7 +262,7 @@ namespace Supervertaler.Trados.TranslationProviders
         {
             if (uri == null) return null;
             // supervertaler-tm:///BEIJER → "BEIJER"
-            // supervertaler-tm:///BRANTS%20(PROJ) → "BRANTS (PROJ)"
+            // supervertaler-tm:///Acme%20(PROJ) → "Acme (PROJ)"
             var path = uri.AbsolutePath;
             if (string.IsNullOrEmpty(path) || path == "/") return null;
             return Uri.UnescapeDataString(path.TrimStart('/'));

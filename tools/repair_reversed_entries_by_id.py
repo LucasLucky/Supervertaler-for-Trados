@@ -76,7 +76,7 @@ sys.stderr.reconfigure(errors="replace")
 # (term id, expected source_term, expected target_term, termbase id)
 #
 # BEIJER is declared en → nl, so its source column should hold ENGLISH; every
-# row below holds Dutch there. BRANTS (SOUD-011-BE-WO) is declared nl → en, so
+# row below holds Dutch there. Acme (PROJ-001) is declared nl → en, so
 # its source column should hold DUTCH; the three rows below hold English there.
 ROWS = [
     # --- BEIJER (13), declared en → nl ---
@@ -108,7 +108,7 @@ ROWS = [
     (93142, "antioxidatieve", "antioxidative", 13),
     (93143, "ontstekingsremmende", "anti-inflammatory", 13),
     (93144, "antimicrobiële", "antimicrobial", 13),
-    # --- BRANTS (SOUD-011-BE-WO) (23), declared nl → en ---
+    # --- Acme (PROJ-001) (23), declared nl → en ---
     (21609, "Mashup applications", "mashup-applicaties", 23),
     (21611, "information processing systems", "informatieverwerkingssystemen", 23),
     (21612, "methodology", "methodologie", 23),
