@@ -7,7 +7,7 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
-## [18.20.184 / 19.20.184] – 2026-08-16
+## [18.20.184 / 19.20.184] – 2026-08-25
 
 ### Changed (QuickLauncher is on Alt+Q, because Ctrl+Q never worked)
 
