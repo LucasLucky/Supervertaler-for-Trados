@@ -31,8 +31,8 @@ namespace Supervertaler.Trados.Core.Export
         // a Bilingual Table produced by the Trados plugin from one produced
         // by the Workbench. The title itself is identical so the format
         // remains one recognisable family.
-        private const string SUBTITLE_URL = "https://supervertaler.com/trados/";
-        private const string SUBTITLE_DISPLAY = "Supervertaler.com/trados";
+        private const string SUBTITLE_URL = "https://supervertaler.com/";
+        private const string SUBTITLE_DISPLAY = "Supervertaler.com";
 
         public void Render(List<ExportSegment> segments, ExportOptions options, string outputPath)
         {
