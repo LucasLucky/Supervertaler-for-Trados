@@ -9268,9 +9268,30 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         /// figures.md is read into every request once it exists, so a
         /// confidently wrong caption would be invisible and everywhere.</para>
         /// </summary>
+        /// <summary>
+        /// 0 when idle, 1 while a figure analysis is running. Interlocked rather
+        /// than a bool: the click arrives on the UI thread but the run finishes
+        /// on a pool thread, and a second click while the first was on figure 11
+        /// started a concurrent run - both finished, both wrote figures.md, 28
+        /// paid requests instead of 14.
+        /// </summary>
+        private int _figureAnalysisRunning;
+
         private void OnAnalyseFiguresRequested(object sender, EventArgs e)
         {
             var batchControl = _control.Value.BatchTranslateControl;
+
+            if (System.Threading.Interlocked.CompareExchange(
+                    ref _figureAnalysisRunning, 1, 0) != 0)
+            {
+                batchControl.AppendLog(
+                    "A figure analysis is already running - wait for it to finish.", true);
+                return;
+            }
+
+            var started = false;
+            try
+            {
 
             var projectPath = TermLensEditorViewPart.GetCurrentProjectPath();
             if (string.IsNullOrEmpty(projectPath))
@@ -9337,8 +9358,45 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 return;
             }
 
-            batchControl.AppendLog("Analysing figures - one AI request per figure. This may take a minute.");
+            // Count first, so the question can say what it will cost.
+            var figureCount = 0;
+            foreach (var f in docxFiles)
+            {
+                try { figureCount += Core.DocxImageExtractor.Extract(f).Images.Count; }
+                catch { }
+            }
+            if (figureCount == 0)
+            {
+                batchControl.AppendLog("No images found in this project's Word documents.", true);
+                return;
+            }
 
+            // Only ask when there is something to lose. figures.md is the file
+            // the user is told to read and correct, and this replaces it.
+            var existing = Path.Combine(UserDataPath.GetMemoryBankDir(bankName), "figures.md");
+            if (File.Exists(existing))
+            {
+                var answer = MessageBox.Show(_control.Value.FindForm(),
+                    "This will send " + figureCount + " image(s) to "
+                        + (_settings?.AiSettings?.SelectedProvider ?? "the AI provider")
+                        + " and REPLACE the existing figures.md in memory bank \""
+                        + bankName + "\"." + "''' + N + N + '''"
+                        + "Any corrections you have made to that file will be lost."
+                        + "''' + N + N + '''Continue?",
+                    "Analyse images",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+                    MessageBoxDefaultButton.Button2);
+                if (answer != DialogResult.Yes)
+                {
+                    batchControl.AppendLog("Figure analysis cancelled - figures.md left alone.");
+                    return;
+                }
+            }
+
+            batchControl.AppendLog("Analysing " + figureCount
+                + " image(s) - one AI request each. This may take a minute.");
+
+            started = true;
             Task.Run(async () =>
             {
                 try
@@ -9414,7 +9472,20 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 {
                     SafeInvoke(() => batchControl.AppendLog("Figure analysis failed: " + ex.Message, true));
                 }
+                finally
+                {
+                    System.Threading.Interlocked.Exchange(ref _figureAnalysisRunning, 0);
+                }
             });
+            }
+            finally
+            {
+                // Released here only when the run never started - an early
+                // return would otherwise leave the flag set for the session and
+                // the button dead until Studio restarts.
+                if (!started)
+                    System.Threading.Interlocked.Exchange(ref _figureAnalysisRunning, 0);
+            }
         }
 
         /// <summary>
