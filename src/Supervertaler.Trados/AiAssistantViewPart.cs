@@ -281,6 +281,7 @@ namespace Supervertaler.Trados
             batchControl.ReferenceImagesFolderRequested += OnReferenceImagesFolderRequested;
             batchControl.WriteFiguresFileRequested += OnWriteFiguresFileRequested;
             batchControl.ExtractImagesRequested += OnExtractImagesRequested;
+            batchControl.AnalyseFiguresRequested += OnAnalyseFiguresRequested;
             batchControl.TranslateViaWorkbenchRequested += OnTranslateViaWorkbenchRequested;
             batchControl.ModelChangeRequested += OnModelChangeRequested;
             batchControl.CustomProfilesSource = GetCustomProfileMenuItems;
@@ -9247,6 +9248,367 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         /// the user sees in the preview is identical to what the LLM would receive.
         /// Does NOT trigger an actual API call.
         /// </summary>
+
+        /// <summary>
+        /// Extract the drawings, show each to a vision model with what the
+        /// document says about it, diff the signs it reads against the signs the
+        /// text cites, and write the lot to figures.md.
+        ///
+        /// <para>One action rather than four links. Extract, analyse, diff,
+        /// write is one thing the user wants; five peer links read as five
+        /// unrelated choices.</para>
+        ///
+        /// <para>The diff is the part worth having. A reference sign printed in
+        /// the drawings with no basis in the description is an Art. 84 / Rule 42
+        /// objection - on SEDA-026 that is ST 05, in Figures 13 and 14 and in no
+        /// segment of the text. It exists only as pixels, so no amount of
+        /// parsing reaches it.</para>
+        ///
+        /// <para>Writes for review. Nothing here goes straight into a prompt:
+        /// figures.md is read into every request once it exists, so a
+        /// confidently wrong caption would be invisible and everywhere.</para>
+        /// </summary>
+        private void OnAnalyseFiguresRequested(object sender, EventArgs e)
+        {
+            var batchControl = _control.Value.BatchTranslateControl;
+
+            var projectPath = TermLensEditorViewPart.GetCurrentProjectPath();
+            if (string.IsNullOrEmpty(projectPath))
+            {
+                batchControl.AppendLog("No project open.", true);
+                return;
+            }
+
+            string folder = "";
+            try { folder = Settings.ProjectSettings.Load(projectPath)?.ReferenceImagesFolder ?? ""; }
+            catch { }
+            if (string.IsNullOrEmpty(folder))
+            {
+                batchControl.AppendLog(
+                    "No reference images folder set - use the Reference images folder link first.", true);
+                return;
+            }
+
+            var bankName = ActiveMemoryBankName;
+            if (string.IsNullOrWhiteSpace(bankName))
+            {
+                batchControl.AppendLog("No memory bank is active.", true);
+                return;
+            }
+
+            var anchorPath = ResolveProjectAnchorPathCore();
+            if (string.IsNullOrEmpty(anchorPath))
+            {
+                batchControl.AppendLog("No project open.", true);
+                return;
+            }
+
+            // Signs the TEXT cites, for the diff. Whole document, as the
+            // numerals report does - a partial inventory would report absences
+            // that are only absences from the part we looked at.
+            var textSigns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (_activeDocument != null)
+            {
+                var sources = new List<string>();
+                foreach (var pair in _activeDocument.SegmentPairs)
+                {
+                    var s = TermLensEditorViewPart.GetPlainText(pair?.Source);
+                    if (!string.IsNullOrWhiteSpace(s)) sources.Add(s);
+                }
+                var inv = Core.NumeralInventory.Extract(sources);
+                foreach (var n in inv.Numerals) textSigns.Add(n.ToString());
+                foreach (var k in inv.LetterPoints.Keys) textSigns.Add(k);
+                foreach (var k in inv.LabelSeries.Keys) textSigns.Add(k);
+            }
+
+            var docxFiles = FindProjectDocx(anchorPath);
+            if (docxFiles.Count == 0)
+            {
+                batchControl.AppendLog("No Word documents found beside this project.", true);
+                return;
+            }
+
+            batchControl.AppendLog("Analysing figures - one AI request per figure. This may take a minute.");
+
+            Task.Run(async () =>
+            {
+                try
+                {
+                    var visions = new List<Core.FigureVision>();
+                    Core.DocxImageSet lastSet = null;
+                    string lastDoc = null;
+
+                    string clientError;
+                    using (var client = CreateLlmClient(out clientError))
+                    {
+                        if (client == null)
+                        {
+                            SafeInvoke(() => batchControl.AppendLog(clientError, true));
+                            return;
+                        }
+
+                        foreach (var f in docxFiles)
+                        {
+                            var set = Core.DocxImageExtractor.Extract(f, false, folder);
+                            if (set.Images.Count == 0) continue;
+                            lastSet = set; lastDoc = f;
+
+                            for (int i = 0; i < set.Images.Count; i++)
+                            {
+                                var img = set.Images[i];
+                                var file = i < set.SavedFiles.Count ? set.SavedFiles[i] : null;
+                                if (file == null) continue;
+
+                                var n = i + 1; var of = set.Images.Count;
+                                SafeInvoke(() => batchControl.AppendLog(
+                                    "  figure " + n + " of " + of + "\u2026"));
+
+                                var v = await Core.FigureAnalyzer.AnalyseAsync(
+                                    client,
+                                    Path.Combine(folder, file),
+                                    img.Label ?? ("image " + img.Ordinal),
+                                    img.Descriptions).ConfigureAwait(false);
+                                visions.Add(v);
+                            }
+                        }
+                    }
+
+                    if (visions.Count == 0)
+                    {
+                        SafeInvoke(() => batchControl.AppendLog("No figures to analyse.", true));
+                        return;
+                    }
+
+                    var path = WriteFiguresWithVision(bankName, lastDoc, lastSet, visions, textSigns);
+
+                    SafeInvoke(() =>
+                    {
+                        var failed = visions.Count(v => !string.IsNullOrEmpty(v.Error));
+                        batchControl.AppendLog("Figure analysis complete: " + visions.Count
+                            + " figure(s)" + (failed > 0 ? ", " + failed + " failed" : "")
+                            + ". Written to " + path);
+
+                        var drawingsOnly = DrawingsOnlySigns(visions, textSigns);
+                        ShowSuperMemoryMessage(
+                            "Analysed **" + visions.Count + "** figure(s) and wrote **figures.md** to "
+                            + "memory bank **" + bankName + "**."
+                            + (drawingsOnly.Count > 0
+                                ? "\n\n\u26A0 **" + drawingsOnly.Count + " reference sign(s) appear in the "
+                                  + "drawings but nowhere in the text:** " + string.Join(", ", drawingsOnly)
+                                  + ". That is worth raising with the client before filing."
+                                : "\n\nEvery sign read in the drawings also appears in the text.")
+                            + "\n\n*This file is read into every prompt from now on. Read it first \u2014 a "
+                            + "wrong caption would be invisible and everywhere.*");
+                    });
+                }
+                catch (Exception ex)
+                {
+                    SafeInvoke(() => batchControl.AppendLog("Figure analysis failed: " + ex.Message, true));
+                }
+            });
+        }
+
+        /// <summary>
+        /// Build a client from the configured provider, or null with the reason
+        /// in <paramref name="error"/>. Mirrors the resolution the batch and
+        /// AutoPrompt paths do inline; the figure pass runs on a background
+        /// thread and cannot put a message box up from there.
+        /// </summary>
+        private LlmClient CreateLlmClient(out string error)
+        {
+            error = null;
+            var aiSettings = _settings?.AiSettings;
+            if (aiSettings == null) { error = "AI settings not configured."; return null; }
+
+            var provider = aiSettings.SelectedProvider ?? LlmModels.ProviderOpenAi;
+            var model = aiSettings.GetSelectedModel();
+            string apiKey;
+            string baseUrl = null;
+
+            if (provider == LlmModels.ProviderOllama)
+            {
+                apiKey = "ollama";
+                baseUrl = aiSettings.OllamaEndpoint ?? "http://localhost:11434";
+            }
+            else if (provider == LlmModels.ProviderCustomOpenAi)
+            {
+                var profile = aiSettings.GetActiveCustomProfile();
+                if (profile == null) { error = "No custom OpenAI profile configured."; return null; }
+                apiKey = profile.ApiKey;
+                baseUrl = profile.Endpoint;
+                model = profile.Model;
+            }
+            else
+            {
+                apiKey = LlmClient.ResolveApiKey(provider, aiSettings.ApiKeys);
+            }
+
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                error = "No API key configured for " + provider
+                      + ". Open Settings > AI Settings to add one.";
+                return null;
+            }
+
+            return new LlmClient(provider, model, apiKey, baseUrl);
+        }
+
+        /// <summary>
+        /// Write figures.md with what the document says AND what the model saw,
+        /// followed by the diff between signs printed on the drawings and signs
+        /// the text cites.
+        ///
+        /// <para>The diff section leads, because it is the finding: a reference
+        /// sign in the drawings with no basis in the description is an Art. 84 /
+        /// Rule 42 point, and it is the one thing here a reader cannot get any
+        /// other way.</para>
+        /// </summary>
+        private string WriteFiguresWithVision(string bankName, string docPath,
+            Core.DocxImageSet set, List<Core.FigureVision> visions, HashSet<string> textSigns)
+        {
+            var bankDir = UserDataPath.GetMemoryBankDir(bankName);
+            Directory.CreateDirectory(bankDir);
+            var outPath = Path.Combine(bankDir, "figures.md");
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("# Figures");
+            sb.AppendLine();
+            sb.AppendLine("*Written by Supervertaler on "
+                + DateTime.Now.ToString("yyyy-MM-dd HH:mm")
+                + " from " + (docPath == null ? "the project" : Path.GetFileName(docPath))
+                + ", with the drawings examined by AI. Regenerate from Batch Operations "
+                + "\u2192 Analyse figures.*");
+            sb.AppendLine();
+
+            // The finding first.
+            var drawingsOnly = DrawingsOnlySigns(visions, textSigns);
+            sb.AppendLine("## Reference signs in the drawings but not in the text");
+            sb.AppendLine();
+            if (drawingsOnly.Count == 0)
+            {
+                sb.AppendLine("None. Every sign read in the drawings also appears in the "
+                            + "description.");
+            }
+            else
+            {
+                sb.AppendLine("**" + string.Join(", ", drawingsOnly) + "**");
+                sb.AppendLine();
+                sb.AppendLine("A reference sign carried in the drawings with no basis in the "
+                            + "description is an Art. 84 / Rule 42 point. Raise it with the "
+                            + "client rather than inventing a description for it.");
+                sb.AppendLine();
+                sb.AppendLine("*Read off the drawings by an AI. Check each one against the "
+                            + "image before relying on it.*");
+            }
+            sb.AppendLine();
+
+            sb.AppendLine("## The figures");
+            sb.AppendLine();
+            if (set != null && set.Method == Core.LabelingMethod.Ordinal)
+            {
+                sb.AppendLine("Image *N* carries figure *N*, checked for all "
+                            + set.Images.Count + ".");
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("| Figure | File | What the document says | What the drawing shows | Signs on the drawing |");
+            sb.AppendLine("|---|---|---|---|---|");
+
+            for (int i = 0; i < visions.Count; i++)
+            {
+                var v = visions[i];
+                var img = (set != null && i < set.Images.Count) ? set.Images[i] : null;
+
+                var said = "";
+                if (img != null && img.Descriptions != null && img.Descriptions.Count > 0)
+                    said = string.Join(" ", img.Descriptions);
+                if (said.Length == 0) said = "\u2014";
+
+                var saw = !string.IsNullOrEmpty(v.Error)
+                    ? "*not analysed: " + v.Error + "*"
+                    : (string.IsNullOrWhiteSpace(v.Caption) ? "\u2014" : v.Caption);
+
+                var signs = v.SignsInDrawing.Count > 0
+                    ? string.Join(", ", v.SignsInDrawing)
+                    : "\u2014";
+
+                sb.AppendLine("| " + Cell(v.Label) + " | " + Cell(v.FileName) + " | "
+                            + Cell(said) + " | " + Cell(saw) + " | " + Cell(signs) + " |");
+            }
+            sb.AppendLine();
+
+            var failed = visions.Count(x => !string.IsNullOrEmpty(x.Error));
+            if (failed > 0)
+            {
+                sb.AppendLine("*" + failed + " figure(s) could not be analysed; their rows say why. "
+                            + "They are listed rather than dropped, so the gap is visible.*");
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("## How to read this");
+            sb.AppendLine();
+            sb.AppendLine("\"What the document says\" is quoted from the source text and is exact. "
+                        + "\"What the drawing shows\" and \"Signs on the drawing\" were produced by "
+                        + "an AI looking at the image, and can be wrong. This file is read into every "
+                        + "prompt, so correct anything that is wrong here rather than leaving it: a "
+                        + "mistaken caption would otherwise be repeated into every request silently.");
+
+            var text = sb.ToString()
+                .Replace("\r\n", "\n")
+                .Replace("\r", "\n")
+                .Replace("\n", "\r\n");
+            File.WriteAllText(outPath, text, new System.Text.UTF8Encoding(false));
+            return outPath;
+        }
+
+        /// <summary>Table-cell safe: pipes escaped, newlines flattened.</summary>
+        private static string Cell(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "\u2014";
+            return s.Replace("\r", " ").Replace("\n", " ").Replace("|", "\\|").Trim();
+        }
+
+        /// <summary>Word documents beside the project - its folder and the one
+        /// above, because a patent keeps its drawings next to the Studio folder.</summary>
+        private List<string> FindProjectDocx(string anchorPath)
+        {
+            var found = new List<string>();
+            try
+            {
+                var d = Path.GetDirectoryName(anchorPath);
+                var dirs = new List<string>();
+                if (!string.IsNullOrEmpty(d) && Directory.Exists(d)) dirs.Add(d);
+                var up = Path.GetDirectoryName(d);
+                if (!string.IsNullOrEmpty(up) && Directory.Exists(up)
+                    && !string.Equals(up, d, StringComparison.OrdinalIgnoreCase))
+                    dirs.Add(up);
+
+                foreach (var dir in dirs)
+                    foreach (var f in Directory.GetFiles(dir, "*.docx", SearchOption.TopDirectoryOnly))
+                    {
+                        if (Path.GetFileName(f).StartsWith("~$")) continue;
+                        if (!found.Contains(f)) found.Add(f);
+                    }
+            }
+            catch { }
+            return found;
+        }
+
+        /// <summary>Signs the model read in a drawing that the text never cites.
+        /// The finding this whole feature exists to produce.</summary>
+        private static List<string> DrawingsOnlySigns(
+            List<Core.FigureVision> visions, HashSet<string> textSigns)
+        {
+            var seen = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var v in visions)
+                foreach (var s in v.SignsInDrawing)
+                {
+                    var t = (s ?? "").Trim();
+                    if (t.Length == 0) continue;
+                    if (!textSigns.Contains(t)) seen.Add(t);
+                }
+            return seen.ToList();
+        }
 
         /// <summary>
         /// Extract the project's document images into the reference images

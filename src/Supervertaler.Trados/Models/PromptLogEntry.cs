@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -14,7 +14,10 @@ namespace Supervertaler.Trados.Models
         PromptGeneration,
         ConnectionTest,
         SuperMemory,
-        AutoTag
+        AutoTag,
+        /// <summary>Looking at a drawing and reporting what it shows and
+        /// which reference signs are printed on it.</summary>
+        FigureAnalysis
     }
 
     /// <summary>
@@ -83,6 +86,9 @@ namespace Supervertaler.Trados.Models
                     case PromptLogFeature.PromptGeneration: baseLabel = "AutoPrompt"; break;
                     case PromptLogFeature.ConnectionTest: baseLabel = "Connection Test"; break;
                     case PromptLogFeature.AutoTag: baseLabel = "AutoTagger"; break;
+                    // Without a label the usage ledger records the call
+                    // but shows it nameless - the AutoTagger bug in 20.14x.
+                    case PromptLogFeature.FigureAnalysis: baseLabel = "Figure analysis"; break;
                     default: baseLabel = "Unknown"; break;
                 }
 

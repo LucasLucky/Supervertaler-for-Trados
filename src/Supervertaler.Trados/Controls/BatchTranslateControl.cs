@@ -67,6 +67,7 @@ namespace Supervertaler.Trados.Controls
         private LinkLabel _lnkRefFolder;
         private LinkLabel _lnkWriteFigures;
         private LinkLabel _lnkExtractImages;
+        private LinkLabel _lnkAnalyseFigures;
 
         // Clipboard Mode
         private CheckBox _chkClipboardMode;
@@ -153,6 +154,10 @@ namespace Supervertaler.Trados.Controls
         /// <summary>Raised to extract the document's images into the
         /// reference images folder, named for their figures.</summary>
         public event EventHandler ExtractImagesRequested;
+
+        /// <summary>Raised to extract, look at, and describe the drawings.
+        /// The only figure action that calls a provider.</summary>
+        public event EventHandler AnalyseFiguresRequested;
 
         /// <summary>Gets the current batch mode.</summary>
         public BatchMode CurrentMode => _currentMode;
@@ -735,6 +740,26 @@ namespace Supervertaler.Trados.Controls
                 "folder, named for the figure each one is - Figure 01.png and so" + "\r\n" +
                 "on, zero-padded so they sort. Re-running overwrites. No AI call.");
             Controls.Add(_lnkExtractImages);
+            y += Px(22);
+
+            _lnkAnalyseFigures = new LinkLabel
+            {
+                Text = "✦  Analyse figures (AI)",
+                AutoSize = true,
+                Font = bodyFont,
+                Location = new Point(leftMargin, y)
+            };
+            _lnkAnalyseFigures.LinkClicked += (s, ev) =>
+                AnalyseFiguresRequested?.Invoke(this, EventArgs.Empty);
+            var anTip = new ToolTip { AutoPopDelay = 15000, InitialDelay = 300 };
+            anTip.SetToolTip(_lnkAnalyseFigures,
+                "Extract the drawings, show each one to the AI with what the" + "\r\n" +
+                "document says about it, and write the result to figures.md." + "\r\n" +
+                "Reports which reference signs are printed on the drawings but" + "\r\n" +
+                "appear nowhere in the text - the finding no text search can make." + "\r\n" +
+                "This one DOES call the AI: one request per figure. Read the" + "\r\n" +
+                "result before relying on it.");
+            Controls.Add(_lnkAnalyseFigures);
 
             y += Px(26);
 
