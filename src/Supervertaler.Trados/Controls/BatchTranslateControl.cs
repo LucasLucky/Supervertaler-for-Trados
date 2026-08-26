@@ -65,6 +65,7 @@ namespace Supervertaler.Trados.Controls
         private LinkLabel _lnkNumerals;
         private LinkLabel _lnkDocImages;
         private LinkLabel _lnkRefFolder;
+        private LinkLabel _lnkWriteFigures;
 
         // Clipboard Mode
         private CheckBox _chkClipboardMode;
@@ -143,6 +144,10 @@ namespace Supervertaler.Trados.Controls
         /// <summary>Raised when the user wants to choose the folder holding
         /// this project's drawings.</summary>
         public event EventHandler ReferenceImagesFolderRequested;
+
+        /// <summary>Raised to write the figure inventory to the active bank's
+        /// figures.md, where prompts actually read it.</summary>
+        public event EventHandler WriteFiguresFileRequested;
 
         /// <summary>Gets the current batch mode.</summary>
         public BatchMode CurrentMode => _currentMode;
@@ -690,6 +695,24 @@ namespace Supervertaler.Trados.Controls
                 "Remembered per Trados project. The same setting also appears in" + "\r\n" +
                 "Settings > Library on a memory bank, but this is the short way in.");
             Controls.Add(_lnkRefFolder);
+            y += Px(22);
+
+            _lnkWriteFigures = new LinkLabel
+            {
+                Text = "→  Write figures.md to memory bank",
+                AutoSize = true,
+                Font = bodyFont,
+                Location = new Point(leftMargin, y)
+            };
+            _lnkWriteFigures.LinkClicked += (s, ev) =>
+                WriteFiguresFileRequested?.Invoke(this, EventArgs.Empty);
+            var figTip = new ToolTip();
+            figTip.SetToolTip(_lnkWriteFigures,
+                "Write the figure inventory to figures.md in the active memory" + "\r\n" +
+                "bank, where it IS read into every prompt." + "\r\n" +
+                "Saving a report to the bank from the chat puts it in reference/," + "\r\n" +
+                "which is the audit trail and is never read. Makes no AI call.");
+            Controls.Add(_lnkWriteFigures);
 
             y += Px(26);
 

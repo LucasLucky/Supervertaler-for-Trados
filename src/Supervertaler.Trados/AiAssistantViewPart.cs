@@ -279,6 +279,7 @@ namespace Supervertaler.Trados
             batchControl.ReferenceNumeralsRequested += OnReferenceNumeralsRequested;
             batchControl.DocumentImagesRequested += OnDocumentImagesRequested;
             batchControl.ReferenceImagesFolderRequested += OnReferenceImagesFolderRequested;
+            batchControl.WriteFiguresFileRequested += OnWriteFiguresFileRequested;
             batchControl.TranslateViaWorkbenchRequested += OnTranslateViaWorkbenchRequested;
             batchControl.ModelChangeRequested += OnModelChangeRequested;
             batchControl.CustomProfilesSource = GetCustomProfileMenuItems;
@@ -9245,6 +9246,174 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         /// the user sees in the preview is identical to what the LLM would receive.
         /// Does NOT trigger an actual API call.
         /// </summary>
+
+        /// <summary>
+        /// Write the figure inventory to <c>figures.md</c> at the active memory
+        /// bank's root, where every prompt reads it.
+        ///
+        /// <para>Not <c>reference/</c>: that is the audit trail and
+        /// MemoryBankReader never reads it into a prompt, so a figure inventory
+        /// saved there is invisible to the model - which is the one thing it
+        /// exists for. The bank root is globbed for <c>*.md</c>, so this file
+        /// reaches every request.</para>
+        ///
+        /// <para>Worth having before any vision pass exists: what the document
+        /// says each figure shows is real context on its own. The column that
+        /// needs a model to look at the drawings is named as missing rather than
+        /// left to look complete.</para>
+        /// </summary>
+        private void OnWriteFiguresFileRequested(object sender, EventArgs e)
+        {
+            SafeInvoke(() =>
+            {
+                var batchControl = _control.Value.BatchTranslateControl;
+
+                var bankName = ActiveMemoryBankName;
+                if (string.IsNullOrWhiteSpace(bankName))
+                {
+                    batchControl.AppendLog("No memory bank is active.", true);
+                    return;
+                }
+
+                var bankDir = UserDataPath.GetMemoryBankDir(bankName);
+                if (string.IsNullOrEmpty(bankDir) || !Directory.Exists(bankDir))
+                {
+                    batchControl.AppendLog("Memory bank folder not found: " + bankDir, true);
+                    return;
+                }
+
+                var anchorPath = ResolveProjectAnchorPathCore();
+                if (string.IsNullOrEmpty(anchorPath))
+                {
+                    batchControl.AppendLog("No project open.", true);
+                    return;
+                }
+
+                // Same sweep as the Document images report: the project folder
+                // and its parent, because a patent keeps its drawings beside the
+                // Studio folder rather than inside it.
+                var docxFiles = new List<string>();
+                try
+                {
+                    var d = Path.GetDirectoryName(anchorPath);
+                    var dirs = new List<string>();
+                    if (!string.IsNullOrEmpty(d) && Directory.Exists(d)) dirs.Add(d);
+                    var up = Path.GetDirectoryName(d);
+                    if (!string.IsNullOrEmpty(up) && Directory.Exists(up)
+                        && !string.Equals(up, d, StringComparison.OrdinalIgnoreCase))
+                        dirs.Add(up);
+
+                    foreach (var dir in dirs)
+                        foreach (var f in Directory.GetFiles(dir, "*.docx", SearchOption.TopDirectoryOnly))
+                        {
+                            if (Path.GetFileName(f).StartsWith("~$")) continue;
+                            if (!docxFiles.Contains(f)) docxFiles.Add(f);
+                        }
+                }
+                catch { }
+
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("# Figures");
+                sb.AppendLine();
+                sb.AppendLine("*Written by Supervertaler on "
+                    + DateTime.Now.ToString("yyyy-MM-dd HH:mm")
+                    + ". Regenerate from Batch Operations \u2192 Write figures.md.*");
+                sb.AppendLine();
+
+                var wrote = 0;
+                var refused = 0;
+
+                foreach (var f in docxFiles)
+                {
+                    var set = Core.DocxImageExtractor.Extract(f);
+                    if (set.Images.Count == 0) continue;
+
+                    sb.AppendLine("## " + Path.GetFileName(f));
+                    sb.AppendLine();
+
+                    if (set.Method == Core.LabelingMethod.Refused)
+                    {
+                        refused++;
+                        sb.AppendLine("**Figure labels could not be established.** " + set.Warning);
+                        sb.AppendLine();
+                        sb.AppendLine("The images are listed in document order, unlabelled. Do not "
+                                    + "assume image *N* is figure *N* here.");
+                        sb.AppendLine();
+                    }
+                    else if (set.Method == Core.LabelingMethod.Ordinal)
+                    {
+                        sb.AppendLine("Image *N* carries figure *N*, checked for all "
+                                    + set.Images.Count + ".");
+                        sb.AppendLine();
+                    }
+
+                    sb.AppendLine("| Figure | Source part | What the document says it shows |");
+                    sb.AppendLine("|---|---|---|");
+                    foreach (var img in set.Images)
+                    {
+                        // Not truncated: the chat table cuts at 110 characters
+                        // because a docked panel is narrow. This file is read by
+                        // the model and by a Markdown previewer, and both want
+                        // the whole sentence.
+                        var desc = "";
+                        if (img.Descriptions != null && img.Descriptions.Count > 0)
+                            desc = string.Join(" ", img.Descriptions);
+                        if (string.IsNullOrWhiteSpace(desc)) desc = "\u2014";
+                        desc = desc.Replace("\r", " ").Replace("\n", " ").Replace("|", "\\|").Trim();
+
+                        var part = (img.PartName ?? "").Replace("/word/", "").Replace("|", "\\|");
+
+                        sb.AppendLine("| " + (img.Label ?? ("image " + img.Ordinal))
+                            + " | " + part + " | " + desc + " |");
+                        wrote++;
+                    }
+                    sb.AppendLine();
+                }
+
+                if (wrote == 0)
+                {
+                    batchControl.AppendLog(
+                        "No images found in this project's Word documents - nothing written.", true);
+                    return;
+                }
+
+                sb.AppendLine("## What is not here");
+                sb.AppendLine();
+                sb.AppendLine("What each drawing **actually shows** \u2014 the parts visible in it, and "
+                            + "any reference sign printed on the drawing but absent from the text \u2014 "
+                            + "is not in this file. Establishing that needs a pass that looks at the "
+                            + "images, which does not exist yet (issue #69). Everything above comes "
+                            + "from the document's own text.");
+
+                var outPath = Path.Combine(bankDir, "figures.md");
+                try
+                {
+                    // CRLF throughout: AppendLine emits CRLF but the text it wraps
+                    // arrives with bare LF, and a mixed file makes Markdown editors
+                    // complain. Same reasoning as the chat-save writer.
+                    var text = sb.ToString()
+                        .Replace("\r\n", "\n")
+                        .Replace("\r", "\n")
+                        .Replace("\n", "\r\n");
+                    File.WriteAllText(outPath, text, new System.Text.UTF8Encoding(false));
+                }
+                catch (Exception ex)
+                {
+                    batchControl.AppendLog("Could not write figures.md: " + ex.Message, true);
+                    return;
+                }
+
+                batchControl.AppendLog("figures.md written to memory bank " + bankName
+                    + " (" + wrote + " figure(s)"
+                    + (refused > 0 ? ", " + refused + " document(s) unlabelled" : "")
+                    + "). It is read into every prompt.");
+
+                ShowSuperMemoryMessage(
+                    "Wrote **figures.md** to memory bank **" + bankName + "** \u2014 "
+                    + wrote + " figure(s).\n\nUnlike a chat save, this sits at the bank root, "
+                    + "so it is read into every prompt.");
+            });
+        }
 
         /// <summary>
         /// Choose the folder holding this project's drawings, and remember it
