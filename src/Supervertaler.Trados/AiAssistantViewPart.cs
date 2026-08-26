@@ -278,6 +278,7 @@ namespace Supervertaler.Trados
             batchControl.PreviewPromptRequested += OnPreviewPromptRequested;
             batchControl.ReferenceNumeralsRequested += OnReferenceNumeralsRequested;
             batchControl.DocumentImagesRequested += OnDocumentImagesRequested;
+            batchControl.ReferenceImagesFolderRequested += OnReferenceImagesFolderRequested;
             batchControl.TranslateViaWorkbenchRequested += OnTranslateViaWorkbenchRequested;
             batchControl.ModelChangeRequested += OnModelChangeRequested;
             batchControl.CustomProfilesSource = GetCustomProfileMenuItems;
@@ -9246,6 +9247,88 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         /// </summary>
 
         /// <summary>
+        /// Choose the folder holding this project's drawings, and remember it
+        /// against the open Trados project.
+        ///
+        /// <para>The same setting lives in Settings &gt; Library on a memory bank
+        /// node. Two sessions running failed to find it there and one reported it
+        /// as not existing, so it is reachable from the tab that actually
+        /// consumes it as well.</para>
+        /// </summary>
+        private void OnReferenceImagesFolderRequested(object sender, EventArgs e)
+        {
+            SafeInvoke(() =>
+            {
+                var batchControl = _control.Value.BatchTranslateControl;
+
+                var projectPath = TermLensEditorViewPart.GetCurrentProjectPath();
+                if (string.IsNullOrEmpty(projectPath))
+                {
+                    batchControl.AppendLog(
+                        "No project open - there is nothing to attach a folder to.", true);
+                    return;
+                }
+
+                string current = "";
+                try { current = Settings.ProjectSettings.Load(projectPath)?.ReferenceImagesFolder ?? ""; }
+                catch { }
+
+                // Start where the drawings usually are: beside the project rather
+                // than inside the Studio folder.
+                var start = current;
+                if (string.IsNullOrEmpty(start))
+                {
+                    try
+                    {
+                        var suggestions = Core.ReferenceImages.Suggest(projectPath);
+                        if (suggestions != null && suggestions.Count > 0) start = suggestions[0];
+                    }
+                    catch { }
+                }
+
+                // FolderPicker, not FolderBrowserDialog: the latter is the
+                // Windows 2000-era tree with nowhere to paste a path.
+                var chosen = Controls.FolderPicker.Show(
+                    _control.Value.FindForm(),
+                    "Choose the folder holding this project's drawings",
+                    start);
+                if (string.IsNullOrEmpty(chosen)) return;
+
+                var found = 0;
+                try { found = Core.ReferenceImages.List(chosen)?.Count ?? 0; }
+                catch { }
+
+                if (found == 0)
+                {
+                    var go = MessageBox.Show(_control.Value.FindForm(),
+                        "No images found in" + "\n\n" + chosen + "\n\nUse it anyway?",
+                        "Reference images",
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Question,
+                        MessageBoxDefaultButton.Button2);
+                    if (go != DialogResult.Yes) return;
+                }
+
+                try
+                {
+                    var ps = Settings.ProjectSettings.Load(projectPath) ?? new Settings.ProjectSettings();
+                    ps.ReferenceImagesFolder = chosen;
+                    if (string.IsNullOrEmpty(ps.ProjectPath)) ps.ProjectPath = projectPath;
+                    if (string.IsNullOrEmpty(ps.ProjectName))
+                        ps.ProjectName = TermLensEditorViewPart.GetCurrentProjectName() ?? "";
+                    Settings.ProjectSettings.Save(projectPath, ps);
+                }
+                catch (Exception ex)
+                {
+                    batchControl.AppendLog("Could not save the folder: " + ex.Message, true);
+                    return;
+                }
+
+                batchControl.AppendLog("Reference images folder set: " + chosen
+                    + " (" + found + " image file(s)).");
+            });
+        }
+
+        /// <summary>
         /// Reports the images in this project's Word documents, each with any
         /// figure label and the text it sits among, plus the reference-images
         /// folder if one is set. No AI call.
@@ -9411,11 +9494,11 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     // The row is real, but it only appears once a bank node or a
                     // figures.md is SELECTED - so naming the path alone reads as a
                     // dead end to anyone who opens Library and sees prompt folders.
-                    sb.AppendLine("Not set for this project. To set it: **Settings \u2192 "
-                                + "Library**, expand **SuperMemory**, select your memory bank "
-                                + "(or its `figures.md`), and use the **Reference images** row "
-                                + "at the foot of the panel. The folder is remembered per "
-                                + "Trados project, not per bank.");
+                    sb.AppendLine("Not set for this project. Use the "
+                                + "**Reference images folder** link on the Batch Operations "
+                                + "tab, just below this report's button. Remembered per Trados "
+                                + "project. (It is also on a memory bank in Settings > Library, "
+                                + "but that route is easy to miss.)");
                 }
                 else
                 {

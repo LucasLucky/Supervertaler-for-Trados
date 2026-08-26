@@ -64,6 +64,7 @@ namespace Supervertaler.Trados.Controls
         private LinkLabel _lnkPreviewPrompt;
         private LinkLabel _lnkNumerals;
         private LinkLabel _lnkDocImages;
+        private LinkLabel _lnkRefFolder;
 
         // Clipboard Mode
         private CheckBox _chkClipboardMode;
@@ -138,6 +139,10 @@ namespace Supervertaler.Trados.Controls
         /// <summary>Raised when the user asks what images this project's Word
         /// documents contain, and how each is tied to the text. No AI call.</summary>
         public event EventHandler DocumentImagesRequested;
+
+        /// <summary>Raised when the user wants to choose the folder holding
+        /// this project's drawings.</summary>
+        public event EventHandler ReferenceImagesFolderRequested;
 
         /// <summary>Gets the current batch mode.</summary>
         public BatchMode CurrentMode => _currentMode;
@@ -663,6 +668,28 @@ namespace Supervertaler.Trados.Controls
                 "label and the text each one sits among. Also reports the reference\r\n" +
                 "images folder, if one is set. Makes no AI call.");
             Controls.Add(_lnkDocImages);
+            y += Px(22);
+
+            // The folder setting, one click from the feature that reads it.
+            // It also lives in Settings > Library on a bank node, where two
+            // sessions running failed to find it - one reported it as not
+            // existing. Four levels into a modal dialog is the wrong home
+            // for a per-project setting only this tab consumes.
+            _lnkRefFolder = new LinkLabel
+            {
+                Text = "⚙  Reference images folder\u2026",
+                AutoSize = true,
+                Font = bodyFont,
+                Location = new Point(leftMargin, y)
+            };
+            _lnkRefFolder.LinkClicked += (s, ev) =>
+                ReferenceImagesFolderRequested?.Invoke(this, EventArgs.Empty);
+            var refTip = new ToolTip();
+            refTip.SetToolTip(_lnkRefFolder,
+                "Choose the folder holding this project's drawings." + "\r\n" +
+                "Remembered per Trados project. The same setting also appears in" + "\r\n" +
+                "Settings > Library on a memory bank, but this is the short way in.");
+            Controls.Add(_lnkRefFolder);
 
             y += Px(26);
 
