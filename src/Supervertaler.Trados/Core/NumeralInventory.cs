@@ -36,6 +36,32 @@ namespace Supervertaler.Trados.Core
             @"\((\d{1,3}(?:\s*,\s*\d{1,3})*)\)", RegexOptions.Compiled);
 
         /// <summary>
+        /// The same part written "N°7" rather than "(7)". Not a separate class:
+        /// on SEDA-026 "Scharnierpunt tussen onderdelen N°2 en N°3" means parts 2
+        /// and 3, the very ones cited as (2) and (3) elsewhere. Kept apart it
+        /// would list the same part twice under two spellings.
+        /// </summary>
+        private static readonly Regex NumeroRe = new Regex(
+            @"\bN[\u00B0\u00BA]\s?(\d{1,3})\b", RegexOptions.Compiled);
+
+        /// <summary>
+        /// Lettered points: (A), and comma lists like (G,H) - the letter
+        /// analogue of (12, 14). SINGLE letters only, deliberately: widening
+        /// this to any letters in brackets also catches (TPE) and (PU), which
+        /// are material abbreviations, and (nog), which is a Dutch word.
+        /// </summary>
+        private static readonly Regex LetterPointRe = new Regex(
+            @"\(([A-Z](?:\s*,\s*[A-Z])*)\)", RegexOptions.Compiled);
+
+        /// <summary>
+        /// A label series such as ST 01: two or three capitals then two digits.
+        /// The separator may be an ordinary space or U+00A0 - SEDA-026 uses both
+        /// for ST 03, which a naive scan reports as two distinct signs.
+        /// </summary>
+        private static readonly Regex LabelSeriesRe = new Regex(
+            @"\b([A-Z]{2,3})[\s\u00A0]?(\d{2})\b", RegexOptions.Compiled);
+
+        /// <summary>
         /// Every distinct numeral cited in <paramref name="text"/>, ascending,
         /// with the sentences that cite each one.
         ///
@@ -68,9 +94,50 @@ namespace Supervertaler.Trados.Core
                         if (!list.Contains(segment)) list.Add(segment);
                     }
                 }
+
+                // "N\u00b07" is part 7, the same part "(7)" names. Merged into the
+                // numerals rather than kept apart, or the same part appears
+                // twice under two spellings.
+                foreach (Match m in NumeroRe.Matches(segment))
+                {
+                    int n;
+                    if (!int.TryParse(m.Groups[1].Value, out n)) continue;
+                    List<string> list;
+                    if (!report.Citations.TryGetValue(n, out list))
+                    {
+                        list = new List<string>();
+                        report.Citations[n] = list;
+                    }
+                    if (!list.Contains(segment)) list.Add(segment);
+                }
+
+                foreach (Match m in LetterPointRe.Matches(segment))
+                    foreach (var part in m.Groups[1].Value.Split(','))
+                        AddSign(report.LetterPoints, part.Trim(), segment);
+
+                // Normalise the separator: SEDA-026 writes ST 03 with an
+                // ordinary space in one place and U+00A0 in another, which a
+                // naive scan counts as two distinct signs.
+                foreach (Match m in LabelSeriesRe.Matches(segment))
+                    AddSign(report.LabelSeries,
+                        m.Groups[1].Value + " " + m.Groups[2].Value, segment);
             }
 
             return report;
+        }
+
+        /// <summary>One citation per sign per segment.</summary>
+        private static void AddSign(SortedDictionary<string, List<string>> map,
+            string sign, string segment)
+        {
+            if (string.IsNullOrEmpty(sign)) return;
+            List<string> list;
+            if (!map.TryGetValue(sign, out list))
+            {
+                list = new List<string>();
+                map[sign] = list;
+            }
+            if (!list.Contains(segment)) list.Add(segment);
         }
 
         /// <summary>
@@ -166,7 +233,27 @@ namespace Supervertaler.Trados.Core
                 sb.AppendLine();
             }
 
+            AppendSignSection(sb, "Lettered points", report.LetterPoints);
+            AppendSignSection(sb, "Label-series signs", report.LabelSeries);
+
             return sb.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// Render one class of non-numeral reference sign. Omitted entirely when
+        /// the document uses none, rather than printing an empty heading.
+        /// </summary>
+        private static void AppendSignSection(StringBuilder sb, string title,
+            SortedDictionary<string, List<string>> map)
+        {
+            if (map == null || map.Count == 0) return;
+
+            sb.AppendLine();
+            sb.AppendLine("### " + title);
+            sb.AppendLine();
+            sb.AppendLine("**" + map.Count + " distinct**: "
+                + string.Join(", ", map.Keys) + ".");
+            sb.AppendLine();
         }
 
         /// <summary>
@@ -216,6 +303,15 @@ namespace Supervertaler.Trados.Core
         /// <summary>Numeral → the distinct segments citing it, in document order.</summary>
         public SortedDictionary<int, List<string>> Citations { get; }
             = new SortedDictionary<int, List<string>>();
+
+        /// <summary>Lettered points – (A), (B) … – to the segments citing them.</summary>
+        public SortedDictionary<string, List<string>> LetterPoints { get; }
+            = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
+
+        /// <summary>Label-series signs – ST 01, ST 02 … – to the segments citing
+        /// them, normalised to a single ordinary space.</summary>
+        public SortedDictionary<string, List<string>> LabelSeries { get; }
+            = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
 
         /// <summary>Every cited numeral, ascending.</summary>
         public IEnumerable<int> Numerals => Citations.Keys;

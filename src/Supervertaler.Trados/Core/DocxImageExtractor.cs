@@ -230,8 +230,16 @@ namespace Supervertaler.Trados.Core
             {
                 var existing = NormaliseForCompare(list[i]);
 
-                // Already covered by a longer one we have.
-                if (existing.Contains(key)) return;
+                // Already covered by one we have. When the two are the same
+                // sentence bar punctuation, keep the better-punctuated copy -
+                // the figure list omits the final stop and the detailed
+                // description carries it, and this text goes into every prompt.
+                if (existing.Contains(key))
+                {
+                    if (key.Length == existing.Length && text.Length > list[i].Length)
+                        list[i] = text;
+                    return;
+                }
 
                 // This one supersedes what we have.
                 if (key.Contains(existing)) { list[i] = text; return; }
