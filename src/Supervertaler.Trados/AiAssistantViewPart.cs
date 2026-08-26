@@ -9307,6 +9307,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             // numerals report does - a partial inventory would report absences
             // that are only absences from the part we looked at.
             var textSigns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var rawSourceText = "";
             if (_activeDocument != null)
             {
                 var sources = new List<string>();
@@ -9319,6 +9320,14 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 foreach (var n in inv.Numerals) textSigns.Add(n.ToString());
                 foreach (var k in inv.LetterPoints.Keys) textSigns.Add(k);
                 foreach (var k in inv.LabelSeries.Keys) textSigns.Add(k);
+
+                // The inventory is deliberately narrow - parenthesised numerals,
+                // (A) points, ST nn - so it does not pick up bare mentions. The
+                // model reads whatever is printed on the drawing, so the diff
+                // needs the raw text as well: "zone X" is in the description six
+                // times, and X was reported as absent because it never appears
+                // in brackets.
+                rawSourceText = string.Join(" ", sources);
             }
 
             var docxFiles = FindProjectDocx(anchorPath);
@@ -9379,7 +9388,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         return;
                     }
 
-                    var path = WriteFiguresWithVision(bankName, lastDoc, lastSet, visions, textSigns);
+                    var path = WriteFiguresWithVision(bankName, lastDoc, lastSet, visions, textSigns, rawSourceText);
 
                     SafeInvoke(() =>
                     {
@@ -9388,7 +9397,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                             + " figure(s)" + (failed > 0 ? ", " + failed + " failed" : "")
                             + ". Written to " + path);
 
-                        var drawingsOnly = DrawingsOnlySigns(visions, textSigns);
+                        var drawingsOnly = DrawingsOnlySigns(visions, textSigns, rawSourceText);
                         ShowSuperMemoryMessage(
                             "Analysed **" + visions.Count + "** figure(s) and wrote **figures.md** to "
                             + "memory bank **" + bankName + "**."
@@ -9464,7 +9473,8 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         /// other way.</para>
         /// </summary>
         private string WriteFiguresWithVision(string bankName, string docPath,
-            Core.DocxImageSet set, List<Core.FigureVision> visions, HashSet<string> textSigns)
+            Core.DocxImageSet set, List<Core.FigureVision> visions, HashSet<string> textSigns,
+            string rawSourceText)
         {
             var bankDir = UserDataPath.GetMemoryBankDir(bankName);
             Directory.CreateDirectory(bankDir);
@@ -9481,7 +9491,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             sb.AppendLine();
 
             // The finding first.
-            var drawingsOnly = DrawingsOnlySigns(visions, textSigns);
+            var drawingsOnly = DrawingsOnlySigns(visions, textSigns, rawSourceText);
             sb.AppendLine("## Reference signs in the drawings but not in the text");
             sb.AppendLine();
             if (drawingsOnly.Count == 0)
@@ -9597,17 +9607,47 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         /// <summary>Signs the model read in a drawing that the text never cites.
         /// The finding this whole feature exists to produce.</summary>
         private static List<string> DrawingsOnlySigns(
-            List<Core.FigureVision> visions, HashSet<string> textSigns)
+            List<Core.FigureVision> visions, HashSet<string> textSigns, string rawSourceText)
         {
             var seen = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var v in visions)
                 foreach (var s in v.SignsInDrawing)
                 {
-                    var t = (s ?? "").Trim();
-                    if (t.Length == 0) continue;
-                    if (!textSigns.Contains(t)) seen.Add(t);
+                    var sign = (s ?? "").Trim();
+                    if (sign.Length == 0) continue;
+                    if (textSigns.Contains(sign)) continue;
+                    if (AppearsInText(rawSourceText, sign)) continue;
+                    seen.Add(sign);
                 }
             return seen.ToList();
+        }
+
+        /// <summary>
+        /// Does this sign appear anywhere in the source text as a whole word?
+        ///
+        /// <para>The second gate on the diff, and it exists because of a real
+        /// false positive: the model read X off Figures 12-14, the inventory had
+        /// no X because the text writes "zone X" rather than "(X)", and the
+        /// report accused the drawings of carrying an uncited sign. Sending a
+        /// translator to their client over a sign that is in the description six
+        /// times is worse than missing one.</para>
+        ///
+        /// <para>It errs towards suppressing. A sign present anywhere in the
+        /// text is not reported, which can hide a genuine case where the letter
+        /// occurs coincidentally - but a false accusation costs more than a
+        /// missed hint in a list the file already tells you to verify.</para>
+        /// </summary>
+        private static bool AppearsInText(string rawSourceText, string sign)
+        {
+            if (string.IsNullOrEmpty(rawSourceText) || string.IsNullOrEmpty(sign)) return false;
+            try
+            {
+                return System.Text.RegularExpressions.Regex.IsMatch(
+                    rawSourceText,
+                    @"(?<![\w])" + System.Text.RegularExpressions.Regex.Escape(sign) + @"(?![\w])",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            }
+            catch { return false; }
         }
 
         /// <summary>
