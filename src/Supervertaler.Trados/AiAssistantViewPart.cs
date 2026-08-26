@@ -9313,7 +9313,8 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
 
                 foreach (var f in docxFiles)
                 {
-                    var images = Core.DocxImageExtractor.Extract(f);
+                    var set = Core.DocxImageExtractor.Extract(f);
+                    var images = set.Images;
                     var labelled = images.Count(i => !string.IsNullOrEmpty(i.Label));
                     var anchored = images.Count(i => !string.IsNullOrWhiteSpace(i.Anchor));
                     totalImages += images.Count;
@@ -9334,6 +9335,26 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         + labelled + " with a figure label, "
                         + anchored + " with surrounding text.");
                     sb.AppendLine();
+
+                    // Say how the labels were arrived at. The old report could
+                    // not, and so announced success over four figures collapsed
+                    // onto FIG. 3.
+                    if (set.Method == Core.LabelingMethod.Ordinal)
+                    {
+                        sb.AppendLine("Labels paired by position and checked: image *N* carries "
+                                    + "figure *N*, verified for all " + images.Count + ".");
+                    }
+                    else if (set.Method == Core.LabelingMethod.Refused)
+                    {
+                        sb.AppendLine("> \u26A0 **Labels withheld.** " + set.Warning);
+                    }
+                    else if (set.Method == Core.LabelingMethod.Proximity)
+                    {
+                        sb.AppendLine("*Labels taken from nearby text \u2013 right for captioned "
+                                    + "inline images, a guess on a document of plates.*");
+                    }
+                    sb.AppendLine();
+
                     sb.AppendLine("| # | Label | Sits among |");
                     sb.AppendLine("|---|---|---|");
                     foreach (var img in images)
@@ -9362,8 +9383,14 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 sb.AppendLine();
                 if (string.IsNullOrEmpty(folder))
                 {
-                    sb.AppendLine("Not set for this project. (Settings \u2192 Library \u2192 the bank\u0027s "
-                                + "Reference images row.)");
+                    // The row is real, but it only appears once a bank node or a
+                    // figures.md is SELECTED - so naming the path alone reads as a
+                    // dead end to anyone who opens Library and sees prompt folders.
+                    sb.AppendLine("Not set for this project. To set it: **Settings \u2192 "
+                                + "Library**, expand **SuperMemory**, select your memory bank "
+                                + "(or its `figures.md`), and use the **Reference images** row "
+                                + "at the foot of the panel. The folder is remembered per "
+                                + "Trados project, not per bank.");
                 }
                 else
                 {
@@ -9402,10 +9429,10 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         sb.AppendLine("- " + (totalImages - totalAnchored) + " have no surrounding "
                                     + "text, so nothing ties them to a place in the translation.");
                     }
-                    if (totalLabelled == totalImages && totalAnchored == totalImages)
+                    if (totalLabelled == totalImages && totalAnchored == totalImages
+                        && totalImages > 0)
                     {
-                        sb.AppendLine("- Every image has both a label and surrounding text, which is "
-                                    + "the easiest case there is.");
+                        sb.AppendLine("- Every image has both a label and surrounding text.");
                     }
                 }
                 sb.AppendLine();

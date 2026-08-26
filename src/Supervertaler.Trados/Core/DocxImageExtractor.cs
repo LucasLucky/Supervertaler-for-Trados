@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -72,6 +72,34 @@ namespace Supervertaler.Trados.Core
         }
     }
 
+    /// <summary>How the labels in a <see cref="DocxImageSet"/> were arrived at.</summary>
+    public enum LabelingMethod
+    {
+        /// <summary>No labels found at all.</summary>
+        None,
+        /// <summary>Nth image paired with Nth plate label, assertion passed.
+        /// The reliable case: exact, and checked.</summary>
+        Ordinal,
+        /// <summary>Labels taken from neighbouring paragraphs. Right for inline
+        /// images with captions; a guess on anything plate-shaped.</summary>
+        Proximity,
+        /// <summary>A plate-label sequence exists but does not line up with the
+        /// images. Nothing is labelled, deliberately.</summary>
+        Refused,
+    }
+
+    /// <summary>The images in one DOCX, and how confident their labels are.</summary>
+    public class DocxImageSet
+    {
+        public List<ExtractedImage> Images { get; set; } = new List<ExtractedImage>();
+
+        public LabelingMethod Method { get; set; } = LabelingMethod.None;
+
+        /// <summary>Non-null when the caller must not trust the labels, with the
+        /// reason in plain words. Surface it; do not swallow it.</summary>
+        public string Warning { get; set; }
+    }
+
     /// <summary>
     /// Reads a DOCX and returns each image with its label, caption and anchor.
     ///
@@ -118,6 +146,33 @@ namespace Supervertaler.Trados.Core
         private const int AnchorWindow = 2;
 
         /// <summary>
+        /// True when the paragraph's ENTIRE text is a figure label - "FIG. 8",
+        /// "Figure 12". That is a plate caption. The same label inside a longer
+        /// sentence ("Figuur 2 toont een zijaanzicht ...") is a citation, and
+        /// counting it is what makes a naive scan find 16 labels for 14 images.
+        /// </summary>
+        private static bool TryPlateLabel(string text, out string label, out int number)
+        {
+            label = null;
+            number = 0;
+            if (string.IsNullOrWhiteSpace(text)) return false;
+
+            var trimmed = text.Trim();
+            var matched = MatchLabel(trimmed);
+            if (matched == null) return false;
+
+            // The label must BE the paragraph, not merely occur in it.
+            if (!string.Equals(matched.Trim(), trimmed, StringComparison.Ordinal))
+                return false;
+
+            var digits = Regex.Match(trimmed, @"(\d+)");
+            if (!digits.Success) return false;
+
+            label = trimmed;
+            return int.TryParse(digits.Groups[1].Value, out number);
+        }
+
+        /// <summary>
         /// Every image in <paramref name="docxPath"/>, in document order.
         /// Returns an empty list rather than throwing when the file cannot be
         /// read as a DOCX - callers are UI paths and a malformed file is not
@@ -125,11 +180,12 @@ namespace Supervertaler.Trados.Core
         /// </summary>
         /// <param name="includeImageData">Load the bytes as well. Off by
         /// default: Studio 2024 is 32-bit and drawings can be large.</param>
-        public static List<ExtractedImage> Extract(string docxPath, bool includeImageData = false)
+        public static DocxImageSet Extract(string docxPath, bool includeImageData = false)
         {
-            var results = new List<ExtractedImage>();
+            var set = new DocxImageSet();
+            var results = set.Images;
             if (string.IsNullOrWhiteSpace(docxPath) || !File.Exists(docxPath))
-                return results;
+                return set;
 
             try
             {
@@ -137,7 +193,7 @@ namespace Supervertaler.Trados.Core
                 {
                     var main = doc.MainDocumentPart;
                     var body = main?.Document?.Body;
-                    if (body == null) return results;
+                    if (body == null) return set;
 
                     var paragraphs = body.Descendants<Paragraph>().ToList();
 
@@ -154,13 +210,71 @@ namespace Supervertaler.Trados.Core
                         isCaption[i] = IsCaptionStyled(paragraphs[i]);
                     }
 
+                    // Plate labels, in document order: paragraphs that ARE a label.
+                    var plateLabels = new List<string>();
+                    var plateNumbers = new List<int>();
+                    for (int i = 0; i < paragraphs.Count; i++)
+                    {
+                        string lbl; int num;
+                        // Any paragraph that IS a label counts, whether or not it
+                        // also carries an image. Restricting to image-free
+                        // paragraphs was an untested narrowing of the rule that
+                        // was verified on SEDA-026.
+                        if (TryPlateLabel(texts[i], out lbl, out num))
+                        {
+                            plateLabels.Add(lbl);
+                            plateNumbers.Add(num);
+                        }
+                    }
+
+                    // Images in document order, before labelling.
+                    var flat = new List<KeyValuePair<int, string>>();   // paragraph -> rid
+                    for (int i = 0; i < paragraphs.Count; i++)
+                        foreach (var rid in rids[i])
+                            flat.Add(new KeyValuePair<int, string>(i, rid));
+
+                    // Can we pair by ordinal? Only if the counts match AND the
+                    // sequence really is 1..N. Anything else and we do not guess.
+                    var sequenceIsClean = plateNumbers.Count > 0
+                        && plateNumbers.Count == flat.Count;
+                    if (sequenceIsClean)
+                    {
+                        for (int k = 0; k < plateNumbers.Count; k++)
+                            if (plateNumbers[k] != k + 1) { sequenceIsClean = false; break; }
+                    }
+
+                    if (sequenceIsClean)
+                    {
+                        set.Method = LabelingMethod.Ordinal;
+                    }
+                    else if (plateNumbers.Count > 0)
+                    {
+                        // A plate-label series exists but does not line up. Refuse.
+                        set.Method = LabelingMethod.Refused;
+                        set.Warning = "Found " + plateNumbers.Count + " figure label(s) and "
+                            + flat.Count + " image(s), and they do not pair up"
+                            + (plateNumbers.Count == flat.Count
+                                ? " in order (the labels are not 1.." + flat.Count + ")."
+                                : ".")
+                            + " Labels have been left off rather than guessed: mislabelled"
+                            + " figures are invisible downstream and corrupt anything built"
+                            + " on them.";
+                    }
+                    else
+                    {
+                        set.Method = LabelingMethod.Proximity;
+                    }
+
                     int ordinal = 0;
                     for (int i = 0; i < paragraphs.Count; i++)
                     {
                         if (rids[i].Count == 0) continue;
 
-                        string labelSource;
-                        var label = DetectLabel(texts, rids, isCaption, i, out labelSource);
+                        string labelSource = null;
+                        string label = null;
+                        if (set.Method == LabelingMethod.Proximity)
+                            label = DetectLabel(texts, rids, isCaption, i, out labelSource);
+
                         var caption = DetectCaption(texts, isCaption, i);
                         var anchor = CollectAnchor(texts, i);
 
@@ -170,6 +284,18 @@ namespace Supervertaler.Trados.Core
                             if (part == null) continue;
 
                             ordinal++;
+
+                            // Ordinal pairing happens here, per image, not per
+                            // paragraph. The shipped bug was exactly this: one
+                            // label per paragraph applied to every image in it,
+                            // so four images in paragraph 309 all became FIG. 3.
+                            if (set.Method == LabelingMethod.Ordinal
+                                && ordinal - 1 < plateLabels.Count)
+                            {
+                                label = plateLabels[ordinal - 1];
+                                labelSource = "ordinal#" + ordinal;
+                            }
+
                             var img = new ExtractedImage
                             {
                                 Ordinal = ordinal,
@@ -209,10 +335,10 @@ namespace Supervertaler.Trados.Core
             {
                 // Not a readable DOCX. An empty list says "no images found",
                 // which is what the caller can act on.
-                return results;
+                return set;
             }
 
-            return results;
+            return set;
         }
 
         // ── Label detection ──────────────────────────────────────────────
