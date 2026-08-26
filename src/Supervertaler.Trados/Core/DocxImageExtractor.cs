@@ -201,13 +201,52 @@ namespace Supervertaler.Trados.Core
                         list = new List<string>();
                         map[n] = list;
                     }
-                    // The same sentence often appears twice verbatim, once in the
-                    // figure list and once in the description. Keep one.
-                    if (!list.Contains(text)) list.Add(text);
+                    AddDescription(list, text);
                 }
             }
 
             return map;
+        }
+
+
+        /// <summary>
+        /// Add <paramref name="text"/> unless an existing description already
+        /// contains it, in which case keep the longer one.
+        ///
+        /// <para>A patent states each figure twice - briefly in the figure list,
+        /// at length in the detailed description - and the two often differ only
+        /// by a trailing full stop, which exact-match dedup keeps as two. It also
+        /// often differs substantively: "van eerste aanslag (ST 01)" against "van
+        /// een uitvoeringsvorm van een eerste aanslag (ST 01)". The first must
+        /// collapse and the second must not, so containment of the NORMALISED
+        /// form is the test rather than equality.</para>
+        /// </summary>
+        private static void AddDescription(List<string> list, string text)
+        {
+            var key = NormaliseForCompare(text);
+            if (key.Length == 0) return;
+
+            for (int i = 0; i < list.Count; i++)
+            {
+                var existing = NormaliseForCompare(list[i]);
+
+                // Already covered by a longer one we have.
+                if (existing.Contains(key)) return;
+
+                // This one supersedes what we have.
+                if (key.Contains(existing)) { list[i] = text; return; }
+            }
+
+            list.Add(text);
+        }
+
+        /// <summary>Whitespace collapsed, trailing punctuation dropped, casefolded
+        /// - so a sentence and the same sentence with a full stop compare equal.</summary>
+        private static string NormaliseForCompare(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return "";
+            var collapsed = Regex.Replace(s.Trim(), @"\s+", " ");
+            return collapsed.TrimEnd('.', ',', ';', ':', ' ').ToLowerInvariant();
         }
 
         /// <summary>The digits in a label, or null when it has none.</summary>
