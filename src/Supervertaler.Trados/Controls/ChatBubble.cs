@@ -170,7 +170,7 @@ namespace Supervertaler.Trados.Controls
             // Re-render the RTB with the full markdown content
             try
             {
-                var fullRtf = MarkdownToRtf.Convert(_fullMarkdownForExpand, TextWidthFor(Width));
+                var fullRtf = MarkdownToRtf.Convert(_fullMarkdownForExpand);
                 _rtb.Rtf = fullRtf;
             }
             catch
@@ -296,7 +296,7 @@ namespace Supervertaler.Trados.Controls
             {
                 try
                 {
-                    var rtf = MarkdownToRtf.Convert(message.Content ?? "", TextWidthFor(maxWidth));
+                    var rtf = MarkdownToRtf.Convert(message.Content ?? "");
                     _rtb.Rtf = rtf;
                 }
                 catch
@@ -335,17 +335,6 @@ namespace Supervertaler.Trados.Controls
         {
             CalculateSize(maxWidth);
             Invalidate();
-        }
-
-        /// <summary>
-        /// The width the RichTextBox will have for a given available width -
-        /// the same arithmetic CalculateSize uses. Tables are laid out in
-        /// absolute twips, so the renderer has to be told this rather than
-        /// guessing at it.
-        /// </summary>
-        private static int TextWidthFor(int maxWidth)
-        {
-            return Math.Max(200, (int)(maxWidth * 0.80)) - BubblePadding * 2;
         }
 
         private void CalculateSize(int maxWidth)
