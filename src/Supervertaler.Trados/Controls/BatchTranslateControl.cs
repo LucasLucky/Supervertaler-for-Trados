@@ -684,7 +684,7 @@ namespace Supervertaler.Trados.Controls
 
             _lnkAnalyseFigures = new LinkLabel
             {
-                Text = "✦  Analyse figures (AI)",
+                Text = "✦  Analyse images (AI)",
                 AutoSize = true,
                 Font = bodyFont,
                 Location = new Point(leftMargin, y)
@@ -693,11 +693,11 @@ namespace Supervertaler.Trados.Controls
                 AnalyseFiguresRequested?.Invoke(this, EventArgs.Empty);
             var anTip = new ToolTip { AutoPopDelay = 15000, InitialDelay = 300 };
             anTip.SetToolTip(_lnkAnalyseFigures,
-                "Extract the drawings, show each one to the AI with what the" + "\r\n" +
+                "Extract the images, show each one to the AI with what the" + "\r\n" +
                 "document says about it, and write the result to figures.md." + "\r\n" +
-                "Reports which reference signs are printed on the drawings but" + "\r\n" +
+                "Reports which reference signs are printed on the images but" + "\r\n" +
                 "appear nowhere in the text - the finding no text search can make." + "\r\n" +
-                "This one DOES call the AI: one request per figure. Read the" + "\r\n" +
+                "This one DOES call the AI: one request per image. Read the" + "\r\n" +
                 "result before relying on it." + "\r\n" +
                 "Right-click for the individual stages.");
 
