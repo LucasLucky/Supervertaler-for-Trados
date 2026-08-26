@@ -190,12 +190,18 @@ That gives four cells, and all four are legitimate:
 (stages 1–2); every cell above consumes the same result. This is the reason not
 to build any one channel as a special case.
 
-**Cost separates push from pull decisively.** A batch run is N requests. Attaching
-five drawings to each is 5N image payloads, paid every run. The distilled
-manifest is one vision pass ever, then roughly a kilobyte per request. For push,
-text is the default and pixels are the exception. For pull the arithmetic
-reverses: the agent fetches an image only when it has decided it needs one, so
-pixels are cheap and precise.
+**Cost separates push from pull decisively.** Order of magnitude, because the
+exact figures move with provider and resolution: a drawing costs on the order of
+a thousand-odd input tokens, a paragraph of description costs tens. On the
+BRANTS job — 394 segments, 5 drawings — attaching every drawing to every request
+is roughly 5 × 394 image payloads per run, and that is before the source text.
+The distilled manifest is one vision pass ever, then well under a kilobyte per
+request. Three orders of magnitude is not a tuning question.
+
+For push, then, text is the default and pixels are the exception. For pull the
+arithmetic reverses: the agent fetches an image only when it has decided it
+needs one, so pixels are both cheap and precise — which is why the empty
+pull-pixels cell is the most valuable one to fill.
 
 **Only text can be reviewed.** The user can read a manifest, disagree, and
 correct it. Nobody can audit what a model saw in a JPEG. This note already
@@ -295,21 +301,32 @@ every prompt is exactly the silent-wrong failure this codebase keeps producing.
 
 ## Build order
 
-1. **A button for `NumeralInventory`.** Built already, no vision needed, and a
-   real QA check on its own: numerals in the drawings never cited in the text,
-   and vice versa. Cheapest useful thing here.
-2. **Document-mode extraction** — DOCX → `(image, label, caption, anchor)`,
-   porting the detection logic from Workbench's extractor rather than
-   reinventing it. No AI involved; testable on its own.
-   **Built** (`Core/DocxImageExtractor.cs`), not yet wired to any UI.
-3. **The distillation pass** — images + anchors + source text → `figures.md` as
-   an image manifest. The piece nothing has.
-4. **Review before first use.**
-5. **Anchored attachment** for segments that genuinely need the picture — the
-   handoff's step 6, and where Workbench's `figure_context_manager` is the
-   reference implementation.
+Reordered to follow the stage-4 analysis: the MCP image tool comes before the
+vision pass, because it is smaller, it does not depend on the vision pass, and
+it fills the cheapest and most precise of the four delivery cells.
 
-1 and 2 are independently useful and involve no model calls.
+1. **A button for `NumeralInventory`.** ✅ **Done** (20.185). No vision needed,
+   and a QA check on its own.
+2. **Document-mode extraction** — DOCX → `(image, label, caption, anchor)`,
+   ported from Workbench's extractor. ✅ **Done**
+   (`Core/DocxImageExtractor.cs`), wired to the **Document images** link, which
+   reports what a job's Word files contain and what is missing to use it.
+3. **An MCP tool that returns an image.** Gap 2. The agent can already read a
+   `figures.md` through `search_supermemory`; it cannot look at a picture. Two
+   tools — list the job's visuals, return one by id — and the pull-pixels cell
+   is filled. No vision pass required: the *model* is the vision pass, and it
+   decides when to spend it. Smallest remaining piece with the largest effect.
+4. **The distillation pass** — visuals + anchors + source text → `figures.md`.
+   Gap 1, and the piece nothing in either product has. This is what makes batch
+   mode work at all, and what removes the hand-renaming of `Fig. 2A.png`.
+5. **Review before first use.** Non-negotiable for step 4: a description is
+   lossy, fixed at the moment it was written, and injected into every prompt.
+6. **Anchored attachment** for the batch segments that genuinely need a picture
+   — Workbench's `figure_context_manager` is the reference implementation, and
+   it needs step 3's identification to choose.
+
+1 and 2 are done and involved no model calls. 3 involves no vision pass of our
+own. Only 4 does.
 
 ## Align with Workbench, or diverge deliberately
 
