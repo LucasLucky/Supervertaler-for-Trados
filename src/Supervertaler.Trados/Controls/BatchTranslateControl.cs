@@ -66,6 +66,7 @@ namespace Supervertaler.Trados.Controls
         private LinkLabel _lnkDocImages;
         private LinkLabel _lnkRefFolder;
         private LinkLabel _lnkWriteFigures;
+        private LinkLabel _lnkExtractImages;
 
         // Clipboard Mode
         private CheckBox _chkClipboardMode;
@@ -148,6 +149,10 @@ namespace Supervertaler.Trados.Controls
         /// <summary>Raised to write the figure inventory to the active bank's
         /// figures.md, where prompts actually read it.</summary>
         public event EventHandler WriteFiguresFileRequested;
+
+        /// <summary>Raised to extract the document's images into the
+        /// reference images folder, named for their figures.</summary>
+        public event EventHandler ExtractImagesRequested;
 
         /// <summary>Gets the current batch mode.</summary>
         public BatchMode CurrentMode => _currentMode;
@@ -713,6 +718,23 @@ namespace Supervertaler.Trados.Controls
                 "Saving a report to the bank from the chat puts it in reference/," + "\r\n" +
                 "which is the audit trail and is never read. Makes no AI call.");
             Controls.Add(_lnkWriteFigures);
+            y += Px(22);
+
+            _lnkExtractImages = new LinkLabel
+            {
+                Text = "⇩  Extract images to folder",
+                AutoSize = true,
+                Font = bodyFont,
+                Location = new Point(leftMargin, y)
+            };
+            _lnkExtractImages.LinkClicked += (s, ev) =>
+                ExtractImagesRequested?.Invoke(this, EventArgs.Empty);
+            var exTip = new ToolTip();
+            exTip.SetToolTip(_lnkExtractImages,
+                "Write this project's document images into the reference images" + "\r\n" +
+                "folder, named for the figure each one is - Figure 01.png and so" + "\r\n" +
+                "on, zero-padded so they sort. Re-running overwrites. No AI call.");
+            Controls.Add(_lnkExtractImages);
 
             y += Px(26);
 

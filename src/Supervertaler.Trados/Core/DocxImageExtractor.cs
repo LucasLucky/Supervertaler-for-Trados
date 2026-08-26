@@ -108,6 +108,10 @@ namespace Supervertaler.Trados.Core
         /// <summary>Non-null when the caller must not trust the labels, with the
         /// reason in plain words. Surface it; do not swallow it.</summary>
         public string Warning { get; set; }
+
+        /// <summary>File names written when extraction was asked to save, in
+        /// document order. Empty otherwise.</summary>
+        public List<string> SavedFiles { get; set; } = new List<string>();
     }
 
     /// <summary>
@@ -302,7 +306,11 @@ namespace Supervertaler.Trados.Core
         /// </summary>
         /// <param name="includeImageData">Load the bytes as well. Off by
         /// default: Studio 2024 is 32-bit and drawings can be large.</param>
-        public static DocxImageSet Extract(string docxPath, bool includeImageData = false)
+        /// <param name="saveToFolder">When set, each image is streamed to a file
+        /// in this folder, named for the figure it is. Streamed rather than
+        /// buffered for the same 32-bit reason.</param>
+        public static DocxImageSet Extract(string docxPath, bool includeImageData = false,
+            string saveToFolder = null)
         {
             var set = new DocxImageSet();
             var results = set.Images;
@@ -466,6 +474,12 @@ namespace Supervertaler.Trados.Core
                             if (num.HasValue && descriptions.ContainsKey(num.Value))
                                 img.Descriptions = new List<string>(descriptions[num.Value]);
 
+                            if (!string.IsNullOrEmpty(saveToFolder))
+                            {
+                                var saved = SaveImagePart(part, img, saveToFolder, flat.Count);
+                                if (saved != null) set.SavedFiles.Add(saved);
+                            }
+
                             results.Add(img);
                         }
                     }
@@ -479,6 +493,50 @@ namespace Supervertaler.Trados.Core
             }
 
             return set;
+        }
+
+
+        /// <summary>
+        /// Stream one image part to <paramref name="folder"/>, named for the
+        /// figure it is. Returns the file name, or null if it could not be
+        /// written.
+        ///
+        /// <para>Zero-padded to the width of the set, so Explorer sorts them in
+        /// figure order - the reason word/media/image1, image10, image2 is
+        /// unusable as-is. Re-running overwrites, so the action is idempotent.</para>
+        /// </summary>
+        private static string SaveImagePart(ImagePart part, ExtractedImage img,
+            string folder, int totalCount)
+        {
+            try
+            {
+                Directory.CreateDirectory(folder);
+
+                var width = Math.Max(2, totalCount.ToString().Length);
+
+                // Number from the label when we have a checked one, else the
+                // ordinal - and say which, so a file called Image 03 is never
+                // mistaken for a figure number.
+                var num = LabelNumber(img.Label);
+                var stem = num.HasValue
+                    ? "Figure " + num.Value.ToString().PadLeft(width, '0')
+                    : "Image " + img.Ordinal.ToString().PadLeft(width, '0');
+
+                var name = stem + (img.Extension ?? ".img");
+                var path = Path.Combine(folder, name);
+
+                using (var src = part.GetStream(FileMode.Open, FileAccess.Read))
+                using (var dst = new FileStream(path, FileMode.Create, FileAccess.Write))
+                {
+                    src.CopyTo(dst);
+                }
+
+                return name;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         // ── Label detection ──────────────────────────────────────────────

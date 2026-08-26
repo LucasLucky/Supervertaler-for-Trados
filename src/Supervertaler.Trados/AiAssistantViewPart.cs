@@ -280,6 +280,7 @@ namespace Supervertaler.Trados
             batchControl.DocumentImagesRequested += OnDocumentImagesRequested;
             batchControl.ReferenceImagesFolderRequested += OnReferenceImagesFolderRequested;
             batchControl.WriteFiguresFileRequested += OnWriteFiguresFileRequested;
+            batchControl.ExtractImagesRequested += OnExtractImagesRequested;
             batchControl.TranslateViaWorkbenchRequested += OnTranslateViaWorkbenchRequested;
             batchControl.ModelChangeRequested += OnModelChangeRequested;
             batchControl.CustomProfilesSource = GetCustomProfileMenuItems;
@@ -9246,6 +9247,117 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         /// the user sees in the preview is identical to what the LLM would receive.
         /// Does NOT trigger an actual API call.
         /// </summary>
+
+        /// <summary>
+        /// Extract the project's document images into the reference images
+        /// folder, named for the figure each one is.
+        ///
+        /// <para>Until this existed the folder setting and the inventory never
+        /// met: the plugin knew image 3 was FIG. 3 and had no way to put a file
+        /// anywhere, so the extraction was done by hand. That manual step is
+        /// what the feature exists to remove.</para>
+        ///
+        /// <para>When more than one document carries images each gets its own
+        /// sub-folder, because "Figure 01.png" from two documents is the same
+        /// name and the second would silently replace the first.</para>
+        /// </summary>
+        private void OnExtractImagesRequested(object sender, EventArgs e)
+        {
+            SafeInvoke(() =>
+            {
+                var batchControl = _control.Value.BatchTranslateControl;
+
+                var projectPath = TermLensEditorViewPart.GetCurrentProjectPath();
+                if (string.IsNullOrEmpty(projectPath))
+                {
+                    batchControl.AppendLog("No project open.", true);
+                    return;
+                }
+
+                string folder = "";
+                try { folder = Settings.ProjectSettings.Load(projectPath)?.ReferenceImagesFolder ?? ""; }
+                catch { }
+
+                if (string.IsNullOrEmpty(folder))
+                {
+                    batchControl.AppendLog(
+                        "No reference images folder set - use the Reference images folder link first.",
+                        true);
+                    return;
+                }
+
+                var anchorPath = ResolveProjectAnchorPathCore();
+                if (string.IsNullOrEmpty(anchorPath))
+                {
+                    batchControl.AppendLog("No project open.", true);
+                    return;
+                }
+
+                var docxFiles = new List<string>();
+                try
+                {
+                    var d = Path.GetDirectoryName(anchorPath);
+                    var dirs = new List<string>();
+                    if (!string.IsNullOrEmpty(d) && Directory.Exists(d)) dirs.Add(d);
+                    var up = Path.GetDirectoryName(d);
+                    if (!string.IsNullOrEmpty(up) && Directory.Exists(up)
+                        && !string.Equals(up, d, StringComparison.OrdinalIgnoreCase))
+                        dirs.Add(up);
+
+                    foreach (var dir in dirs)
+                        foreach (var f in Directory.GetFiles(dir, "*.docx", SearchOption.TopDirectoryOnly))
+                        {
+                            if (Path.GetFileName(f).StartsWith("~$")) continue;
+                            if (!docxFiles.Contains(f)) docxFiles.Add(f);
+                        }
+                }
+                catch { }
+
+                // Which documents actually carry images? Counting first decides
+                // whether one folder is enough or each needs its own.
+                var withImages = new List<string>();
+                foreach (var f in docxFiles)
+                {
+                    try { if (Core.DocxImageExtractor.Extract(f).Images.Count > 0) withImages.Add(f); }
+                    catch { }
+                }
+
+                if (withImages.Count == 0)
+                {
+                    batchControl.AppendLog(
+                        "No images found in this project's Word documents.", true);
+                    return;
+                }
+
+                var total = 0;
+                var lines = new List<string>();
+                foreach (var f in withImages)
+                {
+                    var target = withImages.Count == 1
+                        ? folder
+                        : Path.Combine(folder, Path.GetFileNameWithoutExtension(f));
+
+                    var set = Core.DocxImageExtractor.Extract(f, false, target);
+                    total += set.SavedFiles.Count;
+
+                    lines.Add("**" + Path.GetFileName(f) + "** \u2192 "
+                        + set.SavedFiles.Count + " file(s)"
+                        + (withImages.Count > 1
+                            ? " in `" + Path.GetFileName(target) + "`" : "")
+                        + (set.Method == Core.LabelingMethod.Refused
+                            ? " \u2014 named by position, not by figure: the labels could not be checked"
+                            : ""));
+                }
+
+                batchControl.AppendLog("Extracted " + total + " image(s) to " + folder + ".");
+
+                ShowSuperMemoryMessage(
+                    "Extracted **" + total + "** image(s) to:\n`" + folder + "`\n\n"
+                    + string.Join("\n", lines)
+                    + "\n\nNamed for the figure each one is, zero-padded so they sort. "
+                    + "Re-running overwrites them.");
+            });
+        }
 
         /// <summary>
         /// Write the figure inventory to <c>figures.md</c> at the active memory
