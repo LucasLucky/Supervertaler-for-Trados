@@ -38,7 +38,11 @@ namespace Supervertaler.Trados.Core
         /// <summary>
         /// Converts a markdown string to RTF for rendering in a RichTextBox.
         /// </summary>
-        public static string Convert(string markdown)
+        /// <param name="availableWidthPx">Width the RTF will be shown in, in
+        /// pixels. Tables are laid out as real RTF tables when this is known and
+        /// the shape suits it; 0 means "unknown", which keeps the older text
+        /// renderings.</param>
+        public static string Convert(string markdown, int availableWidthPx = 0)
         {
             if (string.IsNullOrEmpty(markdown))
                 return RtfHeader + "}";
@@ -62,7 +66,7 @@ namespace Supervertaler.Trados.Core
                     if (!inCodeBlock)
                     {
                         // Flush any pending table
-                        FlushTable(sb, tableLines, ref firstBlock);
+                        FlushTable(sb, tableLines, ref firstBlock, availableWidthPx);
                         inCodeBlock = true;
                         codeBlockLines.Clear();
                     }
@@ -89,7 +93,7 @@ namespace Supervertaler.Trados.Core
                 }
                 else
                 {
-                    FlushTable(sb, tableLines, ref firstBlock);
+                    FlushTable(sb, tableLines, ref firstBlock, availableWidthPx);
                 }
 
                 // ─── Blank line ─────────────────────────────────────
@@ -235,7 +239,7 @@ namespace Supervertaler.Trados.Core
             // Flush any pending blocks
             if (inCodeBlock)
                 FlushCodeBlock(sb, codeBlockLines, ref firstBlock);
-            FlushTable(sb, tableLines, ref firstBlock);
+            FlushTable(sb, tableLines, ref firstBlock, availableWidthPx);
 
             sb.Append("}");
             return sb.ToString();
@@ -444,7 +448,92 @@ namespace Supervertaler.Trados.Core
             lines.Clear();
         }
 
-        private static void FlushTable(StringBuilder sb, List<string> lines, ref bool firstBlock)
+
+        /// <summary>
+        /// Emit rows as a genuine RTF table. Returns false if the geometry does
+        /// not work out, so the caller can fall back.
+        ///
+        /// <para>Column widths are shared out in proportion to the longest cell
+        /// in each column, then floored so a narrow column stays readable. RTF
+        /// wants cumulative right-hand edges in twips (1440 per inch, so 15 per
+        /// pixel at 96 dpi).</para>
+        /// </summary>
+        private static bool AppendRtfTable(StringBuilder sb, List<string[]> rows, int colCount,
+            int availableWidthPx, ref bool firstBlock)
+        {
+            const int TwipsPerPixel = 15;
+            const int MinColTwips = 700;      // ~0.5 cm, enough for "FIG. 14"
+            const int CellPadTwips = 120;
+
+            var totalTwips = (availableWidthPx - 8) * TwipsPerPixel;
+            if (totalTwips < MinColTwips * colCount) return false;
+
+            // Longest stripped cell per column decides the share.
+            var weights = new int[colCount];
+            foreach (var row in rows)
+                for (int c = 0; c < colCount && c < row.Length; c++)
+                    weights[c] = Math.Max(weights[c], Math.Min(120, StripInlineMarkdown(row[c]).Length));
+
+            var weightSum = weights.Sum();
+            if (weightSum <= 0) return false;
+
+            var widths = new int[colCount];
+            var assigned = 0;
+            for (int c = 0; c < colCount; c++)
+            {
+                widths[c] = Math.Max(MinColTwips, totalTwips * weights[c] / weightSum);
+                assigned += widths[c];
+            }
+
+            // Proportional shares plus the floor can overshoot; take the excess
+            // off the widest column, which is the one that can afford it.
+            if (assigned > totalTwips)
+            {
+                var widest = 0;
+                for (int c = 1; c < colCount; c++) if (widths[c] > widths[widest]) widest = c;
+                widths[widest] -= (assigned - totalTwips);
+                if (widths[widest] < MinColTwips) return false;
+            }
+
+            AppendPar(sb, ref firstBlock);
+
+            for (int r = 0; r < rows.Count; r++)
+            {
+                var row = rows[r];
+                var isHeader = (r == 0);
+
+                // Row definition: borders, then each cell's cumulative right edge.
+                sb.Append(@"\trowd\trgaph").Append(CellPadTwips).Append(@"\trleft0");
+                var edge = 0;
+                for (int c = 0; c < colCount; c++)
+                {
+                    edge += widths[c];
+                    sb.Append(@"\clbrdrt\brdrs\brdrw10\clbrdrl\brdrs\brdrw10")
+                      .Append(@"\clbrdrb\brdrs\brdrw10\clbrdrr\brdrs\brdrw10")
+                      .Append(@"\cellx").Append(edge);
+                }
+
+                for (int c = 0; c < colCount; c++)
+                {
+                    // \pard\intbl per cell, or the paragraph properties of the
+                    // preceding block leak into the table and the row collapses.
+                    sb.Append(@"\pard\intbl\widctlpar\sa0\sl0\slmult0 ");
+                    if (isHeader) sb.Append(@"{\b ");
+                    if (c < row.Length) AppendInlineRtf(sb, row[c]);
+                    if (isHeader) sb.Append("}");
+                    sb.Append(@"\cell ");
+                }
+
+                sb.Append(@"\row").Append('\n');
+            }
+
+            // Leave table context, or everything after this is still \intbl.
+            sb.Append(@"\pard\sa100 ");
+            return true;
+        }
+
+        private static void FlushTable(StringBuilder sb, List<string> lines, ref bool firstBlock,
+            int availableWidthPx = 0)
         {
             if (lines.Count == 0) return;
 
@@ -474,9 +563,20 @@ namespace Supervertaler.Trados.Core
                 return;
             }
 
+            var colCount = rows.Max(r => r.Length);
+
+            // A real RTF table, when we know how wide it may be and the shape
+            // suits one. Beyond about five columns a docked panel gives each
+            // cell so little room that the stacked form below reads better.
+            if (availableWidthPx > 200 && colCount >= 2 && colCount <= 5 && rows.Count > 1
+                && AppendRtfTable(sb, rows, colCount, availableWidthPx, ref firstBlock))
+            {
+                lines.Clear();
+                return;
+            }
+
             // Determine if this is a "wide" table (cells with long text that would
             // overflow a monospace grid).  Threshold: any cell > 40 chars stripped.
-            var colCount = rows.Max(r => r.Length);
             bool wideTable = rows.Any(r => r.Any(c => StripInlineMarkdown(c).Length > 40));
 
             if (wideTable && rows.Count > 1 && colCount >= 2)
