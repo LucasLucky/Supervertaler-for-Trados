@@ -9609,8 +9609,8 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     }
                     sb.AppendLine();
 
-                    sb.AppendLine("| # | Label | What the document says it shows |");
-                    sb.AppendLine("|---|---|---|");
+                    // A list, not a table. This goes to a narrow docked panel;
+                    // figures.md keeps the table because it is read full width.
                     foreach (var img in images)
                     {
                         // The description matched by figure number, not the text
@@ -9644,8 +9644,13 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         cell = cell.Replace("|", "\\|");
                         if (extra > 0) cell += " *(+" + extra + " more)*";
 
-                        sb.AppendLine("| " + img.Ordinal + " | "
-                            + (img.Label ?? "*(none)*") + " | " + cell + " |");
+                        var head = img.Label ?? ("image " + img.Ordinal);
+                        var part = (img.PartName ?? "").Replace("/word/media/", "");
+                        sb.AppendLine("**" + head + "**"
+                            + (part.Length > 0 ? "  \u00b7  " + part : ""));
+                        sb.AppendLine();
+                        sb.AppendLine(cell);
+                        sb.AppendLine();
                     }
                     sb.AppendLine();
                 }

@@ -148,15 +148,22 @@ namespace Supervertaler.Trados.Core
 
             sb.AppendLine("### Citations");
             sb.AppendLine();
-            sb.AppendLine("| Numeral | Times cited | First citation |");
-            sb.AppendLine("|---|---|---|");
+            // A list rather than a table: this is read in a narrow docked
+            // panel, where three columns are the wrong shape however they are
+            // rendered, and repeating the column headers on every row is most
+            // of the noise.
             foreach (var n in report.Numerals)
             {
                 var cites = report.Citations[n];
                 var first = cites.Count > 0 ? cites[0] : "";
-                first = WindowAround(first, n, 120);
-                first = first.Replace("|", "\\|").Replace("\r", " ").Replace("\n", " ");
-                sb.AppendLine("| " + n + " | " + cites.Count + " | " + first + " |");
+                first = WindowAround(first, n, 160);
+                first = first.Replace("\r", " ").Replace("\n", " ");
+
+                sb.AppendLine("**(" + n + ")**  \u00b7  cited " + cites.Count
+                    + (cites.Count == 1 ? " time" : " times"));
+                sb.AppendLine();
+                sb.AppendLine(first);
+                sb.AppendLine();
             }
 
             return sb.ToString().TrimEnd();
