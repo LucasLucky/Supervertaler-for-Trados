@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -154,12 +154,52 @@ namespace Supervertaler.Trados.Core
             {
                 var cites = report.Citations[n];
                 var first = cites.Count > 0 ? cites[0] : "";
-                if (first.Length > 120) first = first.Substring(0, 117) + "…";
+                first = WindowAround(first, n, 120);
                 first = first.Replace("|", "\\|").Replace("\r", " ").Replace("\n", " ");
                 sb.AppendLine("| " + n + " | " + cites.Count + " | " + first + " |");
             }
 
             return sb.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// A <paramref name="width"/>-character window of <paramref name="text"/>
+        /// centred on where numeral <paramref name="n"/> is cited, with an
+        /// ellipsis on whichever side was cut.
+        ///
+        /// <para>Truncating from the start instead put the numeral past the cut
+        /// in 4 of 20 rows on a real patent, so the row for numeral 15 showed a
+        /// snippet containing only 9 and 10 - a table you had to cross-reference
+        /// against the document to read.</para>
+        /// </summary>
+        private static string WindowAround(string text, int n, int width)
+        {
+            if (string.IsNullOrEmpty(text) || text.Length <= width) return text ?? "";
+
+            // Where is this numeral actually cited? Parenthesised, possibly in a
+            // list: (15) or (12, 15, 18).
+            var hit = Regex.Match(text, @"\(\s*\d{1,3}(?:\s*,\s*\d{1,3})*\s*\)");
+            int at = -1;
+            while (hit.Success)
+            {
+                foreach (var part in hit.Value.Trim('(', ')').Split(','))
+                {
+                    int v;
+                    if (int.TryParse(part.Trim(), out v) && v == n) { at = hit.Index; break; }
+                }
+                if (at >= 0) break;
+                hit = hit.NextMatch();
+            }
+
+            if (at < 0) return text.Substring(0, width - 3) + "\u2026";
+
+            var start = Math.Max(0, at - width / 2);
+            var len = Math.Min(width, text.Length - start);
+            var slice = text.Substring(start, len);
+
+            if (start > 0) slice = "\u2026" + slice;
+            if (start + len < text.Length) slice = slice + "\u2026";
+            return slice;
         }
     }
 

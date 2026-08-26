@@ -9317,6 +9317,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     var images = set.Images;
                     var labelled = images.Count(i => !string.IsNullOrEmpty(i.Label));
                     var anchored = images.Count(i => !string.IsNullOrWhiteSpace(i.Anchor));
+                    var described = images.Count(i => i.Descriptions != null && i.Descriptions.Count > 0);
                     totalImages += images.Count;
                     totalLabelled += labelled;
                     totalAnchored += anchored;
@@ -9333,6 +9334,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
 
                     sb.AppendLine("**" + images.Count + " image(s)** \u2013 "
                         + labelled + " with a figure label, "
+                        + described + " with a description in the text, "
                         + anchored + " with surrounding text.");
                     sb.AppendLine();
 
@@ -9355,16 +9357,39 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     }
                     sb.AppendLine();
 
-                    sb.AppendLine("| # | Label | Sits among |");
+                    sb.AppendLine("| # | Label | What the document says it shows |");
                     sb.AppendLine("|---|---|---|");
                     foreach (var img in images)
                     {
-                        var a = (img.Anchor ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
-                        if (a.Length > 90) a = a.Substring(0, 87) + "\u2026";
-                        if (a.Length == 0) a = "*(no text near it)*";
-                        a = a.Replace("|", "\\|");
+                        // The description matched by figure number, not the text
+                        // the image happens to sit among. On a patent the latter
+                        // is the plate label and some empty paragraphs; the
+                        // former is hundreds of paragraphs away and is the point.
+                        // Prefer the longest: a patent carries a short entry in
+                        // the figure list and a longer one in the detailed
+                        // description, and the longer one names the parts.
+                        string cell = null;
+                        if (img.Descriptions != null && img.Descriptions.Count > 0)
+                        {
+                            foreach (var d in img.Descriptions)
+                                if (cell == null || d.Length > cell.Length) cell = d;
+                            if (img.Descriptions.Count > 1)
+                                cell += " *(+" + (img.Descriptions.Count - 1) + " more)*";
+                        }
+
+                        if (string.IsNullOrWhiteSpace(cell))
+                        {
+                            cell = (img.Anchor ?? "").Trim();
+                            if (cell.Length > 0) cell = "*sits among:* " + cell;
+                        }
+
+                        cell = (cell ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
+                        if (cell.Length > 110) cell = cell.Substring(0, 107) + "\u2026";
+                        if (cell.Length == 0) cell = "*(nothing found)*";
+                        cell = cell.Replace("|", "\\|");
+
                         sb.AppendLine("| " + img.Ordinal + " | "
-                            + (img.Label ?? "*(none)*") + " | " + a + " |");
+                            + (img.Label ?? "*(none)*") + " | " + cell + " |");
                     }
                     sb.AppendLine();
                 }

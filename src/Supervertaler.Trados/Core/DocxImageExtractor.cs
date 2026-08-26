@@ -65,6 +65,16 @@ namespace Supervertaler.Trados.Core
         /// label looks wrong and someone has to work out why.</summary>
         public string LabelSource { get; set; }
 
+        /// <summary>What the document SAYS this figure shows, found by figure
+        /// number rather than by proximity.
+        ///
+        /// <para>On a patent this is the only route that works: the plates are
+        /// at the back and their descriptions are in the body, hundreds of
+        /// paragraphs away. Expect more than one - a short entry in the figure
+        /// list and a longer one in the detailed description - and keep both,
+        /// because the longer one usually names the parts.</para></summary>
+        public List<string> Descriptions { get; set; } = new List<string>();
+
         public override string ToString()
         {
             return "#" + Ordinal + " " + (Label ?? "(unlabelled)")
@@ -144,6 +154,71 @@ namespace Supervertaler.Trados.Core
 
         /// <summary>How many paragraphs either side of the image make up the anchor.</summary>
         private const int AnchorWindow = 2;
+
+        /// <summary>A sentence opening by naming a figure: "Figuur 8 toont ...",
+        /// "Figure 3 shows ...", "FIG. 12 is a section through ...". Dutch,
+        /// English and the bare patent form, because the source language is the
+        /// one being described.</summary>
+        private static readonly Regex DescriptionOpener = new Regex(
+            @"^\s*(?:Figuur|Figure|Fig|FIG)\.?\s*(\d+)\s*[A-Za-z]?\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        /// <summary>Sentence splitter, good enough for this: the openers we care
+        /// about always start a sentence.</summary>
+        private static readonly Regex SentenceSplit = new Regex(
+            @"(?<=[.!?])\s+", RegexOptions.Compiled);
+
+        /// <summary>
+        /// Figure number to every sentence in the document that describes it.
+        /// Plate labels are excluded - "FIG.8" on its own opens with a figure
+        /// reference but describes nothing.
+        /// </summary>
+        private static Dictionary<int, List<string>> CollectDescriptions(string[] texts)
+        {
+            var map = new Dictionary<int, List<string>>();
+
+            foreach (var raw in texts)
+            {
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+
+                string dummyLabel; int dummyNum;
+                if (TryPlateLabel(raw, out dummyLabel, out dummyNum)) continue;
+
+                foreach (var sentence in SentenceSplit.Split(raw.Trim()))
+                {
+                    var m = DescriptionOpener.Match(sentence);
+                    if (!m.Success) continue;
+
+                    int n;
+                    if (!int.TryParse(m.Groups[1].Value, out n)) continue;
+
+                    var text = sentence.Trim();
+                    if (text.Length == 0) continue;
+
+                    List<string> list;
+                    if (!map.TryGetValue(n, out list))
+                    {
+                        list = new List<string>();
+                        map[n] = list;
+                    }
+                    // The same sentence often appears twice verbatim, once in the
+                    // figure list and once in the description. Keep one.
+                    if (!list.Contains(text)) list.Add(text);
+                }
+            }
+
+            return map;
+        }
+
+        /// <summary>The digits in a label, or null when it has none.</summary>
+        private static int? LabelNumber(string label)
+        {
+            if (string.IsNullOrEmpty(label)) return null;
+            var m = Regex.Match(label, @"(\d+)");
+            if (!m.Success) return null;
+            int n;
+            return int.TryParse(m.Groups[1].Value, out n) ? (int?)n : null;
+        }
 
         /// <summary>
         /// True when the paragraph's ENTIRE text is a figure label - "FIG. 8",
@@ -265,6 +340,8 @@ namespace Supervertaler.Trados.Core
                         set.Method = LabelingMethod.Proximity;
                     }
 
+                    var descriptions = CollectDescriptions(texts);
+
                     int ordinal = 0;
                     for (int i = 0; i < paragraphs.Count; i++)
                     {
@@ -325,6 +402,12 @@ namespace Supervertaler.Trados.Core
                                 }
                             }
                             catch { /* a part we cannot read still has its anchor */ }
+
+                            // What the document says this figure shows, matched on
+                            // its number. Proximity cannot find it on a patent.
+                            var num = LabelNumber(img.Label);
+                            if (num.HasValue && descriptions.ContainsKey(num.Value))
+                                img.Descriptions = new List<string>(descriptions[num.Value]);
 
                             results.Add(img);
                         }
