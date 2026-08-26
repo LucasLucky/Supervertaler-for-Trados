@@ -270,7 +270,17 @@ namespace Supervertaler.Trados.Core
                     var body = main?.Document?.Body;
                     if (body == null) return set;
 
-                    var paragraphs = body.Descendants<Paragraph>().ToList();
+                    // Skip anything inside an mc:AlternateContent FALLBACK.
+                    // Word writes a floating text box twice - once as DrawingML
+                    // in mc:Choice, once as legacy VML in mc:Fallback - so its
+                    // paragraphs appear twice in Descendants. On SEDA-026 that
+                    // turned 14 figure labels into 21 (7 of them in text boxes,
+                    // each counted twice) and the pairing assertion refused the
+                    // whole document. Choice is the modern branch and the one
+                    // Word itself renders.
+                    var paragraphs = body.Descendants<Paragraph>()
+                        .Where(p => !p.Ancestors<AlternateContentFallback>().Any())
+                        .ToList();
 
                     // Precompute per paragraph: its own text, its own image
                     // relationship ids, and whether it is Caption-styled.
