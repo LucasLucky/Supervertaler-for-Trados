@@ -9480,8 +9480,12 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             Directory.CreateDirectory(bankDir);
             var outPath = Path.Combine(bankDir, "figures.md");
 
+            // Did anything turn out to BE a figure? The heading follows that.
+            var anyLabelled = set != null
+                && set.Images.Any(i => !string.IsNullOrEmpty(i.Label));
+
             var sb = new System.Text.StringBuilder();
-            sb.AppendLine("# Figures");
+            sb.AppendLine("# " + VisualNoun(anyLabelled, true, true));
             sb.AppendLine();
             sb.AppendLine("*Written by Supervertaler on "
                 + DateTime.Now.ToString("yyyy-MM-dd HH:mm")
@@ -9492,7 +9496,8 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
 
             // The finding first.
             var drawingsOnly = DrawingsOnlySigns(visions, textSigns, rawSourceText);
-            sb.AppendLine("## Reference signs in the drawings but not in the text");
+            sb.AppendLine("## Reference signs in the "
+                        + VisualNoun(anyLabelled, true, false) + " but not in the text");
             sb.AppendLine();
             if (drawingsOnly.Count == 0)
             {
@@ -9512,7 +9517,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             }
             sb.AppendLine();
 
-            sb.AppendLine("## The figures");
+            sb.AppendLine("## The " + VisualNoun(anyLabelled, true, false));
             sb.AppendLine();
             if (set != null && set.Method == Core.LabelingMethod.Ordinal)
             {
@@ -9521,7 +9526,10 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 sb.AppendLine();
             }
 
-            sb.AppendLine("| Figure | File | What the document says | What the drawing shows | Signs on the drawing |");
+            var noun = VisualNoun(anyLabelled, false, false);
+            sb.AppendLine("| " + VisualNoun(anyLabelled, false, true)
+                        + " | File | What the document says | What the " + noun
+                        + " shows | Signs on the " + noun + " |");
             sb.AppendLine("|---|---|---|---|---|");
 
             for (int i = 0; i < visions.Count; i++)
@@ -9576,6 +9584,19 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         {
             if (string.IsNullOrEmpty(s)) return "\u2014";
             return s.Replace("\r", " ").Replace("\n", " ").Replace("|", "\\|").Trim();
+        }
+
+        /// <summary>
+        /// "Figures" or "Images", by what was actually identified. A document
+        /// whose pictures carry no figure labels should not be handed a file
+        /// headed "Figures" listing "Image 03".
+        /// </summary>
+        private static string VisualNoun(bool anyLabelled, bool plural, bool capital)
+        {
+            var word = anyLabelled
+                ? (plural ? "figures" : "figure")
+                : (plural ? "images" : "image");
+            return capital ? char.ToUpperInvariant(word[0]) + word.Substring(1) : word;
         }
 
         /// <summary>Word documents beside the project - its folder and the one
@@ -9826,8 +9847,22 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 }
                 catch { }
 
+                // Decided after the sweep below, so the heading can follow what
+                // the documents turned out to contain.
+                var anyLabelled = false;
+                foreach (var f in docxFiles)
+                {
+                    try
+                    {
+                        if (Core.DocxImageExtractor.Extract(f).Images
+                                .Any(i => !string.IsNullOrEmpty(i.Label)))
+                        { anyLabelled = true; break; }
+                    }
+                    catch { }
+                }
+
                 var sb = new System.Text.StringBuilder();
-                sb.AppendLine("# Figures");
+                sb.AppendLine("# " + VisualNoun(anyLabelled, true, true));
                 sb.AppendLine();
                 sb.AppendLine("*Written by Supervertaler on "
                     + DateTime.Now.ToString("yyyy-MM-dd HH:mm")
@@ -9861,7 +9896,8 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         sb.AppendLine();
                     }
 
-                    sb.AppendLine("| Figure | Source part | What the document says it shows |");
+                    sb.AppendLine("| " + VisualNoun(anyLabelled, false, true)
+                                + " | Source part | What the document says it shows |");
                     sb.AppendLine("|---|---|---|");
                     foreach (var img in set.Images)
                     {
