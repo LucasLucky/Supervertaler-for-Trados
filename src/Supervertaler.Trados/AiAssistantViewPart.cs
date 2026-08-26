@@ -9452,12 +9452,15 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         // the figure list and a longer one in the detailed
                         // description, and the longer one names the parts.
                         string cell = null;
+                        // Counted here, appended AFTER truncation: adding it now
+                        // loses it on exactly the long rows that have more than
+                        // one description, which is all of figures 8-14.
+                        int extra = 0;
                         if (img.Descriptions != null && img.Descriptions.Count > 0)
                         {
                             foreach (var d in img.Descriptions)
                                 if (cell == null || d.Length > cell.Length) cell = d;
-                            if (img.Descriptions.Count > 1)
-                                cell += " *(+" + (img.Descriptions.Count - 1) + " more)*";
+                            extra = img.Descriptions.Count - 1;
                         }
 
                         if (string.IsNullOrWhiteSpace(cell))
@@ -9470,6 +9473,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         if (cell.Length > 110) cell = cell.Substring(0, 107) + "\u2026";
                         if (cell.Length == 0) cell = "*(nothing found)*";
                         cell = cell.Replace("|", "\\|");
+                        if (extra > 0) cell += " *(+" + extra + " more)*";
 
                         sb.AppendLine("| " + img.Ordinal + " | "
                             + (img.Label ?? "*(none)*") + " | " + cell + " |");
