@@ -4265,10 +4265,13 @@ namespace Supervertaler.Trados
                     .ToList();
 
                 // ── 3. Language pair ───────────────────────────────────────
+                // chosen is null for a delimited file - there is no Trados
+                // termbase to take an index name from, and req.SourceLang /
+                // req.TargetLang are required on that path anyway.
                 var srcLang = ResolveImportLanguage(imported,
-                    req.SourceLang, chosen.SourceIndexName, GetDocumentSourceLanguage());
+                    req.SourceLang, chosen?.SourceIndexName, GetDocumentSourceLanguage());
                 var tgtLang = ResolveImportLanguage(imported,
-                    req.TargetLang, chosen.TargetIndexName, GetDocumentTargetLanguage());
+                    req.TargetLang, chosen?.TargetIndexName, GetDocumentTargetLanguage());
 
                 if (srcLang == null || tgtLang == null)
                     return new BridgeImportTermbaseResponse
@@ -4388,7 +4391,19 @@ namespace Supervertaler.Trados
                     Added = summary.Added,
                     Duplicates = summary.Duplicates,
                     SynonymsAdded = summary.SynonymsAdded,
-                    FieldMap = fieldMap.Select(kv => $"{kv.Key} = {kv.Value}").OrderBy(s => s).ToList(),
+                    // For a delimited file the interesting mapping is which COLUMN
+                    // became which field, not which MultiTerm field did - and it is
+                    // the thing most worth checking before a write, since a wrong
+                    // column is silent afterwards.
+                    FieldMap = delimitedParse != null
+                        ? delimitedParse.Mapping
+                        : fieldMap.Select(kv => $"{kv.Key} = {kv.Value}").OrderBy(s => s).ToList(),
+                    Samples = delimitedParse == null ? null
+                        : delimitedParse.Rows.Take(5)
+                            .Select(r => r.Source + " \u2192 " + r.Target
+                                       + (r.TargetSynonyms.Count > 0
+                                            ? " (+" + r.TargetSynonyms.Count + " synonym(s))" : ""))
+                            .ToList(),
                     AvailableLanguages = languageList,
                     Warnings = summary.Warnings.Count > 0 ? summary.Warnings : null,
                     Note = req.DryRun

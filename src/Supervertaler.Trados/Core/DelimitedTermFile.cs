@@ -383,9 +383,18 @@ namespace Supervertaler.Trados.Core
         /// </summary>
         private static void AddWarnings(DelimitedTermFileResult result)
         {
-            // A non-breaking space is invisible and stops a term matching text
-            // typed with an ordinary one. Reported, not silently normalised:
-            // terms are stored exactly as sent, and the caller decides.
+            // Worth mentioning, NOT a failure. TermMatcher.NormalizeScriptChars
+            // already folds U+00A0 - along with Ogham, en/em/thin/hair, narrow
+            // no-break, medium-mathematical and ideographic spaces - so such a
+            // term DOES match text typed with an ordinary space. Verified by
+            // looking it up after an import.
+            //
+            // It is still worth saying, because the character is invisible in
+            // the source file and a reader comparing this termbase against the
+            // client's spreadsheet by eye will not see why two identical-looking
+            // terms differ. An earlier version of this warning claimed the term
+            // would never match; that was asserted without checking what this
+            // codebase already does, and it does handle it.
             // ' ' spelt as an escape, not as a literal: a literal
             // non-breaking space in source is invisible, and any tool that
             // normalises whitespace would turn this check into one that
@@ -394,8 +403,9 @@ namespace Supervertaler.Trados.Core
             var nbsp = result.Rows.Count(r =>
                 (r.Source ?? "").IndexOf(Nbsp) >= 0 || (r.Target ?? "").IndexOf(Nbsp) >= 0);
             if (nbsp > 0)
-                result.Warnings.Add(nbsp + " term(s) contain a non-breaking space. It is invisible, "
-                    + "and such a term will not match text typed with an ordinary space.");
+                result.Warnings.Add(nbsp + " term(s) contain a non-breaking space rather than an "
+                    + "ordinary one. Matching handles it, so the term will still be found - but "
+                    + "the character is invisible, so two terms that look identical may differ.");
 
             var dupes = result.Rows.GroupBy(r => (r.Source ?? "").Trim().ToLowerInvariant())
                                    .Where(g => g.Count() > 1).ToList();

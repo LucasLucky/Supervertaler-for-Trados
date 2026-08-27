@@ -341,6 +341,12 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "availableLanguages", Order = 15, EmitDefaultValue = false)] public List<string> AvailableLanguages { get; set; }
         [DataMember(Name = "warnings", Order = 16, EmitDefaultValue = false)] public List<string> Warnings { get; set; }
         [DataMember(Name = "note", Order = 17, EmitDefaultValue = false)] public string Note { get; set; }
+
+        /// <summary>A few parsed pairs, as "source \u2192 target". Dry runs of a
+        /// delimited file only: a reversed pair is obvious here and invisible
+        /// in a row count.</summary>
+        [DataMember(Name = "samples", Order = 18, EmitDefaultValue = false)]
+        public List<string> Samples { get; set; }
     }
 
     // ─── Prompt-library endpoint types (v1: /prompts, /prompt, /save-prompt) ──
