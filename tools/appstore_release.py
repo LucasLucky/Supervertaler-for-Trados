@@ -21,6 +21,7 @@ Output:
 """
 import hashlib
 import os
+import shutil
 import re
 import sys
 
@@ -294,6 +295,16 @@ def main():
         f.write(full_output)
 
     print(f"Release notes for v{ver18_three} (Studio 2024 {ver18_four} / Studio 2026 {ver19_four}); changes: {version_range}")
+    # Stage the binaries the checksums were just taken from. Doing it here,
+    # rather than on every build, is what stops the notes and the files beside
+    # them drifting apart: they leave this function together or not at all.
+    for label, src in (("Studio 2024", SDLPLUGIN_18), ("Studio 2026", SDLPLUGIN_19)):
+        if not os.path.exists(src):
+            continue
+        dst = os.path.join(OUTPUT_DIR, os.path.basename(src))
+        shutil.copy2(src, dst)
+        print(f"  Staged: {os.path.basename(dst)} ({label})")
+
     print(f"  Written to: {output_file}")
     print(f"  {len(added)} added, {len(changed)} changed, {len(fixed)} fixed items")
     for label, cs, sp in (("Studio 2024", checksum18, SDLPLUGIN_18), ("Studio 2026", checksum19, SDLPLUGIN_19)):

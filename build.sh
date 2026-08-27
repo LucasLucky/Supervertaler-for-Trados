@@ -126,13 +126,12 @@ if [ -d "$STUDIO18_INSTALL" ]; then
     rm -f "$DIST_DIR/$PLUGIN_FILENAME_18"
     python "$SCRIPT_DIR/package_plugin.py" "$BUILD_DIR_18" "$DIST_DIR/$PLUGIN_FILENAME_18"
 
-    # Mirror the .sdlplugin into RWS AppStore/ so the AppStore Manager upload step
-    # has both the plugin and that version's release notes in one folder.
-    APPSTORE_DIR="$SCRIPT_DIR/RWS AppStore"
-    mkdir -p "$APPSTORE_DIR"
-    cp "$DIST_DIR/$PLUGIN_FILENAME_18" "$APPSTORE_DIR/$PLUGIN_FILENAME_18"
-    echo "  Mirrored to: $APPSTORE_DIR/$PLUGIN_FILENAME_18"
-    echo ""
+    # NOT mirrored into "RWS AppStore/" here, deliberately. Staging happens in
+    # tools/appstore_release.py, which computes the notes' checksums from these
+    # same files in the same run - so the staged binary and the checksum
+    # describing it can never disagree. Copying on every build is what let a
+    # staged submission drift twice in one day: the notes stayed put while the
+    # binaries beside them were replaced by ordinary development.
 
     echo "=== [Studio18] Deploying to Trados Studio 2024 ==="
 
@@ -199,11 +198,7 @@ if [ -d "$STUDIO19_INSTALL" ]; then
     rm -f "$DIST_DIR/$PLUGIN_FILENAME_19"
     python "$SCRIPT_DIR/package_plugin.py" "$BUILD_DIR_19" "$DIST_DIR/$PLUGIN_FILENAME_19"
 
-    APPSTORE_DIR="$SCRIPT_DIR/RWS AppStore"
-    mkdir -p "$APPSTORE_DIR"
-    cp "$DIST_DIR/$PLUGIN_FILENAME_19" "$APPSTORE_DIR/$PLUGIN_FILENAME_19"
-    echo "  Mirrored to: $APPSTORE_DIR/$PLUGIN_FILENAME_19"
-    echo ""
+    # Staged by tools/appstore_release.py, not here - see the note above.
 
     echo "=== [Studio19] Deploying to Trados Studio 2026 ==="
 
