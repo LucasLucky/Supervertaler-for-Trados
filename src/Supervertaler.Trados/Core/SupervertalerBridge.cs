@@ -1292,8 +1292,13 @@ namespace Supervertaler.Trados.Core
     [DataContract]
     public class BridgeAddTermRequest
     {
-        [DataMember(Name = "source", IsRequired = true)] public string Source { get; set; }
-        [DataMember(Name = "target", IsRequired = true)] public string Target { get; set; }
+        // NOT IsRequired: with an 'entries' array these are absent, and
+        // DataContractJsonSerializer refuses the whole body when a required
+        // member is missing - so the batch form could never be parsed and the
+        // branch handling it was unreachable. The handler validates instead,
+        // and says which of the two forms is missing.
+        [DataMember(Name = "source")] public string Source { get; set; }
+        [DataMember(Name = "target")] public string Target { get; set; }
         /// <summary>Optional: restrict the write to these termbases (names or
         /// numeric ids). Empty/null = all write-enabled termbases.</summary>
         [DataMember(Name = "termbases", EmitDefaultValue = false)] public List<string> Termbases { get; set; }
@@ -3291,22 +3296,40 @@ namespace Supervertaler.Trados.Core
                 item.Results = one.Results;   // per-termbase echo, incl. orientation and role
                 item.Note = one.Note;
 
-                if (!one.Ok)
+                // Classify from the per-termbase statuses, NOT from one.Ok.
+                // A single add_term returns ok:false for a pure duplicate, so
+                // testing !Ok first counted every duplicate as a failure - a
+                // re-run of an already-imported batch reported "5 failed" when
+                // nothing had gone wrong. The summary is the line a caller reads
+                // first, so it has to mean what it says.
+                var perTb = one.Results;
+                if (perTb != null && perTb.Count > 0)
                 {
-                    summary.Failed++;
+                    if (perTb.TrueForAll(r =>
+                            string.Equals(r.Status, "duplicate", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        // Only a duplicate when EVERY termbase said so. Already
+                        // in one but newly added to another is an add, or a batch
+                        // spanning termbases would under-report what it wrote.
+                        summary.Duplicates++;
+                    }
+                    else if (perTb.Exists(r =>
+                            string.Equals(r.Status, "added", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        summary.Added++;
+                    }
+                    else
+                    {
+                        summary.Failed++;
+                    }
                 }
-                else if (one.Results != null && one.Results.Count > 0
-                         && one.Results.TrueForAll(r =>
-                                string.Equals(r.Status, "duplicate", StringComparison.OrdinalIgnoreCase)))
+                else if (one.Ok)
                 {
-                    // Only a duplicate when EVERY termbase said so. One
-                    // termbase already having it while another takes it is an
-                    // add, or a batch spanning termbases would under-report.
-                    summary.Duplicates++;
+                    summary.Added++;
                 }
                 else
                 {
-                    summary.Added++;
+                    summary.Failed++;
                 }
 
                 items.Add(item);
