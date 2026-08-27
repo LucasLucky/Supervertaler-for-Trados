@@ -5,8 +5,8 @@ version numbers so the App Store never sees a collision):
 
 | Build | Version number | Min studio | Max studio | Checksum (SHA-256) |
 |-------|----------------|------------|------------|--------------------|
-| Studio 2024 | `18.20.185.0` | `18.0` | `18.9` | `dba19052fe73cf69dc96fda32a8da37b976ecaef8eef1912d87e7cbcc876565c` |
-| Studio 2026 | `19.20.185.0` | `19.0` | `19.0.9` | `0293e02bece1592ac671f70c78d44894e5fef68f4f4cbae007674e817034b791` |
+| Studio 2024 | `18.20.185.0` | `18.0` | `18.9` | `5689b75114663aa59744102bd59c0fa52f64a281284ec75729d6aba74983df4f` |
+| Studio 2026 | `19.20.185.0` | `19.0` | `19.0.9` | `f044f39d2b552c7ffa02b268749ab573d45570b450b2f8abfb8b0bb6a51244e7` |
 
 ---
 
@@ -57,6 +57,7 @@ Everything else is below.
 - **A web search opens the browser window and nothing else.** `Alt+W` used to pop the SuperSearch panel open at the same time, which cost editor height for no benefit — the browser window already names the term, the resource count and a tab per site, and it raises itself, often on another monitor where the panel is not even in view. `Alt+S` still opens the panel, because that is where its results appear.
 
 ### Fixed
+- **Your active memory bank no longer follows you from one project into the next.** It was remembered per installation rather than per project, so opening a different client's job left you pointed at the previous client's bank – and because the bank feeds every prompt, that quietly supplied the wrong terminology and style to every request with nothing on screen to say so. The bank is now remembered per Trados project: choose one and it sticks to that job. A project with no bank recorded now uses **none**, and says so, rather than inheriting whichever one you had open last – no bank is better than another client's bank.
 - **Figures could be labelled wrongly, and the report said everything was fine.** Where several images shared a paragraph, all of them took that paragraph's label — so four figures came out as "FIG. 3", three figure numbers were never assigned to anything, and the summary called it "the easiest case there is". Images and labels are now paired by position and the pairing is *checked*: if the numbers do not line up, no labels are applied and the report says what it counted. A wrong figure label is invisible downstream and corrupts everything built on top of it, so refusing is better than guessing.
 - **Word writes a floating text box twice**, once for modern Word and once for old versions, which made figure labels count double — 21 labels for 14 images on a real document, enough to make the check above refuse the whole file.
 - **A figure's description is matched by its number, not by what sits next to it.** On a patent the plates are at the back and their descriptions are hundreds of paragraphs away in the body, so "the text around the image" is the figure label and some blank lines. All fourteen figures on the test document now carry the description that actually describes them.
