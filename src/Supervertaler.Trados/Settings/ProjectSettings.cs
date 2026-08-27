@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.Serialization;
@@ -50,6 +50,19 @@ namespace Supervertaler.Trados.Settings
         /// </summary>
         [DataMember(Name = "termbasePath")]
         public string TermbasePath { get; set; } = "";
+
+        /// <summary>
+        /// The SuperMemory bank this project uses. Empty means none has been
+        /// chosen for it.
+        ///
+        /// <para>Per project because a bank feeds EVERY prompt: carrying the
+        /// previous job's bank into a new client's project silently supplies the
+        /// wrong terminology and style, and nothing on screen says so. Empty is
+        /// deliberately not "inherit whatever was last active" - no bank is
+        /// better than another client's bank.</para>
+        /// </summary>
+        [DataMember(Name = "memoryBankName")]
+        public string MemoryBankName { get; set; } = "";
 
         /// <summary>
         /// IDs of termbases marked as write targets for this project.

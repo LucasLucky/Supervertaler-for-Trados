@@ -114,6 +114,11 @@ namespace Supervertaler.Trados
         /// Human-friendly label for the active memory bank, used in log/toast
         /// messages so translators can tell which bank they just acted on.
         /// </summary>
+        /// <summary>Project the active bank was last aligned to, so the
+        /// realignment runs once per project rather than on every document
+        /// change within it.</summary>
+        private string _bankProjectPath;
+
         private string ActiveMemoryBankName =>
             string.IsNullOrWhiteSpace(_settings?.AiSettings?.ActiveMemoryBankName)
                 ? UserDataPath.DefaultMemoryBankName
@@ -401,6 +406,7 @@ namespace Supervertaler.Trados
                 SafeInvoke(UpdateContextDisplay);
                 UpdateBatchSegmentCounts();
                 PopulateBatchPromptDropdown();
+                ApplyProjectMemoryBank();
             }
             else
             {
@@ -7297,6 +7303,80 @@ namespace Supervertaler.Trados
             }
         }
 
+        /// <summary>
+        /// Record <paramref name="bankName"/> against the open Trados project.
+        /// Silent when no project is open - there is nothing to key it to, and
+        /// the global setting already holds it.
+        /// </summary>
+        private void RememberBankForProject(string bankName)
+        {
+            try
+            {
+                var projectPath = TermLensEditorViewPart.GetCurrentProjectPath();
+                if (string.IsNullOrEmpty(projectPath)) return;
+
+                var ps = Settings.ProjectSettings.Load(projectPath) ?? new Settings.ProjectSettings();
+                ps.MemoryBankName = bankName ?? "";
+                if (string.IsNullOrEmpty(ps.ProjectPath)) ps.ProjectPath = projectPath;
+                if (string.IsNullOrEmpty(ps.ProjectName))
+                    ps.ProjectName = TermLensEditorViewPart.GetCurrentProjectName() ?? "";
+                Settings.ProjectSettings.Save(projectPath, ps);
+            }
+            catch { /* a project we cannot record against still works this session */ }
+        }
+
+        /// <summary>
+        /// Point SuperMemory at the bank this project uses, when the open project
+        /// changes.
+        ///
+        /// <para>A project with no bank recorded CLEARS to none rather than
+        /// inheriting the last one used. A bank feeds every prompt, so carrying
+        /// the previous client's bank into a new job silently supplies the wrong
+        /// terminology and style - and no bank is better than the wrong one.
+        /// Either way it is announced in the chat rather than changing under
+        /// you.</para>
+        /// </summary>
+        private void ApplyProjectMemoryBank()
+        {
+            try
+            {
+                var projectPath = TermLensEditorViewPart.GetCurrentProjectPath();
+                if (string.IsNullOrEmpty(projectPath)) return;
+                if (string.Equals(projectPath, _bankProjectPath, StringComparison.OrdinalIgnoreCase))
+                    return;                      // same project, nothing to do
+                _bankProjectPath = projectPath;
+
+                string wanted = null;
+                try { wanted = Settings.ProjectSettings.Load(projectPath)?.MemoryBankName; }
+                catch { }
+
+                var current = _settings?.AiSettings?.ActiveMemoryBankName ?? "";
+                var target = wanted ?? "";
+                if (string.Equals(current, target, StringComparison.Ordinal)) return;
+
+                SettingsService.Update(s =>
+                {
+                    if (s.AiSettings == null) s.AiSettings = new AiSettings();
+                    s.AiSettings.ActiveMemoryBankName = target;
+                });
+
+                _kbReader = null;
+                _kbReaderBankName = null;
+                try { RefreshMemoryBankDropdown(); } catch { }
+
+                var projectName = TermLensEditorViewPart.GetCurrentProjectName() ?? "this project";
+                SafeInvoke(() => ShowSuperMemoryMessage(
+                    target.Length > 0
+                        ? "Switched to memory bank **" + target + "** for **" + projectName + "**."
+                        : "**No memory bank** is set for **" + projectName + "**, so SuperMemory is "
+                          + "contributing nothing to prompts. Pick one from the SuperMemory dropdown "
+                          + "if this project should have one." + "\n\n*The previous project's bank is "
+                          + "deliberately not carried over: it would feed another client's terminology "
+                          + "into every request without saying so.*"));
+            }
+            catch { }
+        }
+
         private void OnMemoryBankChanged(object sender, MemoryBankChangedEventArgs e)
         {
             if (e == null || string.IsNullOrWhiteSpace(e.BankName)) return;
@@ -7321,6 +7401,10 @@ namespace Supervertaler.Trados
                     if (s.AiSettings == null) s.AiSettings = new AiSettings();
                     s.AiSettings.ActiveMemoryBankName = newName;
                 });
+
+                // Also against the PROJECT, so opening this job again picks the
+                // same bank rather than whichever one was last used anywhere.
+                RememberBankForProject(newName);
 
                 // 2. Invalidate the cached reader – the next LoadKbContextForPrompt
                 //    call will lazily recreate it against the new bank directory.
