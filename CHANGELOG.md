@@ -7,6 +7,32 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.185 / 19.20.185] – 2026-08-27
+
+### Added (Supervertaler can look at your drawings)
+
+- ★ **Supervertaler now reads the reference signs printed on your figures, and tells you which ones appear nowhere in the text.** On a patent, a reference sign carried in the drawings with no basis in the description is an Art. 84 / Rule 42 objection — the kind of thing an attorney wants raised before filing. Until now the only way to find one was to open every drawing and check it by eye. On the job this was built against, it found **ST 05**, printed on two figures and absent from all 354 segments. No amount of searching the text could ever have found it: it exists only as pixels inside the image.
+- **Analyse images** on the Batch Operations tab does the whole thing in one go: pulls the images out of your Word documents, shows each one to the AI together with what the document says about it, and writes the result to `figures.md` in your active memory bank — where it is read into every prompt from then on. One AI request per image.
+- **The AI is asked what the drawing shows and what is legible on it, not what the invention does.** A plausible-sounding summary of a mechanism is exactly the kind of wrong that survives review, so the question is deliberately narrow.
+- **`figures.md` says which parts of it came from the document and which came from the AI**, and asks you to correct anything wrong — because from the moment it exists, it is in every prompt. A mistaken caption would otherwise be repeated into every request silently.
+- **Extract images to folder** writes your document's images out as `Figure 01.png`, `Figure 02.png` and so on — zero-padded so they sort properly, original format preserved, and re-running simply overwrites. Verified against a set a translator had extracted and named by hand: fourteen files, byte-identical, same names.
+- **Document images** reports what your project's Word files actually contain — each image, its figure label, and what the document says it shows — without calling the AI at all.
+- **Reference numerals now finds more than `(12)`.** Lettered points such as `(A)`…`(W)` and label-series signs such as `ST 01` are recognised alongside parenthesised numerals, and `N°7` is understood as another way of writing `(7)` rather than counted as a separate part.
+
+### Fixed (figure labels, and how the reports read)
+
+- **Figures could be labelled wrongly, and the report said everything was fine.** Where several images shared a paragraph, all of them took that paragraph's label — so four figures came out as "FIG. 3", three figure numbers were never assigned to anything, and the summary called it "the easiest case there is". Images and labels are now paired by position and the pairing is *checked*: if the numbers do not line up, no labels are applied and the report says what it counted. A wrong figure label is invisible downstream and corrupts everything built on top of it, so refusing is better than guessing.
+- **Word writes a floating text box twice**, once for modern Word and once for old versions, which made figure labels count double — 21 labels for 14 images on a real document, enough to make the check above refuse the whole file.
+- **A figure's description is matched by its number, not by what sits next to it.** On a patent the plates are at the back and their descriptions are hundreds of paragraphs away in the body, so "the text around the image" is the figure label and some blank lines. All fourteen figures on the test document now carry the description that actually describes them.
+- **The same description no longer appears twice** when the figure list and the detailed description differ only by a full stop — while genuinely different wordings are both kept, because the longer one usually names the parts.
+- **Reference numerals: the citation shown for each numeral now contains that numeral.** The preview was cut from the start of the segment, so on a real patent 14 of 20 rows showed a snippet in which the row's own numeral had been cut off.
+- **Reports read properly in the panel.** They were being laid out as tables and then flattened, repeating the column headings on every row; they are now written for the width they are shown at. `figures.md` keeps its table, because it is read full width.
+- **The Reference images folder can be set from the tab that uses it.** The setting existed only in Settings → Library on a memory bank, four levels into a dialog, where two people looking for it failed to find it.
+- **Saving a chat to a memory bank no longer strips its formatting.** A table arrived as loose pipe-separated lines, and headings and bold were flattened — in a file that is read as Markdown by Obsidian and by Supervertaler itself.
+- **Saving a chat no longer tells you to run a command that does not exist.** The confirmation asked you to "run Process Inbox", which was removed long ago, to compile the note into a knowledge base that never reads that folder. It now names the file it wrote and says plainly that the `reference` folder is the audit trail and is not read into prompts.
+- **Long AI replies keep their "Show full response" link** when they arrive while you are on another tab, and are cut at a line break rather than mid-word.
+- **The bilingual review export links to supervertaler.com** rather than the Trados sub-page.
+
 ## [18.20.184 / 19.20.184] – 2026-08-25
 
 ### Changed (QuickLauncher is on Alt+Q, because Ctrl+Q never worked)
