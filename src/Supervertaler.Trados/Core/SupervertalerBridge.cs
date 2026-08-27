@@ -1304,6 +1304,18 @@ namespace Supervertaler.Trados.Core
         /// (default – current behaviour). Ignored when 'termbases' is given –
         /// an explicit list always wins.</summary>
         [DataMember(Name = "scope", EmitDefaultValue = false)] public string Scope { get; set; }
+
+        /// <summary>
+        /// Many pairs in one call. Mutually exclusive with the single-pair
+        /// form: passing both is an error rather than a merge, because a
+        /// caller that did so almost certainly meant one of them.
+        ///
+        /// <para><c>termbases</c> and <c>scope</c> stay at the CALL level and
+        /// apply to the whole batch. Per-entry termbase targeting is a
+        /// different feature and is not wanted here.</para>
+        /// </summary>
+        [DataMember(Name = "entries", EmitDefaultValue = false)]
+        public List<BridgeAddTermEntry> Entries { get; set; }
     }
 
     /// <summary>Exactly what one termbase stored, echoed so the caller can
@@ -1332,6 +1344,53 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "id", Order = 0)] public long Id { get; set; }
         [DataMember(Name = "source", Order = 1)] public string Source { get; set; }
         [DataMember(Name = "target", Order = 2)] public string Target { get; set; }
+    }
+
+    /// <summary>One pair in a batch <c>add_term</c> call.</summary>
+    [DataContract]
+    public class BridgeAddTermEntry
+    {
+        [DataMember(Name = "source")] public string Source { get; set; }
+        [DataMember(Name = "target")] public string Target { get; set; }
+
+        /// <summary>Overrides the call-level value for this entry, so one batch
+        /// can mix directions if it has to.</summary>
+        [DataMember(Name = "sourceLang", EmitDefaultValue = false)] public string SourceLang { get; set; }
+        [DataMember(Name = "targetLang", EmitDefaultValue = false)] public string TargetLang { get; set; }
+        [DataMember(Name = "definition", EmitDefaultValue = false)] public string Definition { get; set; }
+        [DataMember(Name = "domain", EmitDefaultValue = false)] public string Domain { get; set; }
+        [DataMember(Name = "notes", EmitDefaultValue = false)] public string Notes { get; set; }
+    }
+
+    /// <summary>What happened to one entry of a batch, in input order.</summary>
+    [DataContract]
+    public class BridgeAddTermBatchItem
+    {
+        [DataMember(Name = "index", Order = 0)] public int Index { get; set; }
+        [DataMember(Name = "source", Order = 1)] public string Source { get; set; }
+        [DataMember(Name = "target", Order = 2)] public string Target { get; set; }
+        [DataMember(Name = "ok", Order = 3)] public bool Ok { get; set; }
+        [DataMember(Name = "error", Order = 4, EmitDefaultValue = false)] public string Error { get; set; }
+        [DataMember(Name = "addedTo", Order = 5, EmitDefaultValue = false)] public List<string> AddedTo { get; set; }
+        [DataMember(Name = "results", Order = 6, EmitDefaultValue = false)] public List<BridgeAddTermResult> Results { get; set; }
+        [DataMember(Name = "note", Order = 7, EmitDefaultValue = false)] public string Note { get; set; }
+    }
+
+    [DataContract]
+    public class BridgeAddTermBatchSummary
+    {
+        [DataMember(Name = "added", Order = 0)] public int Added { get; set; }
+        [DataMember(Name = "duplicates", Order = 1)] public int Duplicates { get; set; }
+        [DataMember(Name = "failed", Order = 2)] public int Failed { get; set; }
+    }
+
+    [DataContract]
+    public class BridgeAddTermBatchResponse
+    {
+        [DataMember(Name = "ok", Order = 0)] public bool Ok { get; set; }
+        [DataMember(Name = "error", Order = 1, EmitDefaultValue = false)] public string Error { get; set; }
+        [DataMember(Name = "summary", Order = 2, EmitDefaultValue = false)] public BridgeAddTermBatchSummary Summary { get; set; }
+        [DataMember(Name = "results", Order = 3, EmitDefaultValue = false)] public List<BridgeAddTermBatchItem> Results { get; set; }
     }
 
     [DataContract]
@@ -3085,12 +3144,18 @@ namespace Supervertaler.Trados.Core
                 return;
             }
 
+            if (req?.Entries != null && req.Entries.Count > 0)
+            {
+                HandleAddTermBatch(context, req);
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(req?.Source) || string.IsNullOrWhiteSpace(req?.Target))
             {
                 WriteJson(context, 400, new BridgeAddTermResponse
                 {
                     Ok = false,
-                    Error = "both 'source' and 'target' are required"
+                    Error = "both 'source' and 'target' are required, or pass 'entries'"
                 });
                 return;
             }
@@ -3115,6 +3180,138 @@ namespace Supervertaler.Trados.Core
             }
 
             WriteJson(context, 200, response);
+        }
+
+        /// <summary>
+        /// Many term pairs in one call, each decided independently.
+        ///
+        /// <para><b>A duplicate or a failure on one entry must not abort the
+        /// batch.</b> That is the requirement this exists to satisfy: a 40-term
+        /// batch that dies on entry 12 because entry 12 already existed is worse
+        /// than the single-pair interface, not better. Every entry gets its own
+        /// result, in input order, so a caller can tell exactly which landed.</para>
+        ///
+        /// <para>Each entry goes through the SAME delegate a single call uses,
+        /// rather than a bulk write path. Scope resolution, orientation and
+        /// duplicate detection then cannot drift between the two interfaces,
+        /// which matters more here than saving database round trips: the cost
+        /// this addresses is repeated parameter boilerplate, not SQLite.</para>
+        /// </summary>
+        private void HandleAddTermBatch(HttpListenerContext context, BridgeAddTermRequest req)
+        {
+            const int MaxEntries = 40;   // matches update_segments
+
+            // Both forms at once is a caller error, not something to merge:
+            // whoever did it meant one of them, and guessing which is worse than
+            // saying so.
+            if (!string.IsNullOrWhiteSpace(req.Source) || !string.IsNullOrWhiteSpace(req.Target))
+            {
+                WriteJson(context, 400, new BridgeAddTermBatchResponse
+                {
+                    Ok = false,
+                    Error = "pass either 'entries' or a single 'source'/'target' pair, not both"
+                });
+                return;
+            }
+
+            if (req.Entries.Count > MaxEntries)
+            {
+                WriteJson(context, 400, new BridgeAddTermBatchResponse
+                {
+                    Ok = false,
+                    Error = "too many entries: " + req.Entries.Count + ". The maximum is "
+                          + MaxEntries + " per call - split the list rather than sending more, "
+                          + "since a truncated batch would look like a complete one."
+                });
+                return;
+            }
+
+            var items = new List<BridgeAddTermBatchItem>();
+            var summary = new BridgeAddTermBatchSummary();
+
+            for (int i = 0; i < req.Entries.Count; i++)
+            {
+                var entry = req.Entries[i] ?? new BridgeAddTermEntry();
+                var item = new BridgeAddTermBatchItem
+                {
+                    Index = i,
+                    Source = entry.Source,
+                    Target = entry.Target,
+                };
+
+                if (string.IsNullOrWhiteSpace(entry.Source) || string.IsNullOrWhiteSpace(entry.Target))
+                {
+                    item.Ok = false;
+                    item.Error = "both 'source' and 'target' are required";
+                    summary.Failed++;
+                    items.Add(item);
+                    continue;
+                }
+
+                // Call-level termbases and scope; per-entry languages win where
+                // given, so one batch can mix directions.
+                var single = new BridgeAddTermRequest
+                {
+                    Source = entry.Source,
+                    Target = entry.Target,
+                    Termbases = req.Termbases,
+                    Scope = req.Scope,
+                    SourceLang = string.IsNullOrWhiteSpace(entry.SourceLang) ? req.SourceLang : entry.SourceLang,
+                    TargetLang = string.IsNullOrWhiteSpace(entry.TargetLang) ? req.TargetLang : entry.TargetLang,
+                    Definition = entry.Definition,
+                    Domain = entry.Domain,
+                    Notes = entry.Notes,
+                };
+
+                BridgeAddTermResponse one;
+                try
+                {
+                    one = _addTerm(single) ?? new BridgeAddTermResponse
+                    {
+                        Ok = false,
+                        Error = "internal error"
+                    };
+                }
+                catch (Exception ex)
+                {
+                    // One entry throwing is one entry's problem.
+                    BridgeLog.Write($"[SupervertalerBridge] add-term entry {i} threw: {ex.Message}");
+                    one = new BridgeAddTermResponse { Ok = false, Error = ex.Message };
+                }
+
+                item.Ok = one.Ok;
+                item.Error = one.Error;
+                item.AddedTo = one.AddedTo;
+                item.Results = one.Results;   // per-termbase echo, incl. orientation and role
+                item.Note = one.Note;
+
+                if (!one.Ok)
+                {
+                    summary.Failed++;
+                }
+                else if (one.Results != null && one.Results.Count > 0
+                         && one.Results.TrueForAll(r =>
+                                string.Equals(r.Status, "duplicate", StringComparison.OrdinalIgnoreCase)))
+                {
+                    // Only a duplicate when EVERY termbase said so. One
+                    // termbase already having it while another takes it is an
+                    // add, or a batch spanning termbases would under-report.
+                    summary.Duplicates++;
+                }
+                else
+                {
+                    summary.Added++;
+                }
+
+                items.Add(item);
+            }
+
+            WriteJson(context, 200, new BridgeAddTermBatchResponse
+            {
+                Ok = true,        // the CALL succeeded; per-entry outcomes are in results
+                Summary = summary,
+                Results = items,
+            });
         }
 
         private void HandleImportTermbase(HttpListenerContext context)

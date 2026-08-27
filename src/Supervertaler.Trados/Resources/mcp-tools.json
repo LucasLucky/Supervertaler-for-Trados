@@ -50,7 +50,7 @@
     {
       "name": "add_term",
       "access": "write",
-      "description": "Add a term pair to the user's Supervertaler Write termbases, optionally with definition/domain/notes. ORIENTATION: strongly prefer passing sourceLang/targetLang – each termbase then stores the pair according to its OWN declared direction, so one call is correct even for termbases of opposite directions. Without them, `source` is ASSUMED to be in the open project's source language; a termbase whose languages cannot be related to that refuses rather than guessing (no language detection – term pairs are often identical across languages). The response echoes per termbase exactly what was stored, including orientation and its resolved role ('project' or 'background') – check it. A 'duplicate' result includes the 'existing' entry it matched (id, source, target). Terms are stored EXACTLY as sent, including trailing punctuation - 'Rev.', 'Doc.nr.' and 'NOTE:' keep their final character, because abbreviation-with-period is a legitimate term form; send the exact form the client uses (lookup still matches the form without it). Without `termbases` or `scope`, writes go to EVERY Write-enabled termbase, mixing a background termbase (e.g. a large personal glossary) with a per-job project termbase. Prefer `scope` to target one role deliberately. NOTE: Trados's own project termbases (.ttb / MultiTerm) are READ-ONLY for you – if the user wants a term added there, tell them to add it in Trados itself. Only use when the user asked for a term to be added, or explicitly agreed to your suggestion to add one.",
+      "description": "Add a term pair to the user's Supervertaler Write termbases, optionally with definition/domain/notes. ORIENTATION: strongly prefer passing sourceLang/targetLang – each termbase then stores the pair according to its OWN declared direction, so one call is correct even for termbases of opposite directions. Without them, `source` is ASSUMED to be in the open project's source language; a termbase whose languages cannot be related to that refuses rather than guessing (no language detection – term pairs are often identical across languages). The response echoes per termbase exactly what was stored, including orientation and its resolved role ('project' or 'background') – check it. A 'duplicate' result includes the 'existing' entry it matched (id, source, target). Terms are stored EXACTLY as sent, including trailing punctuation - 'Rev.', 'Doc.nr.' and 'NOTE:' keep their final character, because abbreviation-with-period is a legitimate term form; send the exact form the client uses (lookup still matches the form without it). Without `termbases` or `scope`, writes go to EVERY Write-enabled termbase, mixing a background termbase (e.g. a large personal glossary) with a per-job project termbase. Prefer `scope` to target one role deliberately. NOTE: Trados's own project termbases (.ttb / MultiTerm) are READ-ONLY for you – if the user wants a term added there, tell them to add it in Trados itself. Only use when the user asked for a term to be added, or explicitly agreed to your suggestion to add one. BULK: to add more than one pair, pass 'entries' - an array of up to 40 {source, target, ...} objects - rather than calling this tool repeatedly. One call, one result per entry, and a duplicate on one entry does not stop the others.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -92,12 +92,47 @@
           "notes": {
             "description": "Optional usage notes stored on the entry.",
             "type": "string"
+          },
+          "entries": {
+            "type": "array",
+            "description": "Many term pairs in ONE call - use this instead of calling add_term repeatedly, which costs a full parameter payload per pair. Maximum 40 entries; send more than that and the call is refused rather than truncated, so a partial batch never looks complete. Mutually exclusive with the single 'source'/'target' form: pass one or the other, never both. 'termbases' and 'scope' stay at the call level and apply to every entry; per-entry 'sourceLang'/'targetLang' override the call-level ones, so one batch can mix directions. Every entry is decided independently - a duplicate or a failure on one does NOT abort the rest - and the response carries one result per entry in input order, each with the same per-termbase echo (status, stored orientation, resolved role) a single call returns. Check it: 'added' and 'duplicate' are both normal outcomes.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "description": "One side of the pair, as in the single-pair form."
+                },
+                "target": {
+                  "type": "string",
+                  "description": "The other side."
+                },
+                "sourceLang": {
+                  "type": "string",
+                  "description": "Overrides the call-level sourceLang for this entry."
+                },
+                "targetLang": {
+                  "type": "string",
+                  "description": "Overrides the call-level targetLang for this entry."
+                },
+                "definition": {
+                  "type": "string"
+                },
+                "domain": {
+                  "type": "string"
+                },
+                "notes": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "source",
+                "target"
+              ]
+            }
           }
         },
-        "required": [
-          "source",
-          "target"
-        ]
+        "required": []
       },
       "method": "POST",
       "path": "/v1/add-term",
