@@ -4127,6 +4127,8 @@ namespace Supervertaler.Trados
         /// </summary>
         private BridgeImportTermbaseResponse BridgeImportTermbase(BridgeImportTermbaseRequest req)
         {
+            string delimitedSource = null;
+            Core.DelimitedTermFileResult delimitedParse = null;
             var ctrl = _control?.Value;
             if (ctrl == null || ctrl.IsDisposed)
                 return new BridgeImportTermbaseResponse { Ok = false, Error = "ai assistant disposed" };
@@ -4142,6 +4144,13 @@ namespace Supervertaler.Trados
                 if (string.IsNullOrEmpty(dbPath) || !File.Exists(dbPath))
                     return new BridgeImportTermbaseResponse
                     { Ok = false, Error = "no Supervertaler termbase database is configured" };
+
+                // A delimited export is not a Trados termbase and carries none of
+                // its metadata, so it becomes the same ImportedTermbase the
+                // readers produce and then follows the identical path.
+                delimitedSource = Core.DelimitedTermFile.LooksDelimited(req?.Termbase)
+                    ? req.Termbase
+                    : null;
 
                 // ── 1. Which project termbase to read ──────────────────────
                 var available = TermLensEditorViewPart.GetMultiTermInfos()
@@ -4186,6 +4195,38 @@ namespace Supervertaler.Trados
                 // Studio can have uncheckpointed changes, and the original must
                 // never be touched.
                 Models.ImportedTermbase imported;
+
+                if (delimitedSource != null)
+                {
+                    // A text export declares no languages, so the caller must
+                    // say which side is which. Refused rather than guessed: the
+                    // two columns are often identical-looking terminology and
+                    // getting the direction wrong writes every pair backwards.
+                    if (string.IsNullOrWhiteSpace(req.SourceLang) || string.IsNullOrWhiteSpace(req.TargetLang))
+                        return new BridgeImportTermbaseResponse
+                        {
+                            Ok = false,
+                            Error = "sourceLang and targetLang are required when importing a delimited "
+                                  + "file - it carries no language metadata of its own."
+                        };
+
+                    var parsed = Core.DelimitedTermFile.Parse(
+                        delimitedSource, req.SourceLang, req.TargetLang, req.FieldMap);
+
+                    if (!parsed.Ok)
+                        return new BridgeImportTermbaseResponse
+                        {
+                            Ok = false,
+                            Error = parsed.Error ?? "the file could not be read as a term list",
+                            FieldMap = parsed.Mapping,
+                            Warnings = parsed.Warnings
+                        };
+
+                    imported = Core.DelimitedTermFile.ToImportedTermbase(
+                        parsed, delimitedSource, req.SourceLang, req.TargetLang);
+                    delimitedParse = parsed;
+                }
+                else
                 using (var snapshot = Core.TtbImportSnapshot.Prepare(chosen.FilePath))
                 using (var reader = Core.TermbaseReaderFactory.Create(snapshot.ReadPath))
                 {
@@ -4206,7 +4247,8 @@ namespace Supervertaler.Trados
                                 "32-bit MultiTerm/Access engine, available only in the Studio 2024 build; in " +
                                 "Studio 2026 convert it to .ttb first."
                     };
-                imported.Name = Path.GetFileNameWithoutExtension(chosen.FilePath);
+                imported.Name = Path.GetFileNameWithoutExtension(
+                    delimitedSource ?? chosen.FilePath);
 
                 var languageList = imported.Languages
                     .Select(l => $"{l.Name} ({Core.LanguageUtils.CanonicalLocale(l.Locale ?? l.Name)})")
@@ -4305,6 +4347,14 @@ namespace Supervertaler.Trados
                 };
                 var summary = Core.TermbaseImporter.Import(imported, options, dbPath, req.DryRun);
                 foreach (var bad in badMappings) summary.Warnings.Add(bad + " – kept the automatic mapping.");
+                if (delimitedParse != null)
+                {
+                    // The parser's findings matter most on a dry run: in a format
+                    // with no schema this report is the only place a wrong column
+                    // or an invisible character can be caught before it is stored.
+                    foreach (var w in delimitedParse.Warnings) summary.Warnings.Add(w);
+                    foreach (var s in delimitedParse.Skipped) summary.Warnings.Add(s);
+                }
 
                 if (!req.DryRun && summary.Added > 0)
                 {
