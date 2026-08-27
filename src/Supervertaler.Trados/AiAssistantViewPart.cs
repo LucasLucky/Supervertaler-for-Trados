@@ -4153,18 +4153,28 @@ namespace Supervertaler.Trados
                     : null;
 
                 // ── 1. Which project termbase to read ──────────────────────
-                var available = TermLensEditorViewPart.GetMultiTermInfos()
-                                ?? new List<Models.MultiTermTermbaseInfo>();
-                if (available.Count == 0)
+                // Skipped for a delimited file: it is a path the caller gave
+                // us, not one of the project's attached termbases, and
+                // demanding the project have one would refuse a valid import
+                // for a reason that has nothing to do with it.
+                var available = delimitedSource != null
+                    ? new List<Models.MultiTermTermbaseInfo>()
+                    : (TermLensEditorViewPart.GetMultiTermInfos()
+                       ?? new List<Models.MultiTermTermbaseInfo>());
+                if (delimitedSource == null && available.Count == 0)
                     return new BridgeImportTermbaseResponse
                     {
                         Ok = false,
                         Error = "the open project has no Trados termbase (.sdltb / .ttb) attached"
                     };
 
-                Models.MultiTermTermbaseInfo chosen;
+                Models.MultiTermTermbaseInfo chosen = null;
                 var wanted = (req.Termbase ?? "").Trim();
-                if (wanted.Length == 0)
+                if (delimitedSource != null)
+                {
+                    // chosen stays null - the file itself is the source.
+                }
+                else if (wanted.Length == 0)
                 {
                     if (available.Count > 1)
                         return new BridgeImportTermbaseResponse
