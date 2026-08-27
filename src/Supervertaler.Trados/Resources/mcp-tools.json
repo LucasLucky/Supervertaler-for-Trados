@@ -659,7 +659,7 @@
     {
       "name": "get_project_statistics",
       "access": "read",
-      "description": "Get the project's analysis statistics (per language direction: perfect/exact/fuzzy/new/repetition words and segments) and per-file confirmation statistics (not started, draft, translated, approved, signed off) from the project file on disk. Use this for questions about word counts, progress, or how much work is left. Defaults to the project open in the editor.",
+      "description": "Get the project's analysis statistics (per language direction: perfect/exact/fuzzy/new/repetition words and segments) and per-file confirmation statistics (not started, draft, translated, approved, signed off) from the project file on disk. Use this for questions about word counts, progress, or how much work is left. Defaults to the project open in the editor. FUZZY BANDS: 'fuzzy' is the summed figure kept for compatibility; 'fuzzyBands' lists each band separately with its own min/max, and they are not interchangeable. The 95-99 band is the one that matters - a match that high reads fluent and plausible while differing from the source in exactly the load-bearing words, which on a patent means an ordinal, a reference letter or a claim back-reference. Report the bands, not just the total.",
       "inputSchema": {
         "type": "object",
         "properties": {

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -647,8 +647,9 @@ namespace Supervertaler.Trados.Core
                 AppendReportCategory(sb, analyse, "inContextExact", "inContextExact");
                 AppendReportCategory(sb, analyse, "exact", "exact");
 
-                // Sum every fuzzy band into one figure.
+                // Sum every fuzzy band into one figure, then list the bands.
                 SumReportCategories(sb, analyse, "fuzzy", e => e.Name.LocalName == "fuzzy");
+                AppendFuzzyBands(sb, analyse);
                 AppendReportCategory(sb, analyse, "new", "new");
                 // Repetitions = in-file + cross-file repeated.
                 SumReportCategories(sb, analyse, "repetitions",
@@ -673,6 +674,43 @@ namespace Supervertaler.Trados.Core
             int.TryParse(elem.Attribute("segments")?.Value, out var segments);
             sb.Append(",\"").Append(jsonKey).Append("\":{\"words\":").Append(words)
               .Append(",\"segments\":").Append(segments).Append("}");
+        }
+
+
+        /// <summary>
+        /// The fuzzy bands, listed rather than summed.
+        ///
+        /// <para>They are not interchangeable. A 95-99% match reads fluent and
+        /// plausible while differing from the source in exactly the load-bearing
+        /// words - on a patent an ordinal, a reference letter or a claim
+        /// back-reference. "7 such segments carrying 207 words" is actionable;
+        /// "27 fuzzy segments somewhere between 50 and 99" is not, which is what
+        /// the summed figure alone says.</para>
+        ///
+        /// <para>Boundaries come from the report's own min/max attributes rather
+        /// than a hard-coded list, because they follow the project's analysis
+        /// settings and the user can change them.</para>
+        /// </summary>
+        private static void AppendFuzzyBands(StringBuilder sb, XElement analyse)
+        {
+            sb.Append(",\"fuzzyBands\":[");
+            var written = 0;
+            foreach (var e in analyse.Elements().Where(x => x.Name.LocalName == "fuzzy"))
+            {
+                int.TryParse(e.Attribute("words")?.Value, out var w);
+                int.TryParse(e.Attribute("segments")?.Value, out var s);
+                var hasMin = int.TryParse(e.Attribute("min")?.Value, out var min);
+                var hasMax = int.TryParse(e.Attribute("max")?.Value, out var max);
+
+                if (written > 0) sb.Append(",");
+                sb.Append("{");
+                if (hasMin) sb.Append("\"min\":").Append(min).Append(",");
+                if (hasMax) sb.Append("\"max\":").Append(max).Append(",");
+                sb.Append("\"segments\":").Append(s)
+                  .Append(",\"words\":").Append(w).Append("}");
+                written++;
+            }
+            sb.Append("]");
         }
 
         private static void SumReportCategories(StringBuilder sb, XElement analyse, string jsonKey,
