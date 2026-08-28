@@ -7304,22 +7304,89 @@ namespace Supervertaler.Trados
         }
 
         /// <summary>
+        /// The open project's .sdlproj path, read from the active document itself.
+        ///
+        /// <para>NOT TermLensEditorViewPart.GetCurrentProjectPath() here. That
+        /// returns a path tracked by the OTHER view part's own
+        /// ActiveDocumentChanged handler, and handler order between two view
+        /// parts on the same event is not guaranteed - so when this one runs
+        /// first the tracked path is still the PREVIOUS project, and the bank
+        /// lagged one project behind on every switch. The document knows its own
+        /// project and cannot be stale.</para>
+        /// </summary>
+        private string CurrentProjectPathFromDocument()
+        {
+            try
+            {
+                var fbp = _activeDocument?.Project as Sdl.ProjectAutomation.FileBased.FileBasedProject;
+                var path = fbp?.FilePath;
+                if (!string.IsNullOrEmpty(path)) return path;
+            }
+            catch { }
+            // No document open: fall back to the tracked path, which is right
+            // whenever there is no switch in flight.
+            try { return TermLensEditorViewPart.GetCurrentProjectPath(); }
+            catch { return null; }
+        }
+
+        /// <summary>
         /// Record <paramref name="bankName"/> against the open Trados project.
         /// Silent when no project is open - there is nothing to key it to, and
         /// the global setting already holds it.
         /// </summary>
         private void RememberBankForProject(string bankName)
         {
+            RecordBankAgainst(CurrentProjectPathFromDocument(), bankName, null);
+        }
+
+        /// <summary>
+        /// Record <paramref name="bankName"/> against whichever project Studio
+        /// currently has selected.
+        ///
+        /// <para>Static and internal because the active bank can be changed from
+        /// THREE places - the SuperMemory toolbar dropdown, the Library tab's
+        /// "Set as active", and creating a bank - and every one of them has to
+        /// record, or the choice is silently forgotten the next time the project
+        /// is opened. Only the dropdown did, which is why no project on the
+        /// author's machine had a bank recorded a full day after the feature
+        /// shipped.</para>
+        /// </summary>
+        internal static void RememberBankForCurrentProject(string bankName)
+        {
+            FileBasedProject project = null;
+            try { project = SdlTradosStudio.Application?.GetController<ProjectsController>()?.CurrentProject; }
+            catch { }
+
+            string path = null;
+            string name = null;
+            try { path = project?.FilePath; } catch { }
+            try { name = project?.GetProjectInfo()?.Name; } catch { }
+
+            if (string.IsNullOrEmpty(path))
+            {
+                try { path = TermLensEditorViewPart.GetCurrentProjectPath(); } catch { }
+            }
+            RecordBankAgainst(path, bankName, name);
+        }
+
+        private static void RecordBankAgainst(string projectPath, string bankName, string projectName)
+        {
             try
             {
-                var projectPath = TermLensEditorViewPart.GetCurrentProjectPath();
                 if (string.IsNullOrEmpty(projectPath)) return;
 
                 var ps = Settings.ProjectSettings.Load(projectPath) ?? new Settings.ProjectSettings();
                 ps.MemoryBankName = bankName ?? "";
                 if (string.IsNullOrEmpty(ps.ProjectPath)) ps.ProjectPath = projectPath;
                 if (string.IsNullOrEmpty(ps.ProjectName))
-                    ps.ProjectName = TermLensEditorViewPart.GetCurrentProjectName() ?? "";
+                {
+                    if (string.IsNullOrEmpty(projectName))
+                    {
+                        try { projectName = TermLensEditorViewPart.GetCurrentProjectName(); }
+                        catch { }
+                    }
+                    ps.ProjectName = projectName ?? "";
+                }
                 Settings.ProjectSettings.Save(projectPath, ps);
             }
             catch { /* a project we cannot record against still works this session */ }
@@ -7340,7 +7407,7 @@ namespace Supervertaler.Trados
         {
             try
             {
-                var projectPath = TermLensEditorViewPart.GetCurrentProjectPath();
+                var projectPath = CurrentProjectPathFromDocument();
                 if (string.IsNullOrEmpty(projectPath)) return;
                 if (string.Equals(projectPath, _bankProjectPath, StringComparison.OrdinalIgnoreCase))
                     return;                      // same project, nothing to do

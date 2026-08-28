@@ -2423,6 +2423,11 @@ namespace Supervertaler.Trados.Controls
                 s.AiSettings.ActiveMemoryBankName = bank.BankName;
             });
 
+            // Against the project as well, or opening this job again picks
+            // whatever bank was last used anywhere - which for a bank chosen HERE
+            // used to mean the choice never survived a project switch at all.
+            AiAssistantViewPart.RememberBankForCurrentProject(bank.BankName);
+
             RefreshTree();
         }
 
@@ -2466,6 +2471,11 @@ namespace Supervertaler.Trados.Controls
             var wasActive = string.Equals(
                 SettingsService.Current?.AiSettings?.ActiveMemoryBankName, bank.BankName,
                 StringComparison.OrdinalIgnoreCase);
+
+            // Projects record a bank by NAME too, and a project naming the old
+            // one now names nothing. Runs for every rename, not just the active
+            // bank's: a project can name a bank that is not currently active.
+            Settings.ProjectSettings.RenameMemoryBankEverywhere(bank.BankName, sanitised);
 
             if (wasActive)
             {

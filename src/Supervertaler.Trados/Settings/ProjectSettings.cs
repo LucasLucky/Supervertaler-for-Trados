@@ -227,6 +227,52 @@ namespace Supervertaler.Trados.Settings
         }
 
         /// <summary>
+        /// Point every project that records <paramref name="oldName"/> at
+        /// <paramref name="newName"/>, after that memory bank has been renamed.
+        /// </summary>
+        /// <remarks>
+        /// A project records its bank by NAME, and the reader treats a missing
+        /// bank as an empty one - so without this, renaming a bank leaves every
+        /// project that used it contributing nothing to any prompt, with nothing
+        /// on screen saying so. Same reasoning as carrying the rename across
+        /// AiSettings.ActiveMemoryBankName, applied to the other place a bank
+        /// name is stored.
+        /// </remarks>
+        public static void RenameMemoryBankEverywhere(string oldName, string newName)
+        {
+            if (string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName)) return;
+            if (string.Equals(oldName, newName, StringComparison.OrdinalIgnoreCase)) return;
+
+            try
+            {
+                if (!Directory.Exists(ProjectsDir)) return;
+
+                foreach (var file in Directory.GetFiles(ProjectsDir, "*.json"))
+                {
+                    try
+                    {
+                        ProjectSettings ps;
+                        var json = File.ReadAllText(file, Encoding.UTF8);
+                        using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(json)))
+                        {
+                            var serializer = new DataContractJsonSerializer(typeof(ProjectSettings));
+                            ps = (ProjectSettings)serializer.ReadObject(stream);
+                        }
+
+                        if (ps == null || string.IsNullOrEmpty(ps.ProjectPath)) continue;
+                        if (!string.Equals(ps.MemoryBankName, oldName, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        ps.MemoryBankName = newName;
+                        Save(ps.ProjectPath, ps);
+                    }
+                    catch { /* one unreadable file must not stop the rest */ }
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>
         /// Checks whether project-specific settings exist for the given project.
         /// </summary>
         public static bool HasProjectSettings(string projectFilePath)

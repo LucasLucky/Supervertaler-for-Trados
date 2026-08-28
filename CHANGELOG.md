@@ -28,6 +28,7 @@
 ### Fixed (the memory bank follows the project now)
 
 - **Your active memory bank no longer follows you from one project into the next.** It was remembered per installation rather than per project, so opening a different client's job left you pointed at the previous client's bank – and because the bank feeds every prompt, that quietly supplied the wrong terminology and style to every request with nothing on screen to say so. The bank is now remembered per Trados project: choose one and it sticks to that job. A project with no bank recorded now uses **none**, and says so, rather than inheriting whichever one you had open last – no bank is better than another client's bank.
+- **And it now actually sticks.** Three things stood between the setting and the behaviour, each silent on its own. The bank was realigned from one panel while the project it aligned to was tracked by *another*, on the same event with no ordering between them — so the bank lagged exactly one project behind on every switch. Only the SuperMemory dropdown recorded your choice: pick a bank from the Library tab's **Set as active** and it was forgotten the moment the project changed. And renaming a bank left every project still naming the old one, which resolves to no bank at all. The project is now read from the document itself, all three ways of choosing a bank record it, and a rename carries every project with it.
 
 ### Fixed (figure labels, and how the reports read)
 

@@ -93,14 +93,64 @@ echo ""
 python "$SCRIPT_DIR/tools/check_mcp_docs.py" || exit 1
 echo ""
 
-# Abort if Trados Studio is running — it locks plugin files and prevents
-# a clean extraction on next start, leaving the plugin in a broken state.
-if tasklist.exe 2>/dev/null | grep -qi "SDLTradosStudio\|TradosStudio"; then
-    echo ""
-    echo "  ERROR: Trados Studio is currently running."
-    echo "  Close Trados Studio completely, then run this script again."
-    exit 1
-fi
+# A running Studio must not be deployed over: wiping its Unpacked folder pulls
+# the DLLs out from under a loaded plugin. But the two Studios live in entirely
+# separate trees, so a running 2026 is no reason to refuse 2024 - and a blanket
+# abort costs a working translator their session every time the other build is
+# touched.
+#
+# Which Studio is running cannot be read off the process list: Get-Process
+# reports SDLTradosStudio with an empty Path. So each version is PROBED instead,
+# and both helpers below are non-destructive by construction.
+#
+# That property is the point. An earlier attempt probed by opening the package
+# for writing, passed, and then truncated a live 2026 install to 838 bytes when
+# the copy failed halfway.
+SKIPPED=""
+
+# Can this version be deployed? Renaming its Unpacked folder aside is the test:
+# Windows will not rename a directory holding DLLs a process has loaded, so a
+# running Studio fails here having lost nothing. Success both proves that Studio
+# is closed AND performs the wipe we wanted anyway - Studio re-extracts from the
+# package on next start.
+claim_unpacked() {
+    local unpacked="$1"
+    local label="$2"
+    [ -d "$unpacked" ] || return 0          # nothing installed yet: free to deploy
+    local aside="$unpacked.replacing.$$"
+    if ! mv "$unpacked" "$aside" 2>/dev/null; then
+        echo ""
+        echo "  SKIPPING $label: it is running (its plugin files are in use)."
+        echo "  Its install is untouched. Close it and re-run to update that build."
+        SKIPPED="$SKIPPED
+    - $label"
+        return 1
+    fi
+    rm -rf "$aside"
+    return 0
+}
+
+# Install without ever writing over the live package: copy to a temp name in the
+# same folder, then rename into place. A rename either replaces the file whole or
+# fails leaving the original intact - a half-written package is not a state this
+# can reach. The hash check is belt-and-braces for the failure we already had.
+install_package() {
+    local src="$1"
+    local dst="$2"
+    local tmp="$dst.incoming.$$"
+    mkdir -p "$(dirname "$dst")"
+    rm -f "$tmp"
+    if ! cp "$src" "$tmp" || ! mv -f "$tmp" "$dst"; then
+        rm -f "$tmp"
+        echo "  ERROR: could not install $dst - left as it was."
+        return 1
+    fi
+    if [ "$(sha256sum < "$src" | cut -d' ' -f1)" != "$(sha256sum < "$dst" | cut -d' ' -f1)" ]; then
+        echo "  ERROR: $dst does not match the build it came from."
+        return 1
+    fi
+    return 0
+}
 
 # ============================================================================
 #  Studio 18 build (Trados Studio 2024)
@@ -135,11 +185,9 @@ if [ -d "$STUDIO18_INSTALL" ]; then
 
     echo "=== [Studio18] Deploying to Trados Studio 2024 ==="
 
-    # Wipe the Unpacked folder so Trados re-extracts cleanly on next start.
-    if [ -d "$UNPACKED_DIR_18" ]; then
-        echo "  Removing stale Unpacked/Supervertaler for Trados..."
-        rm -rf "$UNPACKED_DIR_18"
-    fi
+    # Claims (and thereby wipes) the Unpacked folder so Trados re-extracts
+    # cleanly on next start - or leaves this whole block unrun, changing nothing.
+    if claim_unpacked "$UNPACKED_DIR_18" "Trados Studio 2024"; then
     if [ -d "$OLD_UNPACKED_DIR_18" ]; then
         echo "  Removing old Unpacked/TermLens..."
         rm -rf "$OLD_UNPACKED_DIR_18"
@@ -169,9 +217,9 @@ if [ -d "$STUDIO18_INSTALL" ]; then
         rm -rf "$OLD_DOTTED_UNPACKED_18"
     fi
 
-    mkdir -p "$PACKAGES_DIR_18"
-    cp "$DIST_DIR/$PLUGIN_FILENAME_18" "$PACKAGES_DIR_18/$PLUGIN_FILENAME_18"
-    echo "  Installed: $PACKAGES_DIR_18/$PLUGIN_FILENAME_18"
+    install_package "$DIST_DIR/$PLUGIN_FILENAME_18" "$PACKAGES_DIR_18/$PLUGIN_FILENAME_18" \
+        && echo "  Installed: $PACKAGES_DIR_18/$PLUGIN_FILENAME_18"
+    fi
     echo ""
 else
     echo "  [Studio18] Trados Studio 2024 not installed at $STUDIO18_INSTALL — skipping 18 build."
@@ -220,15 +268,12 @@ if [ -d "$STUDIO19_INSTALL" ]; then
         fi
     done
 
-    # Wipe the live Unpacked folder so Studio 2026 re-extracts cleanly on next start.
-    if [ -d "$UNPACKED_DIR_19" ]; then
-        echo "  Removing stale Unpacked/Supervertaler for Trados in Roaming\\19beta..."
-        rm -rf "$UNPACKED_DIR_19"
+    # Claims (and thereby wipes) the live Unpacked folder so Studio 2026
+    # re-extracts cleanly on next start - or bails out having changed nothing.
+    if claim_unpacked "$UNPACKED_DIR_19" "Trados Studio 2026"; then
+        install_package "$DIST_DIR/$PLUGIN_FILENAME_19" "$PACKAGES_DIR_19/$PLUGIN_FILENAME_19" \
+            && echo "  Installed: $PACKAGES_DIR_19/$PLUGIN_FILENAME_19"
     fi
-
-    mkdir -p "$PACKAGES_DIR_19"
-    cp "$DIST_DIR/$PLUGIN_FILENAME_19" "$PACKAGES_DIR_19/$PLUGIN_FILENAME_19"
-    echo "  Installed: $PACKAGES_DIR_19/$PLUGIN_FILENAME_19"
     echo ""
 else
     echo "  [Studio19] Trados Studio 2026 not installed at $STUDIO19_INSTALL — skipping 19 build."
@@ -244,6 +289,16 @@ if command -v python >/dev/null 2>&1; then
     echo "=== Producing GitHub-release zips in dist/ ==="
     python "$SCRIPT_DIR/tools/github_release.py" --zip-only
     echo ""
+fi
+
+if [ -n "$SKIPPED" ]; then
+    echo ""
+    echo "=== Built, but NOT installed for: ==="
+    echo "$SKIPPED"
+    echo ""
+    echo "  dist/ holds the new build for every version regardless, so the App Store"
+    echo "  staging in tools/appstore_release.py stays accurate. Only the local"
+    echo "  install of the version(s) above is one build behind."
 fi
 
 echo "=== Done — start Trados Studio to load the updated plugin(s) ==="
