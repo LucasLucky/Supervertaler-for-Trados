@@ -3008,18 +3008,28 @@ namespace Supervertaler.Trados
                         for (int w = cand.Item1; w < cand.Item1 + cand.Item2; w++)
                             if (consumed[w]) { overlaps = true; break; }
                         if (overlaps) continue;
+
+                        // Apply the termbases=[...] restriction BEFORE claiming the
+                        // span. Marking it consumed first let a longer entry from an
+                        // EXCLUDED termbase eat the words and silently suppress a
+                        // shorter entry from an included one - so narrowing a check
+                        // to one termbase could hide that termbase's own findings,
+                        // and report a clean result while doing it.
+                        var applicable = cand.Item3
+                            .Where(en => tbFilter == null
+                                         || tbFilter.Contains(en.TermbaseName ?? "")
+                                         || tbFilter.Contains(en.TermbaseId.ToString()))
+                            .ToList();
+                        if (applicable.Count == 0) continue;   // span stays available
+
                         for (int w = cand.Item1; w < cand.Item1 + cand.Item2; w++)
                             consumed[w] = true;
 
-                        foreach (var entry in cand.Item3)
+                        foreach (var entry in applicable)
                         {
                             if (entry.Forbidden) continue;
                             if (string.IsNullOrWhiteSpace(entry.TargetTerm)) continue;
                             if (reported.Contains(entry.SourceTerm)) continue;
-                            if (tbFilter != null
-                                && !tbFilter.Contains(entry.TermbaseName ?? "")
-                                && !tbFilter.Contains(entry.TermbaseId.ToString()))
-                                continue;
 
                             var expected = new List<string> { entry.TargetTerm };
                             if (entry.TargetSynonyms != null) expected.AddRange(entry.TargetSynonyms);

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Runtime.InteropServices;
@@ -19,6 +19,32 @@ namespace Supervertaler.Trados.Controls
         private TermbaseInfo _termbase;
         private long _termId;
         private bool _isInverted; // true when project direction is opposite to termbase direction
+
+        /// <summary>
+        /// One control's place within its language column, captured from the
+        /// design layout so a resize can reproduce it. See ClaimColumns().
+        /// </summary>
+        private sealed class ColumnBound
+        {
+            public Control Ctl;
+            public bool RightColumn;
+            public int Inset;         // gap from the column's left edge
+            public int TrailingGap;   // gap to the column's right edge
+            public bool Stretch;      // was anchored Left|Right within the column
+        }
+
+        private readonly System.Collections.Generic.List<ColumnBound> _columnBounds
+            = new System.Collections.Generic.List<ColumnBound>();
+
+        // Language labels above the term/synonym fields. Held rather than
+        // discarded because the multi-entry dialog can switch to a termbase whose
+        // direction differs from the one the UI was built for, and labels that
+        // keep describing the PREVIOUS termbase are worse than no labels: they
+        // invite the user to "correct" a perfectly good entry by swapping it.
+        private Label _lblSourceLang;
+        private Label _lblTargetLang;
+        private Label _lblSourceSyn;
+        private Label _lblTargetSyn;
 
         // Main fields
         private TextBox _txtSource;
@@ -395,14 +421,10 @@ namespace Supervertaler.Trados.Controls
             // === Source / Target terms (use actual language names when available) ===
             // When the project direction is inverted relative to the termbase, show labels in
             // project order (project source on the left, project target on the right).
-            var srcLangLabel = _isInverted
-                ? (!string.IsNullOrEmpty(termbase?.TargetLang) ? $"{LanguageUtils.ShortenLanguageName(termbase.TargetLang)}:" : "Source term:")
-                : (!string.IsNullOrEmpty(termbase?.SourceLang) ? $"{LanguageUtils.ShortenLanguageName(termbase.SourceLang)}:" : "Source term:");
-            var tgtLangLabel = _isInverted
-                ? (!string.IsNullOrEmpty(termbase?.SourceLang) ? $"{LanguageUtils.ShortenLanguageName(termbase.SourceLang)}:" : "Target term:")
-                : (!string.IsNullOrEmpty(termbase?.TargetLang) ? $"{LanguageUtils.ShortenLanguageName(termbase.TargetLang)}:" : "Target term:");
-            _contentPanel.Controls.Add(MakeLabel(srcLangLabel, leftX, y, labelColor));
-            _contentPanel.Controls.Add(MakeLabel(tgtLangLabel, rightX, y, labelColor));
+            _lblSourceLang = MakeLabel("", leftX, y, labelColor);
+            _lblTargetLang = MakeLabel("", rightX, y, labelColor);
+            _contentPanel.Controls.Add(_lblSourceLang);
+            _contentPanel.Controls.Add(_lblTargetLang);
             y += 18;
 
             _txtSource = new TextBox
@@ -505,14 +527,11 @@ namespace Supervertaler.Trados.Controls
             y += 14;
 
             // === Source / Target synonyms (use actual language names when available) ===
-            var srcSynLabel = _isInverted
-                ? (!string.IsNullOrEmpty(termbase?.TargetLang) ? $"{LanguageUtils.ShortenLanguageName(termbase.TargetLang)} synonyms:" : "Source synonyms:")
-                : (!string.IsNullOrEmpty(termbase?.SourceLang) ? $"{LanguageUtils.ShortenLanguageName(termbase.SourceLang)} synonyms:" : "Source synonyms:");
-            var tgtSynLabel = _isInverted
-                ? (!string.IsNullOrEmpty(termbase?.SourceLang) ? $"{LanguageUtils.ShortenLanguageName(termbase.SourceLang)} synonyms:" : "Target synonyms:")
-                : (!string.IsNullOrEmpty(termbase?.TargetLang) ? $"{LanguageUtils.ShortenLanguageName(termbase.TargetLang)} synonyms:" : "Target synonyms:");
-            _contentPanel.Controls.Add(MakeLabel(srcSynLabel, leftX, y, labelColor));
-            _contentPanel.Controls.Add(MakeLabel(tgtSynLabel, rightX, y, labelColor));
+            _lblSourceSyn = MakeLabel("", leftX, y, labelColor);
+            _lblTargetSyn = MakeLabel("", rightX, y, labelColor);
+            _contentPanel.Controls.Add(_lblSourceSyn);
+            _contentPanel.Controls.Add(_lblTargetSyn);
+            ApplyLanguageLabels(termbase);   // all four exist by now
             y += 18;
 
             _txtNewSourceSyn = new TextBox
@@ -767,10 +786,96 @@ namespace Supervertaler.Trados.Controls
                     _txtTarget.Text = _txtSource.Text;
             };
 
+            // Hand the two language columns to ClaimColumns before docking,
+            // while every control is still at the position it was built at.
+            ClaimColumns(leftX, rightX, colWidth);
+
             // === Add panels to form (last-added docks first) ===
             _contentPanel.Dock = DockStyle.Fill;
             Controls.Add(_contentPanel);
             Controls.Add(bottomPanel);
+        }
+
+        /// <summary>
+        /// Take over horizontal layout for the controls that live in one of the
+        /// two language columns, recording where each sits relative to its
+        /// column.
+        /// </summary>
+        /// <remarks>
+        /// Called once, at the end of BuildUI, while every control is still at
+        /// its design position. Full-width controls (the termbase switcher, the
+        /// separator, definition/notes and so on) are left to ordinary anchoring
+        /// - they span both columns and have nothing to stay aligned with.
+        /// </remarks>
+        private void ClaimColumns(int leftX, int rightX, int colWidth)
+        {
+            foreach (Control c in _contentPanel.Controls)
+            {
+                // Spans both columns: not ours.
+                if (c.Left <= leftX + 4 && c.Right >= rightX + 4) continue;
+
+                bool right = c.Left >= rightX - 4;
+                int colX = right ? rightX : leftX;
+                if (!right && c.Right > leftX + colWidth + 4) continue;   // overhangs
+
+                var anchor = c.Anchor;
+                bool hasLeft = (anchor & AnchorStyles.Left) != 0;
+                bool hasRight = (anchor & AnchorStyles.Right) != 0;
+
+                _columnBounds.Add(new ColumnBound
+                {
+                    Ctl = c,
+                    RightColumn = right,
+                    Inset = c.Left - colX,
+                    TrailingGap = colX + colWidth - c.Right,
+                    Stretch = hasLeft && hasRight
+                });
+
+                // Stop WinForms moving it: the column pass owns X and width now.
+                // Vertical anchoring is unaffected - nothing here anchors Bottom.
+                c.Anchor = AnchorStyles.Top | AnchorStyles.Left;
+            }
+
+            _contentPanel.SizeChanged += (s, e) => LayoutColumns();
+            LayoutColumns();
+        }
+
+        /// <summary>
+        /// Split the panel's width evenly between the two language columns and
+        /// re-seat every tracked control, honouring the anchor it was built with
+        /// but relative to its COLUMN rather than to the form.
+        /// </summary>
+        private void LayoutColumns()
+        {
+            if (_contentPanel == null || _columnBounds.Count == 0) return;
+
+            const int margin = 16;
+            const int gutter = 16;
+            int colWidth = (_contentPanel.ClientSize.Width - margin * 2 - gutter) / 2;
+            if (colWidth < 80) return;          // too narrow to lay out sensibly
+            int leftX = margin;
+            int rightX = leftX + colWidth + gutter;
+
+            foreach (var b in _columnBounds)
+            {
+                int colX = b.RightColumn ? rightX : leftX;
+                if (b.Stretch)
+                {
+                    b.Ctl.Left = colX + b.Inset;
+                    int w = colWidth - b.Inset - b.TrailingGap;
+                    if (w > 0) b.Ctl.Width = w;
+                }
+                else if (b.TrailingGap < b.Inset)
+                {
+                    // Was pinned to the column's right edge (the +, up, down and
+                    // remove buttons beside each synonym list).
+                    b.Ctl.Left = colX + colWidth - b.TrailingGap - b.Ctl.Width;
+                }
+                else
+                {
+                    b.Ctl.Left = colX + b.Inset;
+                }
+            }
         }
 
         // ─── Lifecycle ────────────────────────────────────────────────
@@ -921,6 +1026,11 @@ namespace Supervertaler.Trados.Controls
             _termbase = ed.Termbase;
             _termId = ed.Entry.Id;
             _isInverted = ed.IsInverted;
+
+            // The new termbase may declare the opposite direction, and the values
+            // below load in ITS direction - so the labels have to follow, or they
+            // describe the termbase we just left.
+            ApplyLanguageLabels(ed.Termbase);
 
             // Load fields
             _txtSource.Text = ed.Source;
@@ -1409,6 +1519,35 @@ namespace Supervertaler.Trados.Controls
 
             // Resize the dialog
             Height += delta;
+        }
+
+        /// <summary>
+        /// Title the four language labels for <paramref name="termbase"/>.
+        ///
+        /// <para>Called both when the UI is built and whenever the multi-entry
+        /// dialog switches termbase, because the two can declare opposite
+        /// directions - and the fields are always shown in the CURRENT
+        /// termbase's direction.</para>
+        /// </summary>
+        private void ApplyLanguageLabels(TermbaseInfo termbase)
+        {
+            string Side(string lang, string fallback, string suffix)
+            {
+                return string.IsNullOrEmpty(lang)
+                    ? fallback
+                    : LanguageUtils.ShortenLanguageName(lang) + suffix;
+            }
+
+            // _isInverted is false in every current path (the dialog works in
+            // termbase direction throughout), but the branch is kept so the
+            // labels stay correct if that ever changes.
+            var left = _isInverted ? termbase?.TargetLang : termbase?.SourceLang;
+            var right = _isInverted ? termbase?.SourceLang : termbase?.TargetLang;
+
+            if (_lblSourceLang != null) _lblSourceLang.Text = Side(left, "Source term:", ":");
+            if (_lblTargetLang != null) _lblTargetLang.Text = Side(right, "Target term:", ":");
+            if (_lblSourceSyn != null) _lblSourceSyn.Text = Side(left, "Source synonyms:", " synonyms:");
+            if (_lblTargetSyn != null) _lblTargetSyn.Text = Side(right, "Target synonyms:", " synonyms:");
         }
 
         private static Label MakeLabel(string text, int x, int y, Color color)

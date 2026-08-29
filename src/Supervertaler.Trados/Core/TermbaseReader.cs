@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -1781,7 +1781,12 @@ namespace Supervertaler.Trados.Core
                         target_abbreviation = @tgtAbbr,
                         url         = @url,
                         client      = @client,
-                        project     = @project
+                        project     = @project,
+                        -- Without this an edited entry keeps reporting the date it
+                        -- was created: a term whose note was rewritten today read as
+                        -- untouched since June, which is exactly backwards when the
+                        -- date is being used to work out what recently changed.
+                        modified_date = @modified
                     WHERE id = @id";
 
                 using (var cmd = new SqliteCommand(sql, conn))
@@ -1798,6 +1803,9 @@ namespace Supervertaler.Trados.Core
                     cmd.Parameters.AddWithValue("@url", url ?? "");
                     cmd.Parameters.AddWithValue("@client", client ?? "");
                     cmd.Parameters.AddWithValue("@project", project ?? "");
+                    // Same format the insert path writes, so the two are comparable.
+                    cmd.Parameters.AddWithValue("@modified",
+                        DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                     cmd.Parameters.AddWithValue("@id", termId);
 
                     return cmd.ExecuteNonQuery() > 0;
