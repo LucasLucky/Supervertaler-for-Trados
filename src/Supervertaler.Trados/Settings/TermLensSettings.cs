@@ -703,23 +703,23 @@ namespace Supervertaler.Trados.Settings
         /// ProjectSettings object suitable for saving.
         /// </summary>
         /// <summary>
-        /// Reads back the reference-images folder already stored for this
-        /// project, so an unrelated settings save cannot discard it.
-        /// Returns empty when there is nothing to preserve.
+        /// Reads back what is already stored for this project, so that the
+        /// fields belonging to the JOB rather than to the installation can be
+        /// carried forward instead of rebuilt. Null when there is nothing yet.
         /// </summary>
-        private static string LoadExistingReferenceImagesFolder(string projectPath)
+        private static ProjectSettings LoadExistingProjectSettings(string projectPath)
         {
-            if (string.IsNullOrEmpty(projectPath)) return "";
-            try
-            {
-                var existing = ProjectSettings.Load(projectPath);
-                return existing?.ReferenceImagesFolder ?? "";
-            }
-            catch { return ""; }
+            if (string.IsNullOrEmpty(projectPath)) return null;
+            try { return ProjectSettings.Load(projectPath); }
+            catch { return null; }
         }
 
         public ProjectSettings ExtractProjectSettings(string projectPath = null, string projectName = null)
         {
+            // Read once, carry the per-job fields across. See the note on them
+            // below: everything NOT listed there is blanked by every save.
+            var existing = LoadExistingProjectSettings(projectPath);
+
             return new ProjectSettings
             {
                 ProjectPath = projectPath ?? "",
@@ -741,14 +741,24 @@ namespace Supervertaler.Trados.Settings
                 AiTermbaseIdsInitialized = true,
                 ActivePromptPath = AiSettings?.SelectedPromptPath ?? "",
 
-                // Carried forward, not derived. Every other field here mirrors a
-                // global setting, so rebuilding them from memory is right. The
-                // reference-images folder has no global counterpart — it belongs
-                // to the job — and Save() writes the whole object, so omitting it
-                // would silently blank the user's choice each time they opened
-                // Settings and pressed OK. The same lost-update shape the
-                // SettingsService work removed, one level down.
-                ReferenceImagesFolder = LoadExistingReferenceImagesFolder(projectPath),
+                // Carried forward, not derived — and every per-job field added
+                // here in future must be too.
+                //
+                // Every other field above mirrors a global setting, so rebuilding
+                // it from memory is right. These two have no global counterpart:
+                // they belong to the JOB. Save() writes the whole object, so a
+                // per-job field omitted here is not left alone, it is BLANKED —
+                // by any unrelated save, silently, with the file's timestamp
+                // updating as if all were well.
+                //
+                // Both have now been caught by this. ReferenceImagesFolder was
+                // blanked whenever the user opened Settings and pressed OK.
+                // MemoryBankName was blanked on every project switch, because
+                // SaveCurrentProjectSettings() runs there — so choosing a bank
+                // for a project and then leaving that project erased the choice
+                // between the two actions.
+                ReferenceImagesFolder = existing?.ReferenceImagesFolder ?? "",
+                MemoryBankName = existing?.MemoryBankName ?? "",
             };
         }
 
