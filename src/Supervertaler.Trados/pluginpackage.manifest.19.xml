@@ -4,7 +4,7 @@
   <Version>19.20.185.0</Version>
   <Description>Terminology display and AI translation for Trados Studio by Supervertaler.</Description>
   <Author>Michael Beijer</Author>
-  <RequiredProduct name="TradosStudio" minversion="19.0" maxversion="19.0.9" />
+  <RequiredProduct name="TradosStudio" minversion="19.0" maxversion="19.9" />
   <Include>
     <File>Microsoft.Data.Sqlite.dll</File>
     <File>SQLitePCLRaw.core.dll</File>
