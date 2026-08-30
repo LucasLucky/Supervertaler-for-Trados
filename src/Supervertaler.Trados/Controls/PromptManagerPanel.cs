@@ -2163,7 +2163,7 @@ namespace Supervertaler.Trados.Controls
             var namePattern = new System.Text.RegularExpressions.Regex(
                 @"^name:\s*""[^""]*""", System.Text.RegularExpressions.RegexOptions.Multiline);
             cloneContent = namePattern.Replace(cloneContent,
-                $"name: \"{Core.PromptLibrary.EscapeYaml(cloneName)}\"", 1);
+                $"name: \"{PromptLibrary.EscapeYaml(cloneName)}\"", 1);
 
             System.IO.File.WriteAllText(clonePath, cloneContent);
             _library.Refresh();

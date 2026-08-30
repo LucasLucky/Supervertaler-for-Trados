@@ -141,7 +141,7 @@ namespace Supervertaler.Trados
                 // Was: another fresh TermLensSettings.Load(). Same fault as the
                 // About box — a private copy whose save reverted both panels,
                 // and no refresh afterwards.
-                Settings.SettingsDialog.Show(null, new Core.PromptLibrary(), defaultTab: 3);
+                Settings.SettingsDialog.Show(null, new PromptLibrary(), defaultTab: 3);
             };
             menu.Items.Add(header);
             menu.Items.Add(new ToolStripSeparator());

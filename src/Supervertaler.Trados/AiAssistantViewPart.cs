@@ -12221,7 +12221,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         /// Trados document model (same mechanism as batch translate).
         /// Returns a message describing what happened (for status display).
         /// </summary>
-        public static string RunTextTransform(Models.PromptTemplate transform)
+        public static string RunTextTransform(PromptTemplate transform)
         {
             if (transform == null || transform.Replacements.Count == 0)
                 return "No replacements defined.";

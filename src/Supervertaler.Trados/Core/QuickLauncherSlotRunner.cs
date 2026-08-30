@@ -13,7 +13,7 @@ namespace Supervertaler.Trados
     /// </summary>
     public static class QuickLauncherSlotRunner
     {
-        private static readonly Core.PromptLibrary _library = new Core.PromptLibrary();
+        private static readonly PromptLibrary _library = new PromptLibrary();
 
         /// <summary>
         /// Returns the slot number (1–10) assigned to a prompt, or 0 if none.
@@ -56,7 +56,7 @@ namespace Supervertaler.Trados
             var aiSettings = settings?.AiSettings;
 
             // Look up slot mapping in settings
-            Models.PromptTemplate prompt = null;
+            PromptTemplate prompt = null;
             var slotKey = slot.ToString();
             if (aiSettings?.QuickLauncherSlots != null &&
                 aiSettings.QuickLauncherSlots.ContainsKey(slotKey))
@@ -161,11 +161,11 @@ namespace Supervertaler.Trados
                 : null;
 
             var tmMatchesText = content.Contains("{{TM_MATCHES}}")
-                ? Core.PromptLibrary.FormatTmMatches(
+                ? PromptLibrary.FormatTmMatches(
                     Core.DocumentContextHelper.GetTmMatches(doc), 70)
                 : null;
 
-            var expanded = Core.PromptLibrary.ApplyVariables(
+            var expanded = PromptLibrary.ApplyVariables(
                 content,
                 sourceLang, targetLang,
                 sourceText, targetText, selection,
@@ -181,7 +181,7 @@ namespace Supervertaler.Trados
                     if (line.TrimStart().StartsWith("[")) segCount++;
 
                 var placeholder = $"[source document \u2014 {segCount} segment{(segCount == 1 ? "" : "s")}]";
-                displayExpanded = Core.PromptLibrary.ApplyVariables(
+                displayExpanded = PromptLibrary.ApplyVariables(
                     content,
                     sourceLang, targetLang,
                     sourceText, targetText, selection,

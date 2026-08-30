@@ -38,7 +38,7 @@ namespace Supervertaler.Trados.Settings
         /// panel had changed since that copy was loaded. A property rather than
         /// a field because <c>Reload()</c> replaces the instance.</para></summary>
         private TermLensSettings _settings => SettingsService.Current;
-        private readonly Core.PromptLibrary _promptLibrary;
+        private readonly PromptLibrary _promptLibrary;
 
         // Tab control
         private TabControl _tabControl;
@@ -96,10 +96,10 @@ namespace Supervertaler.Trados.Settings
         /// directly — it is the single entry point every gear icon goes
         /// through, and it owns the refresh that has to follow a save.
         /// </summary>
-        public TermLensSettingsForm(Core.PromptLibrary promptLibrary = null, int defaultTab = 0)
+        public TermLensSettingsForm(PromptLibrary promptLibrary = null, int defaultTab = 0)
         {
             Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
-            _promptLibrary = promptLibrary ?? new Core.PromptLibrary();
+            _promptLibrary = promptLibrary ?? new PromptLibrary();
             _projectSourceLanguage = TermLensEditorViewPart.GetCurrentProjectSourceLanguage();
             BuildUI();
             PopulateFromSettings();

@@ -67,10 +67,10 @@ namespace Supervertaler.Trados.Settings
         // ── Shared directories ───────────────────────────────────────
 
         /// <summary>Prompt .md files shared between Workbench and the Trados plugin.</summary>
-        public static string PromptLibraryDir => Path.Combine(Root, "prompt_library");
+        public static string PromptLibraryDir => SupervertalerPaths.PromptLibraryDir;
 
         /// <summary>Shared resources folder (supervertaler.db lives here).</summary>
-        public static string ResourcesDir => Path.Combine(Root, "resources");
+        public static string ResourcesDir => SupervertalerPaths.ResourcesDir;
 
         /// <summary>
         /// Per-product runtime state for the Trados plugin (bridge handshake
