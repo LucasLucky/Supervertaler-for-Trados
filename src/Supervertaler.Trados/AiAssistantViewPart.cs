@@ -4486,6 +4486,16 @@ namespace Supervertaler.Trados
         /// The response echoes exactly what changed, so the chat transcript
         /// doubles as the audit log. Marshals to the UI thread.
         /// </summary>
+        /// <summary>
+        /// One side of a term pair compared the way the termbase stores it:
+        /// trimmed and case-insensitive. Kept as a method so both orientations
+        /// are tested by identical rules.
+        /// </summary>
+        private static bool TermSideEquals(string stored, string given)
+        {
+            return string.Equals((stored ?? "").Trim(), given, StringComparison.OrdinalIgnoreCase);
+        }
+
         private BridgeEditTermResponse BridgeEditTerm(BridgeEditTermRequest req, bool delete)
         {
             var ctrl = _control?.Value;
@@ -4537,17 +4547,28 @@ namespace Supervertaler.Trados
 
                 // Resolve the entry: exact current source+target (case-insensitive),
                 // optionally restricted to one termbase by name.
-                List<Models.TermEntry> matches;
+                // Item2 records that the pair was given the OTHER way round from
+                // how this termbase stores it. Tracked per match because a single
+                // call can reach several termbases that declare opposite
+                // directions - and the rename below has to swap for exactly those.
+                List<Tuple<Models.TermEntry, bool>> matches;
                 using (var reader = new TermbaseReader(settings.TermbasePath))
                 {
                     if (!reader.Open())
                         return new BridgeEditTermResponse { Ok = false, Error = "could not open Supervertaler database" };
+                    // SearchTerm already looks in both columns, so one query finds
+                    // the entry whichever way round the caller named it.
                     matches = (reader.SearchTerm(source) ?? new List<Models.TermEntry>())
                         .Where(e => e != null
-                            && string.Equals((e.SourceTerm ?? "").Trim(), source, StringComparison.OrdinalIgnoreCase)
-                            && string.Equals((e.TargetTerm ?? "").Trim(), target, StringComparison.OrdinalIgnoreCase)
                             && (tbFilter == null
                                 || (e.TermbaseName ?? "").IndexOf(tbFilter, StringComparison.OrdinalIgnoreCase) >= 0))
+                        .Select(e =>
+                            TermSideEquals(e.SourceTerm, source) && TermSideEquals(e.TargetTerm, target)
+                                ? Tuple.Create(e, false)
+                                : TermSideEquals(e.SourceTerm, target) && TermSideEquals(e.TargetTerm, source)
+                                    ? Tuple.Create(e, true)
+                                    : null)
+                        .Where(m => m != null)
                         .ToList();
                 }
 
@@ -4557,13 +4578,14 @@ namespace Supervertaler.Trados
                         Ok = false,
                         Error = $"no entry “{source} → {target}” found" +
                                 (tbFilter != null ? $" in a termbase matching “{tbFilter}”" : "") +
-                                " – the pair must match the stored entry exactly; use lookup_term to see the stored form"
+                                " – both terms must match a stored entry exactly (either way round); " +
+                                "use lookup_term to see the stored form"
                     };
 
-                var editable = matches.Where(e => writeIds.Contains(e.TermbaseId)).ToList();
+                var editable = matches.Where(m => writeIds.Contains(m.Item1.TermbaseId)).ToList();
                 if (editable.Count == 0)
                 {
-                    var where = string.Join(", ", matches.Select(e => e.TermbaseName).Distinct());
+                    var where = string.Join(", ", matches.Select(m => m.Item1.TermbaseName).Distinct());
                     return new BridgeEditTermResponse
                     {
                         Ok = false,
@@ -4574,8 +4596,19 @@ namespace Supervertaler.Trados
                 }
 
                 var details = new List<string>();
-                foreach (var e in editable)
+                foreach (var match in editable)
                 {
+                    var e = match.Item1;
+
+                    // The new terms arrive in the orientation the CALLER used to
+                    // name the entry. Where that was the reverse of this
+                    // termbase's, they have to go back the other way before being
+                    // written - accepting a reversed pair and then storing a
+                    // rename as given would flip the entry, which is the exact
+                    // corruption the strict match used to rule out.
+                    var wantSource = match.Item2 ? newTarget : newSource;
+                    var wantTarget = match.Item2 ? newSource : newTarget;
+
                     if (delete)
                     {
                         if (!TermbaseReader.DeleteTerm(settings.TermbasePath, e.Id)) continue;
@@ -4584,8 +4617,8 @@ namespace Supervertaler.Trados
                     }
                     else
                     {
-                        var s = newSource ?? e.SourceTerm;
-                        var t = newTarget ?? e.TargetTerm;
+                        var s = wantSource ?? e.SourceTerm;
+                        var t = wantTarget ?? e.TargetTerm;
                         var definition = newDefinition ?? e.Definition ?? "";
                         var domain = newDomain ?? e.Domain ?? "";
                         var notes = newNotes ?? e.Notes ?? "";
@@ -4625,6 +4658,10 @@ namespace Supervertaler.Trados
                         var changeParts = new List<string>();
                         if (s != e.SourceTerm || t != e.TargetTerm)
                             changeParts.Add($"“{e.SourceTerm} → {e.TargetTerm}” is now “{s} → {t}”");
+                        if (match.Item2)
+                            changeParts.Add("matched in the termbase's own direction (" +
+                                            (e.SourceLang ?? "?") + " " + "\u2192" + " " + (e.TargetLang ?? "?") +
+                                            "), the reverse of how you named it");
                         if (newNotes != null) changeParts.Add("notes updated");
                         if (newDefinition != null) changeParts.Add("definition updated");
                         if (newDomain != null) changeParts.Add("domain updated");
@@ -4634,7 +4671,7 @@ namespace Supervertaler.Trados
 
                 var skippedNote = matches.Count > editable.Count
                     ? $" ({matches.Count - editable.Count} match(es) in non-Write termbases were left untouched: " +
-                      string.Join(", ", matches.Where(e => !writeIds.Contains(e.TermbaseId)).Select(e => e.TermbaseName).Distinct()) + ")"
+                      string.Join(", ", matches.Where(m => !writeIds.Contains(m.Item1.TermbaseId)).Select(m => m.Item1.TermbaseName).Distinct()) + ")"
                     : "";
 
                 return new BridgeEditTermResponse
