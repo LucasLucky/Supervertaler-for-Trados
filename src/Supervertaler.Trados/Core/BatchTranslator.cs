@@ -285,7 +285,7 @@ namespace Supervertaler.Trados.Core
                         // automatic caching at the provider layer; other providers ignore the flag.
                         var response = await client.SendPromptAsync(
                             userPrompt, systemPrompt, maxTokens, cancellationToken,
-                            feature: Models.PromptLogFeature.BatchTranslate,
+                            feature: PromptLogFeature.BatchTranslate,
                             suppressLog: true,
                             enablePromptCaching: true);
 
@@ -426,7 +426,7 @@ namespace Supervertaler.Trados.Core
                                 var rUserPrompt = TranslationPrompt.BuildBatchUserPrompt(ps);
                                 var rResponse = await client.SendPromptAsync(
                                     rUserPrompt, systemPrompt, maxTokens, cancellationToken,
-                                    feature: Models.PromptLogFeature.BatchTranslate,
+                                    feature: PromptLogFeature.BatchTranslate,
                                     suppressLog: true, enablePromptCaching: true);
 
                                 aggInputTokens += TokenEstimator.EstimateInputTokens(rUserPrompt, systemPrompt);

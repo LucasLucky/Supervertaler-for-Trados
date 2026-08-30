@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "site-preview",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8901", "--directory", "D:/Google Drive/Dev/Sv/Supervertaler/docs"],
+      "port": 8901
+    }
+  ]
+}

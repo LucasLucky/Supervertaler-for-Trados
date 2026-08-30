@@ -50,18 +50,13 @@ namespace Supervertaler.Trados.Settings
 
         /// <summary>
         /// Root of the shared Supervertaler user-data folder.
-        /// Reads from %APPDATA%\Supervertaler\config.json when available;
-        /// falls back to ~/Supervertaler/.
+        ///
+        /// Delegates to Supervertaler.Core rather than resolving it here: the
+        /// memoQ plugin needs the same answer, and two implementations of "where
+        /// does this user keep their data" is exactly the pair that would
+        /// eventually disagree.
         /// </summary>
-        public static string Root
-        {
-            get
-            {
-                if (_root == null)
-                    _root = ResolveRoot();
-                return _root;
-            }
-        }
+        public static string Root => SupervertalerPaths.Root;
 
         /// <summary>
         /// True when no config.json pointer exists yet (first run, no folder chosen).
@@ -1153,6 +1148,7 @@ namespace Supervertaler.Trados.Settings
         public static void SetRoot(string path)
         {
             _root = path;
+            SupervertalerPaths.Set(path);
             WriteConfigJson(path);
         }
 

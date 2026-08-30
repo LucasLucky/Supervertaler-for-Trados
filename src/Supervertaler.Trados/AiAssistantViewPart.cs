@@ -775,7 +775,7 @@ namespace Supervertaler.Trados
 
             // Cost guard: warn if estimated cost exceeds $0.50
             var estimatedTokens = promptCharCount / 4; // rough: 1 token ≈ 4 chars
-            var estimatedCost = Core.TokenEstimator.EstimateInputCost(capturedModel, estimatedTokens);
+            var estimatedCost = TokenEstimator.EstimateInputCost(capturedModel, estimatedTokens);
             if (estimatedCost > 0.50m)
             {
                 var costStr = estimatedCost.ToString("F2");
@@ -8887,18 +8887,18 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         private void LogOffloadUsage(string provider, string model, long inputTokens, long outputTokens, int segs)
         {
             var modelInfo = LlmModels.FindModel(model);
-            var entry = new Models.PromptLogEntry
+            var entry = new PromptLogEntry
             {
                 Timestamp = DateTime.Now,
-                Feature = Models.PromptLogFeature.BatchTranslate,
+                Feature = PromptLogFeature.BatchTranslate,
                 PromptName = "via Workbench · " + segs + " segments",
                 Provider = provider,
                 Model = model,
                 DisplayModel = modelInfo?.DisplayName ?? model,
                 ActualRegularInputTokens = (int)inputTokens,
                 ActualOutputTokens = (int)outputTokens,
-                ActualCost = Core.TokenEstimator.ComputeActualCost(model, (int)inputTokens, 0, 0, (int)outputTokens),
-                IsCostKnown = Core.TokenEstimator.HasPricing(model),
+                ActualCost = TokenEstimator.ComputeActualCost(model, (int)inputTokens, 0, 0, (int)outputTokens),
+                IsCostKnown = TokenEstimator.HasPricing(model),
             };
             LlmClient.FirePromptCompleted(entry);
         }

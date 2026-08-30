@@ -448,33 +448,9 @@ namespace Supervertaler.Trados.Settings
         }
     }
 
-    [DataContract]
-    public class AiApiKeys
-    {
-        [DataMember(Name = "openai")]
-        public string OpenAi { get; set; } = "";
-
-        [DataMember(Name = "claude")]
-        public string Claude { get; set; } = "";
-
-        [DataMember(Name = "gemini")]
-        public string Gemini { get; set; } = "";
-
-        [DataMember(Name = "grok")]
-        public string Grok { get; set; } = "";
-
-        [DataMember(Name = "mistral")]
-        public string Mistral { get; set; } = "";
-
-        [DataMember(Name = "deepseek")]
-        public string DeepSeek { get; set; } = "";
-
-        [DataMember(Name = "openrouter")]
-        public string OpenRouter { get; set; } = "";
-
-        [DataMember(Name = "custom_openai")]
-        public string CustomOpenAi { get; set; } = "";
-    }
+    // AiApiKeys moved to Supervertaler.Core (core/src/AiApiKeys.cs) — LlmClient
+    // needs it and so does the memoQ plugin. Available here through the global
+    // using in GlobalUsings.cs.
 
     [DataContract]
     public class CustomOpenAiProfile

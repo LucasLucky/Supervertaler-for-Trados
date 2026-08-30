@@ -150,7 +150,7 @@ namespace Supervertaler.Trados.Core
                         // OpenAI/DeepSeek/Gemini 2.5+ benefit from implicit automatic caching.
                         var response = await client.SendPromptAsync(
                             userPrompt, systemPrompt, maxTokens, cancellationToken,
-                            feature: Models.PromptLogFeature.Proofread,
+                            feature: PromptLogFeature.Proofread,
                             enablePromptCaching: true);
 
                         // Parse response
