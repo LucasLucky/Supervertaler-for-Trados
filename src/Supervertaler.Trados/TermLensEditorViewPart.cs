@@ -173,16 +173,22 @@ namespace Supervertaler.Trados
             // is ever shown (issues #54, #56).
             Core.StartupNotices.CaptureUiContext();
 
-            // Ctrl-tap filter: pressing and releasing Ctrl alone opens the
-            // floating TermLens popup. Faster than the picker dialog and
-            // shows the segment in context, so Ctrl-tap is the preferred
-            // primary trigger. The picker dialog is still reachable via
-            // Alt+P for users who want the list-based UI.
+            // The Ctrl tap is retired. Pressing and releasing Ctrl alone was a
+            // pleasant gesture but not a safe trigger: once any other program
+            // consumes the middle key of a Ctrl-modified chord, what reaches
+            // Studio is indistinguishable from a deliberate tap, and the popup
+            // appears unbidden. Our own voice commands hit this and needed the
+            // synthetic-keystroke guard below to work around it; every external
+            // keyboard tool a user runs hits it too, and none of them can.
+            //
+            // TermLensPopupAction now carries Alt+L. The filter stays
+            // registered for its Escape handling only.
             if (_ctrlTapFilter == null)
             {
                 _ctrlTapFilter = new CtrlTapFilter(
                     () => HandleTermLensPopup(),
-                    onEscape: () => TryCloseTermLensPopup());
+                    onEscape: () => TryCloseTermLensPopup(),
+                    ctrlTapEnabled: false);
                 System.Windows.Forms.Application.AddMessageFilter(_ctrlTapFilter);
 
                 // Escape needs a GetMessage hook, NOT the filter above: Studio's

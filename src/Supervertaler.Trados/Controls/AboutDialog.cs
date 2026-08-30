@@ -216,7 +216,11 @@ namespace Supervertaler.Trados.Controls
                 // Ctrl+T collides with Trados's own "Apply Translation Result".
                 ("Alt+T",         "Translate active segment"),
                 ("Ctrl+Alt+G",     "AutoTagger (place inline tags)"),
-                ("Ctrl (tap)",     "Show TermLens popup"),
+                // Was Ctrl (tap) until the tap was retired: a bare Ctrl press
+                // is indistinguishable from any other program's Ctrl chord
+                // once the middle key is consumed elsewhere, so the popup
+                // opened by itself.
+                ("Alt+L",          "Show TermLens popup"),
                 ("Alt+P",          "Show TermPicker (list of matches)"),
                 // Alt+Q, not Ctrl+Q: Studio's "View Internally Source" holds
                 // Ctrl+Q and wins, so QuickLauncher did nothing until the user

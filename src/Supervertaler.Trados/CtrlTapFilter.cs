@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
@@ -40,6 +40,7 @@ namespace Supervertaler.Trados
         private readonly Action _onCtrlTap;
         private readonly Func<bool> _onEscape;
         private readonly int _maxHoldMs;
+        private readonly bool _ctrlTapEnabled;
 
         private bool _ctrlDown;
         private bool _otherKeyPressed;
@@ -51,11 +52,19 @@ namespace Supervertaler.Trados
         /// itself). Return false to let Escape reach Studio untouched - which
         /// is what happens whenever no Supervertaler popup is open, so
         /// Studio's own Escape behaviour is unaffected.</param>
-        public CtrlTapFilter(Action onCtrlTap, int maxHoldMs = 400, Func<bool> onEscape = null)
+        /// <param name="ctrlTapEnabled">When false the tap is never reported and
+        /// only the Escape handling above stays live. A bare Ctrl press cannot
+        /// be told apart from any other program's Ctrl-modified shortcut once
+        /// the middle key has been consumed elsewhere, which made this fire on
+        /// its own — see the voice-command note in PreFilterMessage, and the
+        /// same collision with external keyboard tools.</param>
+        public CtrlTapFilter(Action onCtrlTap, int maxHoldMs = 400,
+                             Func<bool> onEscape = null, bool ctrlTapEnabled = true)
         {
             _onCtrlTap = onCtrlTap ?? throw new ArgumentNullException(nameof(onCtrlTap));
             _onEscape = onEscape;
             _maxHoldMs = maxHoldMs;
+            _ctrlTapEnabled = ctrlTapEnabled;
         }
 
         public bool PreFilterMessage(ref Message m)
@@ -74,6 +83,11 @@ namespace Supervertaler.Trados
             {
                 if (_onEscape()) return true;
             }
+
+            // Everything below only serves the tap. With the tap switched off
+            // this filter exists for the Escape handling alone.
+            if (!_ctrlTapEnabled)
+                return false;
 
             // --- Key down ---
             if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
