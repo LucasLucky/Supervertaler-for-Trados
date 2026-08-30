@@ -7,6 +7,23 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.186 / 19.20.186] – 2026-08-31
+
+### Changed (the TermLens popup has a key of its own)
+
+- **The floating TermLens popup opens with Alt+L. The Ctrl tap is retired.** Pressing and releasing Ctrl on its own was a pleasant gesture and an unreliable trigger: once any other program consumes the middle key of a Ctrl-modified shortcut, what reaches Studio is a bare Ctrl press and release — indistinguishable from a deliberate tap. The popup then opened by itself, took the focus, and broke whatever the other program was in the middle of doing. This is not hypothetical and it is not rare: Supervertaler's own voice commands hit it in 20.132 and needed a synthetic-keystroke guard written specially to work around it. Every keyboard tool, text expander and macro utility a translator runs alongside Studio hits the same thing, and none of them can reach that guard. Diagnosed against one such tool, where a single hotkey press left the popup open and the tool's own copy landing in a window with nothing selected in it.
+- **Escape still closes the popup**, by the low-level hook it has always used — the tap detector was never what did that.
+- **Alt+L rather than a three-key chord**, because this is a key you press constantly, and beside **Alt+P** for TermPicker, its sibling. Note that Alt is the ribbon's KeyTip prefix, so an Alt+letter can collide with a ribbon command that appears nowhere in Studio's keyboard settings; the letters already used this way — P, Q, S, T, W, and the digits — are known good.
+- **An existing installation keeps whatever it had bound**, Studio storing shortcuts per user, so this default reaches fresh installs only. To take it on an existing one: **File → Options → Keyboard Shortcuts → Supervertaler for Trados**, find *TermLens: Show TermLens popup*, and press Alt+L. The row turns red if something in the same scope already holds the key.
+
+### Fixed
+
+- **The Import/Export status checkboxes no longer clip each other.** The six confirmation-status boxes sit in fixed 180px columns while sizing themselves to their own text, so "Approved (translation)" overran its column and left "Approved (sign-off)" with a half-drawn checkbox beside it. The column is now measured from the widest label plus the glyph, so it holds at any DPI scaling and whatever the labels are changed to.
+
+### Changed (shared code, no change in behaviour)
+
+- **The LLM client, the prompt library, the prompt and term models, the prompt generator and the document analyser now live in Supervertaler.Core**, a submodule shared with the forthcoming memoQ plugin, rather than being reimplemented per plugin. Nothing about the plugin behaves differently and nothing new ships inside it: the code is compiled in as source rather than referenced as a library, so the package contains the same twelve DLLs it did before. It is listed here because it is a large structural change, and because the point of it is that a fix to the prompt library now reaches every Supervertaler product at once instead of one of them.
+
 ## [18.20.185 / 19.20.185] – 2026-08-27
 
 ### Added (Supervertaler can look at your drawings)
