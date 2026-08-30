@@ -108,26 +108,55 @@ echo ""
 # the copy failed halfway.
 SKIPPED=""
 
-# Can this version be deployed? Renaming its Unpacked folder aside is the test:
+# Can this version be deployed? Renaming each unpacked folder aside is the test:
 # Windows will not rename a directory holding DLLs a process has loaded, so a
 # running Studio fails here having lost nothing. Success both proves that Studio
 # is closed AND performs the wipe we wanted anyway - Studio re-extracts from the
 # package on next start.
+#
+# Sweeps EVERY Supervertaler* folder, not just the name this script installs
+# under. The RWS App Store serves the 2026 build as "Supervertaler for
+# Trados.sdlplugin", dropping the "(Studio 2026)" suffix used here, and Studio
+# extracts to Unpacked/<filename-without-extension> - so the same build can be
+# unpacked under two different names. Leaving the other one behind is how you get
+# two copies of the plugin loaded at once, which crashes Studio on startup.
 claim_unpacked() {
-    local unpacked="$1"
+    local unpacked_root="$1"
     local label="$2"
-    [ -d "$unpacked" ] || return 0          # nothing installed yet: free to deploy
-    local aside="$unpacked.replacing.$$"
-    if ! mv "$unpacked" "$aside" 2>/dev/null; then
-        echo ""
-        echo "  SKIPPING $label: it is running (its plugin files are in use)."
-        echo "  Its install is untouched. Close it and re-run to update that build."
-        SKIPPED="$SKIPPED
+    [ -d "$unpacked_root" ] || return 0     # nothing installed yet: free to deploy
+
+    local d aside
+    for d in "$unpacked_root"/Supervertaler*; do
+        [ -e "$d" ] || continue             # glob matched nothing
+        aside="$d.replacing.$$"
+        if ! mv "$d" "$aside" 2>/dev/null; then
+            echo ""
+            echo "  SKIPPING $label: it is running (its plugin files are in use)."
+            echo "  Its install is untouched. Close it and re-run to update that build."
+            SKIPPED="$SKIPPED
     - $label"
-        return 1
-    fi
-    rm -rf "$aside"
+            return 1
+        fi
+        echo "  Removed unpacked: $(basename "$d")"
+        rm -rf "$aside"
+    done
     return 0
+}
+
+# Remove any OTHER Supervertaler package sitting in the same folder - notably an
+# App Store copy under RWS's own filename. Two packages both declaring
+# PlugInName "Supervertaler for Trados" load as two plugins and crash Studio.
+sweep_other_packages() {
+    local pkg_dir="$1"
+    local keep="$2"
+    [ -d "$pkg_dir" ] || return 0
+    local f
+    for f in "$pkg_dir"/Supervertaler*.sdlplugin; do
+        [ -e "$f" ] || continue
+        [ "$(basename "$f")" = "$keep" ] && continue
+        echo "  Removing other Supervertaler package: $(basename "$f")"
+        rm -f "$f"
+    done
 }
 
 # Install without ever writing over the live package: copy to a temp name in the
@@ -187,7 +216,7 @@ if [ -d "$STUDIO18_INSTALL" ]; then
 
     # Claims (and thereby wipes) the Unpacked folder so Trados re-extracts
     # cleanly on next start - or leaves this whole block unrun, changing nothing.
-    if claim_unpacked "$UNPACKED_DIR_18" "Trados Studio 2024"; then
+    if claim_unpacked "$(dirname "$UNPACKED_DIR_18")" "Trados Studio 2024"; then
     if [ -d "$OLD_UNPACKED_DIR_18" ]; then
         echo "  Removing old Unpacked/TermLens..."
         rm -rf "$OLD_UNPACKED_DIR_18"
@@ -217,6 +246,7 @@ if [ -d "$STUDIO18_INSTALL" ]; then
         rm -rf "$OLD_DOTTED_UNPACKED_18"
     fi
 
+    sweep_other_packages "$PACKAGES_DIR_18" "$PLUGIN_FILENAME_18"
     install_package "$DIST_DIR/$PLUGIN_FILENAME_18" "$PACKAGES_DIR_18/$PLUGIN_FILENAME_18" \
         && echo "  Installed: $PACKAGES_DIR_18/$PLUGIN_FILENAME_18"
     fi
@@ -270,7 +300,8 @@ if [ -d "$STUDIO19_INSTALL" ]; then
 
     # Claims (and thereby wipes) the live Unpacked folder so Studio 2026
     # re-extracts cleanly on next start - or bails out having changed nothing.
-    if claim_unpacked "$UNPACKED_DIR_19" "Trados Studio 2026"; then
+    if claim_unpacked "$(dirname "$UNPACKED_DIR_19")" "Trados Studio 2026"; then
+        sweep_other_packages "$PACKAGES_DIR_19" "$PLUGIN_FILENAME_19"
         install_package "$DIST_DIR/$PLUGIN_FILENAME_19" "$PACKAGES_DIR_19/$PLUGIN_FILENAME_19" \
             && echo "  Installed: $PACKAGES_DIR_19/$PLUGIN_FILENAME_19"
     fi
