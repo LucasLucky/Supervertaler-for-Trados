@@ -193,7 +193,7 @@ namespace Supervertaler.Trados
                     {
                         if (dlg.SavedEntry != null)
                             TermLensEditorViewPart.NotifyTermInserted(
-                                new List<Models.TermEntry> { dlg.SavedEntry });
+                                new List<TermEntry> { dlg.SavedEntry });
                         else
                             TermLensEditorViewPart.NotifyTermAdded();
                     }

@@ -167,7 +167,7 @@ namespace Supervertaler.Trados
                         // Ctrl+Alt+T feel much slower than the Alt+Up quick-add.
                         if (dlg.SavedEntry != null)
                             TermLensEditorViewPart.NotifyTermInserted(
-                                new List<Models.TermEntry> { dlg.SavedEntry });
+                                new List<TermEntry> { dlg.SavedEntry });
                         else
                             TermLensEditorViewPart.NotifyTermAdded();
                     }

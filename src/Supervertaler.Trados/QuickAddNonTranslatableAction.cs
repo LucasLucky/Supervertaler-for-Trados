@@ -139,7 +139,7 @@ namespace Supervertaler.Trados
                 }
 
                 // Get write termbase metadata
-                var writeTermbases = new List<Models.TermbaseInfo>();
+                var writeTermbases = new List<TermbaseInfo>();
                 using (var reader = new TermbaseReader(settings.TermbasePath))
                 {
                     if (reader.Open())
@@ -171,12 +171,12 @@ namespace Supervertaler.Trados
 
                     if (batchResults.Count > 0)
                     {
-                        var insertedEntries = new List<Models.TermEntry>();
+                        var insertedEntries = new List<TermEntry>();
                         foreach (var (termbaseId, newId) in batchResults)
                         {
                             var tb = writeTermbases.Find(t => t.Id == termbaseId);
                             if (tb == null) continue;
-                            insertedEntries.Add(new Models.TermEntry
+                            insertedEntries.Add(new TermEntry
                             {
                                 Id = newId,
                                 SourceTerm = sourceText,

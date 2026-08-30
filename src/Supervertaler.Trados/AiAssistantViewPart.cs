@@ -2884,14 +2884,14 @@ namespace Supervertaler.Trados
             }
             else // terminology
             {
-                Dictionary<string, List<Models.TermEntry>> index;
+                Dictionary<string, List<TermEntry>> index;
                 // Entries whose stored direction contradicts their termbase's.
                 // Any of them that is genuinely reversed is indexed under the
                 // wrong language and so was never matched by any source segment
                 // – silence about it here means "not looked at", not "not
                 // violated". Reported alongside the findings rather than left
                 // to pass for a clean result.
-                List<Models.TermbaseDirectionMismatch> mismatched = null;
+                List<TermbaseDirectionMismatch> mismatched = null;
                 try
                 {
                     var settings = SettingsService.Current;
@@ -2927,15 +2927,15 @@ namespace Supervertaler.Trados
                     // so the check verifies against ALL the terminology the
                     // translator actually sees while working.
                     foreach (var e in TermLensEditorViewPart.GetCurrentTermbaseTerms()
-                             ?? new List<Models.TermEntry>())
+                             ?? new List<TermEntry>())
                     {
                         if (e == null || !e.IsMultiTerm || string.IsNullOrWhiteSpace(e.SourceTerm))
                             continue;
                         var key = e.SourceTerm.Trim();
-                        List<Models.TermEntry> list;
+                        List<TermEntry> list;
                         if (!index.TryGetValue(key, out list))
                         {
-                            list = new List<Models.TermEntry>();
+                            list = new List<TermEntry>();
                             index[key] = list;
                         }
                         list.Add(e);
@@ -2979,14 +2979,14 @@ namespace Supervertaler.Trados
                     // "to", "No", "16") matched ordinary prose far more often than
                     // terminology (198 segments of "to" on one real job), and a
                     // gram with no letter at all is a number, not a term.
-                    var candidates = new List<Tuple<int, int, List<Models.TermEntry>>>();
+                    var candidates = new List<Tuple<int, int, List<TermEntry>>>();
                     for (int i = 0; i < words.Length; i++)
                     {
                         for (int n = 1; n <= 5 && i + n <= words.Length; n++)
                         {
                             var gram = string.Join(" ", words, i, n);
                             if (gram.Length < 3 || !gram.Any(char.IsLetter)) continue;
-                            List<Models.TermEntry> entries;
+                            List<TermEntry> entries;
                             if (index.TryGetValue(gram, out entries))
                                 candidates.Add(Tuple.Create(i, n, entries));
                         }
@@ -3231,7 +3231,7 @@ namespace Supervertaler.Trados
                     {
                         if (tbReader.Open())
                         {
-                            foreach (var tb in tbReader.GetTermbases() ?? new List<Models.TermbaseInfo>())
+                            foreach (var tb in tbReader.GetTermbases() ?? new List<TermbaseInfo>())
                             {
                                 total++;
                                 if (disabled.Contains(tb.Id)) continue;
@@ -3406,7 +3406,7 @@ namespace Supervertaler.Trados
                     {
                         if (tbReader.Open())
                         {
-                            foreach (var tb in tbReader.GetTermbases() ?? new List<Models.TermbaseInfo>())
+                            foreach (var tb in tbReader.GetTermbases() ?? new List<TermbaseInfo>())
                             {
                                 response.Termbases.Add(new BridgeTermbaseResource
                                 {
@@ -3853,13 +3853,13 @@ namespace Supervertaler.Trados
                         Error = "Supervertaler database not found – check the termbase path in settings."
                     };
 
-                var writeTermbases = new List<Models.TermbaseInfo>();
-                List<Models.TermbaseInfo> allTermbases = null;
+                var writeTermbases = new List<TermbaseInfo>();
+                List<TermbaseInfo> allTermbases = null;
                 using (var reader = new TermbaseReader(settings.TermbasePath))
                 {
                     if (reader.Open())
                     {
-                        allTermbases = reader.GetTermbases() ?? new List<Models.TermbaseInfo>();
+                        allTermbases = reader.GetTermbases() ?? new List<TermbaseInfo>();
                         foreach (var id in settings.WriteTermbaseIds)
                         {
                             var tb = reader.GetTermbaseById(id);
@@ -3878,7 +3878,7 @@ namespace Supervertaler.Trados
                 var targets = writeTermbases;
                 if (req.Termbases != null && req.Termbases.Count > 0)
                 {
-                    targets = new List<Models.TermbaseInfo>();
+                    targets = new List<TermbaseInfo>();
                     foreach (var wanted in req.Termbases)
                     {
                         if (string.IsNullOrWhiteSpace(wanted)) continue;
@@ -3958,7 +3958,7 @@ namespace Supervertaler.Trados
                     explicitSourceLang: req.SourceLang,
                     explicitTargetLang: req.TargetLang);
 
-                var insertedEntries = new List<Models.TermEntry>();
+                var insertedEntries = new List<TermEntry>();
                 var addedTo = new List<string>();
                 foreach (var o in outcomes)
                 {
@@ -3984,7 +3984,7 @@ namespace Supervertaler.Trados
                             }
                         });
                         if (tb != null)
-                            insertedEntries.Add(new Models.TermEntry
+                            insertedEntries.Add(new TermEntry
                             {
                                 Id = o.NewId,
                                 // Stored orientation, not the caller's – the old
@@ -4312,7 +4312,7 @@ namespace Supervertaler.Trados
                 {
                     if (tbReader.Open())
                     {
-                        var hit = (tbReader.GetTermbases() ?? new List<Models.TermbaseInfo>())
+                        var hit = (tbReader.GetTermbases() ?? new List<TermbaseInfo>())
                             .FirstOrDefault(t => string.Equals(t.Name, intoName, StringComparison.OrdinalIgnoreCase));
                         if (hit != null) destId = hit.Id;
                     }
@@ -4551,14 +4551,14 @@ namespace Supervertaler.Trados
                 // how this termbase stores it. Tracked per match because a single
                 // call can reach several termbases that declare opposite
                 // directions - and the rename below has to swap for exactly those.
-                List<Tuple<Models.TermEntry, bool>> matches;
+                List<Tuple<TermEntry, bool>> matches;
                 using (var reader = new TermbaseReader(settings.TermbasePath))
                 {
                     if (!reader.Open())
                         return new BridgeEditTermResponse { Ok = false, Error = "could not open Supervertaler database" };
                     // SearchTerm already looks in both columns, so one query finds
                     // the entry whichever way round the caller named it.
-                    matches = (reader.SearchTerm(source) ?? new List<Models.TermEntry>())
+                    matches = (reader.SearchTerm(source) ?? new List<TermEntry>())
                         .Where(e => e != null
                             && (tbFilter == null
                                 || (e.TermbaseName ?? "").IndexOf(tbFilter, StringComparison.OrdinalIgnoreCase) >= 0))
@@ -4630,7 +4630,7 @@ namespace Supervertaler.Trados
                             continue;
                         // Refresh TermLens's in-memory index: replace the old entry.
                         TermLensEditorViewPart.NotifyTermDeleted(e.Id);
-                        var updated = new Models.TermEntry
+                        var updated = new TermEntry
                         {
                             Id = e.Id,
                             SourceTerm = s,
@@ -4654,7 +4654,7 @@ namespace Supervertaler.Trados
                             TargetAbbreviation = e.TargetAbbreviation,
                             TargetSynonyms = e.TargetSynonyms ?? new List<string>()
                         };
-                        TermLensEditorViewPart.NotifyTermInserted(new List<Models.TermEntry> { updated });
+                        TermLensEditorViewPart.NotifyTermInserted(new List<TermEntry> { updated });
                         var changeParts = new List<string>();
                         if (s != e.SourceTerm || t != e.TargetTerm)
                             changeParts.Add($"“{e.SourceTerm} → {e.TargetTerm}” is now “{s} → {t}”");
@@ -8730,7 +8730,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 var maxDocSegs = aiSettings.DocumentContextMaxSegments > 0 ? aiSettings.DocumentContextMaxSegments : 500;
                 var projectName = GetProjectName();
                 var kbContext = LoadKbContextForPrompt(projectName, sourceLang, targetLang);
-                var systemPrompt = Core.TranslationPrompt.BuildSystemPrompt(
+                var systemPrompt = TranslationPrompt.BuildSystemPrompt(
                     sourceLang, targetLang, customPromptContent, termbaseTerms, customSystemPrompt,
                     aiSettings.IncludeDocumentContext ? docSegments : null, maxDocSegs,
                     aiSettings.IncludeTermMetadata, kbContext);

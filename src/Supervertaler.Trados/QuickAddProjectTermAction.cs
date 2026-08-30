@@ -135,7 +135,7 @@ namespace Supervertaler.Trados
                 }
 
                 // Get project termbase metadata
-                Models.TermbaseInfo projectTermbase = null;
+                TermbaseInfo projectTermbase = null;
                 using (var reader = new TermbaseReader(settings.TermbasePath))
                 {
                     if (reader.Open())
@@ -185,7 +185,7 @@ namespace Supervertaler.Trados
                 {
                     var mergeMatches = TermMergeChecker.FindMergeMatches(
                         settings.TermbasePath, sourceText, targetText,
-                        new List<Models.TermbaseInfo> { projectTermbase },
+                        new List<TermbaseInfo> { projectTermbase },
                         projectSourceLang: projSrcLang);
 
                     if (mergeMatches.Count > 0)
@@ -271,7 +271,7 @@ namespace Supervertaler.Trados
                     if (newId > 0)
                     {
                         // Incremental index update – no full DB reload
-                        var entry = new Models.TermEntry
+                        var entry = new TermEntry
                         {
                             Id = newId,
                             SourceTerm = indexSourceText,
@@ -290,7 +290,7 @@ namespace Supervertaler.Trados
                             TargetSynonyms = new List<string>()
                         };
                         TermLensEditorViewPart.NotifyTermInserted(
-                            new List<Models.TermEntry> { entry });
+                            new List<TermEntry> { entry });
                     }
                     else
                     {

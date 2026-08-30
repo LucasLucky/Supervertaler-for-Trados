@@ -127,7 +127,7 @@ namespace Supervertaler.Trados
 
                 // Get write termbase metadata for all configured write targets,
                 // excluding the project termbase – Alt+Up handles that exclusively.
-                var writeTermbases = new List<Models.TermbaseInfo>();
+                var writeTermbases = new List<TermbaseInfo>();
                 using (var reader = new TermbaseReader(settings.TermbasePath))
                 {
                     if (reader.Open())
@@ -246,12 +246,12 @@ namespace Supervertaler.Trados
 
                                     // Incremental index update for the fresh inserts,
                                     // mirroring the normal (non-merge) insert path.
-                                    var mergeInserted = new List<Models.TermEntry>();
+                                    var mergeInserted = new List<TermEntry>();
                                     foreach (var (termbaseId, newId) in mergeBatchResults)
                                     {
                                         var tb = unmatchedTbs.Find(t => t.Id == termbaseId);
                                         if (tb == null) continue;
-                                        mergeInserted.Add(new Models.TermEntry
+                                        mergeInserted.Add(new TermEntry
                                         {
                                             Id = newId,
                                             SourceTerm = indexSourceText,
@@ -308,12 +308,12 @@ namespace Supervertaler.Trados
                     if (batchResults.Count > 0)
                     {
                         // Build TermEntry objects from known data + returned IDs
-                        var insertedEntries = new List<Models.TermEntry>();
+                        var insertedEntries = new List<TermEntry>();
                         foreach (var (termbaseId, newId) in batchResults)
                         {
                             var tb = writeTermbases.Find(t => t.Id == termbaseId);
                             if (tb == null) continue;
-                            insertedEntries.Add(new Models.TermEntry
+                            insertedEntries.Add(new TermEntry
                             {
                                 Id = newId,
                                 SourceTerm = indexSourceText,

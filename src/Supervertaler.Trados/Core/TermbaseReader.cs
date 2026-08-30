@@ -507,9 +507,9 @@ namespace Supervertaler.Trados.Core
                 // After inversion, srcSynsForIndex holds the project-source synonyms.
                 if (srcSynsForIndex != null && srcSynsForIndex.Count > 0)
                 {
-                    entry.SourceSynonyms = new List<Models.SynonymEntry>();
+                    entry.SourceSynonyms = new List<SynonymEntry>();
                     foreach (var synText in srcSynsForIndex)
-                        entry.SourceSynonyms.Add(new Models.SynonymEntry { Text = synText, Language = "source" });
+                        entry.SourceSynonyms.Add(new SynonymEntry { Text = synText, Language = "source" });
                 }
 
                 var key = TermMatcher.NormalizeScriptChars(entry.SourceTerm.Trim().ToLowerInvariant());

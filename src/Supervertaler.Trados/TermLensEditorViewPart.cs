@@ -2568,7 +2568,7 @@ namespace Supervertaler.Trados
         /// in-memory index and refreshes the segment display, without reloading the
         /// entire database. Much faster than NotifyTermAdded() for single inserts.
         /// </summary>
-        public static void NotifyTermInserted(List<Models.TermEntry> newEntries)
+        public static void NotifyTermInserted(List<TermEntry> newEntries)
         {
             var instance = _currentInstance;
             if (instance == null) return;
