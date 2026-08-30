@@ -1113,6 +1113,32 @@ namespace Supervertaler.Trados.Controls
         /// If no prompt matches selectedRelativePath and a projectName is provided,
         /// the dropdown auto-selects the first prompt whose name contains the project name.
         /// </summary>
+        /// <summary>
+        /// Does a prompt in <paramref name="category"/> belong under
+        /// <paramref name="filter"/>? True for the folder itself and anything
+        /// below it, so "Proofread/Default" counts as Proofread.
+        /// </summary>
+        /// <remarks>
+        /// This used to be an exact string comparison, which excluded every
+        /// prompt the plugin ships: the default proofreading prompt declares
+        /// category "Proofread/Default" and the default translate prompt
+        /// "Translate/Default", so neither matched its own filter. The Proofread
+        /// dropdown was empty for everyone, and on a fresh install - where the
+        /// only prompts are the shipped ones - so was Translate. Reported by a
+        /// user who could see three prompts in the Proofread folder of the
+        /// Library and none of them in the dropdown.
+        ///
+        /// The trailing separator matters: without it "Proofreading" would match
+        /// a filter of "Proofread".
+        /// </remarks>
+        private static bool CategoryBelongsTo(string category, string filter)
+        {
+            var c = (category ?? "").Replace('\\', '/').Trim().Trim('/');
+            if (c.Length == 0) return false;
+            return string.Equals(c, filter, StringComparison.OrdinalIgnoreCase)
+                || c.StartsWith(filter + "/", StringComparison.OrdinalIgnoreCase);
+        }
+
         public void SetPrompts(List<PromptTemplate> prompts, string selectedRelativePath,
             string categoryFilter = null, string projectName = null, string activePromptPath = null)
         {
@@ -1138,9 +1164,9 @@ namespace Supervertaler.Trados.Controls
                     // Filter by category if specified – but always include the active
                     // prompt even if its category doesn't match, so "Set as active"
                     // works for any prompt regardless of folder.
-                    if (!string.IsNullOrEmpty(categoryFilter) &&
-                        !string.Equals(p.Category, categoryFilter, StringComparison.OrdinalIgnoreCase) &&
-                        !isActive)
+                    if (!string.IsNullOrEmpty(categoryFilter)
+                        && !CategoryBelongsTo(p.Category, categoryFilter)
+                        && !isActive)
                         continue;
 
                     _promptList.Add(p);
