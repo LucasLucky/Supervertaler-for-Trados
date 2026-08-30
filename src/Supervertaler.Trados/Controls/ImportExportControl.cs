@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -320,7 +320,19 @@ namespace Supervertaler.Trados.Controls
                 "Approved (translation)", "Approved (sign-off)", "Rejected"
             };
             _statusCheckBoxes = new System.Collections.Generic.List<CheckBox>();
+
+            // The column has to fit the widest label. These checkboxes are
+            // AutoSize, so each is as wide as its own text: with a fixed column
+            // width the long one ("Approved (translation)") overran into the next
+            // column and clipped the checkbox sitting there. Measuring keeps that
+            // right whatever the labels say and at any DPI scaling.
             int colWidth = UiScale.Pixels(180);
+            foreach (var label in statusLabels)
+            {
+                var needed = TextRenderer.MeasureText(label, bodyFont).Width
+                             + UiScale.Pixels(34);   // checkbox glyph + gap
+                if (needed > colWidth) colWidth = needed;
+            }
             int rowHeight = UiScale.Pixels(22);
             for (int i = 0; i < statusEnumNames.Length; i++)
             {
