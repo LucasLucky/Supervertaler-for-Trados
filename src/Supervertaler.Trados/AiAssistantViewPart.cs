@@ -13847,10 +13847,15 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 // "no filter — include every status".
                 var statusFilter = ctrl.GetSelectedStatuses();
 
+                // #90: honour the "Include Trados comments" checkbox. Off means the
+                // collector leaves the field empty, and the renderers drop the whole
+                // column of their own accord.
+                bool includeComments = ctrl.IncludeComments;
+
                 List<Core.Export.ExportSegment> segments;
                 try
                 {
-                    segments = CollectBilingualExportSegments(filter, includeLocked, statusFilter);
+                    segments = CollectBilingualExportSegments(filter, includeLocked, statusFilter, includeComments);
                 }
                 catch (Exception ex)
                 {
@@ -14728,7 +14733,8 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         private List<Core.Export.ExportSegment> CollectBilingualExportSegments(
             HashSet<string> fileIdFilter = null,
             bool includeLocked = true,
-            HashSet<string> statusFilter = null)
+            HashSet<string> statusFilter = null,
+            bool includeComments = true)
         {
             var result = new List<Core.Export.ExportSegment>();
             if (_activeDocument == null) return result;
@@ -14899,7 +14905,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     SourceFileId = segFileId ?? "",
                     SourceFileName = segFileName ?? "",
                     IsLocked = isLocked,
-                    Comments = CollectSegmentComments(pair)
+                    Comments = includeComments ? CollectSegmentComments(pair) : ""
                 });
             }
             return result;

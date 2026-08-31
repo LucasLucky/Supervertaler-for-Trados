@@ -32,6 +32,7 @@ namespace Supervertaler.Trados.Controls
         private Label _lblRoundTripStatus;   // dynamic "can / cannot be re-imported" hint
         private CheckBox _chkStrictTagCheck;
         private CheckBox _chkIncludeLocked;
+        private CheckBox _chkIncludeComments;
         private System.Collections.Generic.List<CheckBox> _statusCheckBoxes;
         private Label _lblSegmentCount;
 
@@ -288,6 +289,34 @@ namespace Supervertaler.Trados.Controls
                 "projects where most segments are locked-approved and the proofreader " +
                 "should only see what's actually still editable.");
             Controls.Add(_chkIncludeLocked);
+            y += UiScale.Pixels(24);
+
+            // Whether your Trados comments travel with the file. Both answers are
+            // ordinary - a reviewer answering queries needs them, a client
+            // receiving a deliverable usually should not see working notes - so
+            // this is a plain choice, not a warning. Default ON: comments in a
+            // bilingual file are much of the reason for sending one.
+            _chkIncludeComments = new CheckBox
+            {
+                Text = "Include Trados comments",
+                Location = new Point(leftMargin, y),
+                AutoSize = true,
+                Font = bodyFont,
+                ForeColor = labelColor,
+                Checked = true
+            };
+            var commentTip = new ToolTip { AutoPopDelay = 14000, InitialDelay = 300 };
+            commentTip.SetToolTip(_chkIncludeComments,
+                "When ON (default): the comments on your segments are copied into a " +
+                "Comments column, so whoever reads the file can see your queries and " +
+                "notes.\r\n\r\n" +
+                "When OFF: no comments are exported and the column does not appear. " +
+                "Useful when the file is going to a client rather than to a " +
+                "reviewer, since comments are working notes and were not written " +
+                "for them.\r\n\r\n" +
+                "Either way, comments are not read back on re-import - only the " +
+                "target text is.");
+            Controls.Add(_chkIncludeComments);
             y += UiScale.Pixels(24);
 
             // v4.20.24: confirmation-status filter. A row of checkboxes —
@@ -673,6 +702,11 @@ namespace Supervertaler.Trados.Controls
         /// they're exported and visually marked with 🔒 in the Status
         /// column. Default true.</summary>
         public bool IncludeLockedSegments => _chkIncludeLocked?.Checked ?? true;
+
+        /// <summary>Whether Trados comments are copied into the export. Default
+        /// true: a bilingual file is usually going to someone who needs to read
+        /// the queries on it.</summary>
+        public bool IncludeComments => _chkIncludeComments?.Checked ?? true;
 
         /// <summary>v4.20.24: returns the set of checked confirmation-
         /// status enum names (e.g. {"Translated", "ApprovedTranslation"}).
