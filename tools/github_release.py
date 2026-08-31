@@ -28,7 +28,8 @@ release; the two channels deliberately use different baselines.
 Usage:
     python tools/github_release.py              # write release-body-v<ver>.md, print, no mutations
     python tools/github_release.py --zip-only   # just (re)build the two zips in dist/ (build.sh uses this)
-    python tools/github_release.py --create      # zips + body + `gh release create` with both zips attached
+    python tools/github_release.py --create      # body + `gh release create` with the MCP assets attached
+                                                 # (the plugin zips are built into dist/ but NOT attached)
     python tools/github_release.py --since 4.20.44 --create   # override the auto-detected baseline
 """
 import os
@@ -268,11 +269,14 @@ def main():
     print("\nBuilding zips… (local only — not attached to the release)")
     make_zips()
 
-    zips = []
+    # Named for what it is. This list has carried only the MCP assets since
+    # 18.20.156 stopped attaching the plugin - see the note above - and calling
+    # it "zips" kept that stale meaning alive in the messages below.
+    assets = []
     print("\nBuilding Claude Desktop extension (.mcpb)…")
     mcpb = build_mcpb(version)
     if mcpb:
-        zips.extend(mcpb)
+        assets.extend(mcpb)
     elif "--no-mcpb" in args:
         print("  WARNING: .mcpb build failed — releasing without it (--no-mcpb given)")
     else:
@@ -285,13 +289,18 @@ def main():
     cmd = ["gh", "release", "create", tag,
            "--title", tag,
            "--notes-file", body_file,
-           *zips]
-    print(f"\nRunning: gh release create {tag} (+{len(zips)} assets)")
+           *assets]
+    print(f"\nRunning: gh release create {tag} (+{len(assets)} assets)")
     result = subprocess.run(cmd, cwd=BASE_DIR)
     if result.returncode != 0:
         print("ERROR: gh release create failed")
         sys.exit(result.returncode)
-    print(f"\n✓ Released {tag} with {len(zips)} plugin zip(s) attached.")
+    # Say what was actually attached. This said "plugin zip(s)", which is the
+    # one thing a release must NOT carry: the plugin ships only via the RWS
+    # App Store, and a message claiming otherwise invites someone to go
+    # looking for a binary that is deliberately absent.
+    print(f"\n✓ Released {tag} with {len(assets)} MCP asset(s) attached "
+          f"(no plugin binary – it ships via the RWS App Store).")
 
 
 if __name__ == "__main__":
