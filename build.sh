@@ -22,9 +22,10 @@ PACKAGES_DIR_18="$LOCALAPPDATA/Trados/Trados Studio/18/Plugins/Packages"
 UNPACKED_DIR_18="$LOCALAPPDATA/Trados/Trados Studio/18/Plugins/Unpacked/Supervertaler for Trados"
 # Studio 2026 (release) uses the "19" version key and ships its bundled plugins
 # (AI Bridge, LanguageWeaver Provider) in Roaming\19\Plugins\Packages, so we
-# deploy there to match where Studio 2026 actually looks. (The 2026 *Beta* used
-# a "19beta" key; that build is uninstalled. The "stale plugin" cleanups below
-# also clear any leftover Local\19 / Local\19beta copies from earlier attempts.)
+# deploy there to match where Studio 2026 actually looks. (The "stale plugin"
+# cleanups below also clear any leftover Local\19 copies from earlier
+# attempts, which is where an install made with "This computer for me only"
+# would have landed.)
 PACKAGES_DIR_19="$APPDATA/Trados/Trados Studio/19/Plugins/Packages"
 # Studio extracts to Unpacked/<sdlplugin-filename-without-extension>/, NOT to
 # Unpacked/<PlugInName>/. So for "Supervertaler for Trados (Studio 2026).sdlplugin"
@@ -33,9 +34,11 @@ PACKAGES_DIR_19="$APPDATA/Trados/Trados Studio/19/Plugins/Packages"
 # without re-extracting from the new .sdlplugin and we keep seeing stale crashes.
 UNPACKED_DIR_19="$APPDATA/Trados/Trados Studio/19/Plugins/Unpacked/Supervertaler for Trados (Studio 2026)"
 STALE_LOCAL_19_DIR="$LOCALAPPDATA/Trados/Trados Studio/19/Plugins/Packages"
-STALE_LOCAL_19BETA_DIR="$LOCALAPPDATA/Trados/Trados Studio/19beta/Plugins/Packages"
-STALE_LOCAL_19_UNPACKED="$LOCALAPPDATA/Trados/Trados Studio/19/Plugins/Unpacked/Supervertaler for Trados (Studio 2026)"
-STALE_LOCAL_19BETA_UNPACKED="$LOCALAPPDATA/Trados/Trados Studio/19beta/Plugins/Unpacked/Supervertaler for Trados (Studio 2026)"
+# The Unpacked ROOT, not one folder inside it: the same build unpacks under
+# different names depending on where it was installed from (see CLAUDE.md on
+# the App Store stripping the "(Studio 2026)" suffix), so this is swept by
+# prefix rather than by a literal name.
+STALE_LOCAL_19_UNPACKED_ROOT="$LOCALAPPDATA/Trados/Trados Studio/19/Plugins/Unpacked"
 
 OLD_UNPACKED_DIR_18="$LOCALAPPDATA/Trados/Trados Studio/18/Plugins/Unpacked/TermLens"
 # build.sh used to deploy to Roaming; switched to Local in v4.19.25 to match
@@ -284,18 +287,17 @@ if [ -d "$STUDIO19_INSTALL" ]; then
     # versions of build.sh deployed to %LocalAppData%\...\19\ (no "beta" suffix),
     # which Studio 2026 doesn't read; left there those files just confuse later
     # diagnoses.
-    for STALE_DIR in "$STALE_LOCAL_19_DIR" "$STALE_LOCAL_19BETA_DIR"; do
+    for STALE_DIR in "$STALE_LOCAL_19_DIR"; do
         for STALE_FILE in "$STALE_DIR"/Supervertaler*.sdlplugin; do
             [ -e "$STALE_FILE" ] || continue
             echo "  Removing stale: $STALE_FILE"
             rm -f "$STALE_FILE"
         done
     done
-    for STALE_UNPACKED in "$STALE_LOCAL_19_UNPACKED" "$STALE_LOCAL_19BETA_UNPACKED"; do
-        if [ -d "$STALE_UNPACKED" ]; then
-            echo "  Removing stale Unpacked: $STALE_UNPACKED"
-            rm -rf "$STALE_UNPACKED"
-        fi
+    for STALE_UNPACKED in "$STALE_LOCAL_19_UNPACKED_ROOT"/Supervertaler*; do
+        [ -e "$STALE_UNPACKED" ] || continue      # glob matched nothing
+        echo "  Removing stale Unpacked: $STALE_UNPACKED"
+        rm -rf "$STALE_UNPACKED"
     done
 
     # Claims (and thereby wipes) the live Unpacked folder so Studio 2026
