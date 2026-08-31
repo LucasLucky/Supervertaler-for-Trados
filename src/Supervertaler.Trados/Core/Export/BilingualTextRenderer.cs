@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -78,13 +78,10 @@ namespace Supervertaler.Trados.Core.Export
 
         private static void AppendBracketed(StringBuilder sb, List<ExportSegment> segments, ExportOptions opts)
         {
-            // Zero-pad segment numbers to a consistent width (min 4, matching
-            // the Workbench convention "0001") so anchors line up.
-            int maxNum = 0;
-            foreach (var seg in segments)
-                if (seg.Number > maxNum) maxNum = seg.Number;
-            int pad = System.Math.Max(4, maxNum.ToString(CultureInfo.InvariantCulture).Length);
-            var padFmt = "D" + pad.ToString(CultureInfo.InvariantCulture);
+            // Zero-pad the numeric part to a consistent width (min 4, matching
+            // the Workbench convention "0001") so anchors line up. Only the digits
+            // are padded, so one half of a split reads "0209a", never "0209 a".
+            int pad = SegmentNumber.PadWidthFor(segments);
 
             var srcCode = LanguageDisplayToCode(opts.SourceLanguageDisplay);
             var tgtCode = LanguageDisplayToCode(opts.TargetLanguageDisplay);
@@ -105,7 +102,7 @@ namespace Supervertaler.Trados.Core.Export
                 }
 
                 sb.Append('[').Append("SEGMENT ")
-                  .Append(seg.Number.ToString(padFmt, CultureInfo.InvariantCulture)).Append(']').Append('\n');
+                  .Append(SegmentNumber.Display(seg.Number, pad)).Append(']').Append('\n');
                 // Source and target each stay on ONE physical line: hard breaks
                 // become [newline] tokens. The target is decoded back to "\n" on
                 // import; the source is read-only reference.

@@ -20,7 +20,11 @@ namespace Supervertaler.Trados.Core.Export
     public class ExportSegment
     {
         /// <summary>1-based export number, matches the column header "#" in the DOCX table.</summary>
-        public int Number { get; set; }
+        /// <summary>The segment number as Trados Studio shows it, e.g. "243"
+        /// or "209a" for one half of a split. A string because a split id is
+        /// not a number - and the join key for the round trip, so export and
+        /// import must agree on its form. See <see cref="SegmentNumber"/>.</summary>
+        public string Number { get; set; } = "";
 
         /// <summary>Stable Trados ParagraphUnit id (string GUID-like).</summary>
         public string ParagraphUnitId { get; set; }

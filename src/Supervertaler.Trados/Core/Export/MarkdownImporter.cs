@@ -27,14 +27,14 @@ namespace Supervertaler.Trados.Core.Export
     /// </summary>
     public class MarkdownImporter
     {
-        private static readonly Regex SegMarkerRe = new Regex(@"<!--\s*sv-seg:(\d+)\s*-->", RegexOptions.IgnoreCase);
-        private static readonly Regex SegHeadingRe = new Regex(@"^##\s*Segment\s+(\d+)\s*$", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+        private static readonly Regex SegMarkerRe = new Regex(@"<!--\s*sv-seg:([0-9]+[A-Za-z]*)\s*-->", RegexOptions.IgnoreCase);
+        private static readonly Regex SegHeadingRe = new Regex(@"^##\s*Segment\s+([0-9]+[A-Za-z]*)\s*$", RegexOptions.IgnoreCase | RegexOptions.Multiline);
         private static readonly Regex LabelLineRe = new Regex(@"^\*\*(Source|Target)\b[^*]*\*\*\s*$", RegexOptions.IgnoreCase | RegexOptions.Multiline);
         private static readonly Regex StatusLineRe = new Regex(@"^\*\*Status:\*\*\s*(.+)$", RegexOptions.IgnoreCase | RegexOptions.Multiline);
         private static readonly Regex TableRowRe = new Regex(@"^\|\s*(\d+)\s*(?:<!--\s*sv-seg:\d+\s*-->)?\s*\|(.*)\|\s*$", RegexOptions.Multiline);
         // v4.20.20: bracketed-layout anchors. The number is zero-padded
         // (e.g. "0001") but the regex accepts any digit run for safety.
-        private static readonly Regex BracketedAnchorRe = new Regex(@"^\[SEGMENT\s+(\d+)\]\s*$", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+        private static readonly Regex BracketedAnchorRe = new Regex(@"^\[SEGMENT\s+([0-9]+[A-Za-z]*)\]\s*$", RegexOptions.IgnoreCase | RegexOptions.Multiline);
         // Within a bracketed block: a line that starts with 2-3 letters,
         // a colon, optional spaces/tabs, then the body. Captures (lang-
         // code, body). v4.20.24: was `\s*` for the post-colon whitespace,
@@ -80,12 +80,12 @@ namespace Supervertaler.Trados.Core.Export
         {
             var segments = new List<ImportedSegment>();
             // Collect anchors with their positions.
-            var anchors = new List<KeyValuePair<int, int>>();
+            var anchors = new List<KeyValuePair<int, string>>();
             foreach (Match m in BracketedAnchorRe.Matches(text))
             {
-                int num;
-                if (int.TryParse(m.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out num))
-                    anchors.Add(new KeyValuePair<int, int>(m.Index, num));
+                var num = SegmentNumber.Canonical(m.Groups[1].Value);
+                if (num.Length > 0)
+                    anchors.Add(new KeyValuePair<int, string>(m.Index, num));
             }
             if (anchors.Count == 0) return segments;
 
@@ -94,7 +94,7 @@ namespace Supervertaler.Trados.Core.Export
             {
                 int blockStart = anchors[i].Key;
                 int blockEnd = (i + 1 < anchors.Count) ? anchors[i + 1].Key : text.Length;
-                int number = anchors[i].Value;
+                var number = anchors[i].Value;
                 var blockText = text.Substring(blockStart, blockEnd - blockStart);
 
                 // v4.20.24: collect every non-"Status" lang-line in the
@@ -236,9 +236,8 @@ namespace Supervertaler.Trados.Core.Export
             var rows = new List<ImportedSegment>();
             foreach (Match m in TableRowRe.Matches(text))
             {
-                int num;
-                if (!int.TryParse(m.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out num))
-                    continue;
+                var num = SegmentNumber.Canonical(m.Groups[1].Value);
+                if (num.Length == 0) continue;
 
                 var rest = m.Groups[2].Value;
                 var cells = rest.Split('|');
@@ -289,28 +288,28 @@ namespace Supervertaler.Trados.Core.Export
             var segments = new List<ImportedSegment>();
 
             // Find all anchors (heading or marker) and their positions.
-            var anchors = new List<KeyValuePair<int, int>>(); // position → number
+            var anchors = new List<KeyValuePair<int, string>>(); // position → number
             foreach (Match m in SegHeadingRe.Matches(text))
             {
-                int num;
-                if (int.TryParse(m.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out num))
-                    anchors.Add(new KeyValuePair<int, int>(m.Index, num));
+                var num = SegmentNumber.Canonical(m.Groups[1].Value);
+                if (num.Length > 0)
+                    anchors.Add(new KeyValuePair<int, string>(m.Index, num));
             }
             // Markers only count if they aren't immediately preceded by their own heading
             // (which would double-count); we just dedupe by number further down.
             foreach (Match m in SegMarkerRe.Matches(text))
             {
-                int num;
-                if (int.TryParse(m.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out num))
-                    anchors.Add(new KeyValuePair<int, int>(m.Index, num));
+                var num = SegmentNumber.Canonical(m.Groups[1].Value);
+                if (num.Length > 0)
+                    anchors.Add(new KeyValuePair<int, string>(m.Index, num));
             }
 
             anchors.Sort((a, b) => a.Key.CompareTo(b.Key));
 
             // Dedupe consecutive anchors with the same number (heading + marker
             // for the same segment) by keeping the earliest one.
-            var dedup = new List<KeyValuePair<int, int>>();
-            var seen = new HashSet<int>();
+            var dedup = new List<KeyValuePair<int, string>>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var a in anchors)
             {
                 if (seen.Contains(a.Value)) continue;
@@ -322,7 +321,7 @@ namespace Supervertaler.Trados.Core.Export
             {
                 int blockStart = dedup[i].Key;
                 int blockEnd = (i + 1 < dedup.Count) ? dedup[i + 1].Key : text.Length;
-                int number = dedup[i].Value;
+                var number = dedup[i].Value;
                 var blockText = text.Substring(blockStart, blockEnd - blockStart);
 
                 var seg = ParseStackedBlock(number, blockText);
@@ -332,7 +331,7 @@ namespace Supervertaler.Trados.Core.Export
             return segments;
         }
 
-        private static ImportedSegment ParseStackedBlock(int number, string block)
+        private static ImportedSegment ParseStackedBlock(string number, string block)
         {
             // Find Source / Target label lines and capture the text between them.
             var labelMatches = LabelLineRe.Matches(block);

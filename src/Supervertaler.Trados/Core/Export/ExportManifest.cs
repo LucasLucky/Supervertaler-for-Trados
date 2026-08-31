@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -54,7 +54,7 @@ namespace Supervertaler.Trados.Core.Export
             {
                 var s = Segments[i];
                 sb.Append("    {");
-                sb.Append("\"number\": ").Append(s.Number).Append(", ");
+                sb.Append("\"number\": ").Append(JsonString(s.Number)).Append(", ");
                 sb.Append("\"paragraph_unit_id\": ").Append(JsonString(s.ParagraphUnitId)).Append(", ");
                 sb.Append("\"segment_id\": ").Append(JsonString(s.SegmentId)).Append(", ");
                 sb.Append("\"source_hash\": ").Append(JsonString(s.SourceHash)).Append(", ");
@@ -192,9 +192,10 @@ namespace Supervertaler.Trados.Core.Export
                 switch (key)
                 {
                     case "number":
-                        int n;
-                        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out n))
-                            seg.Number = n;
+                        // Older manifests wrote a bare integer, newer ones a quoted
+                        // string. StripQuotes handles both and Canonical makes either
+                        // comparable with what an importer reads off the page.
+                        seg.Number = SegmentNumber.Canonical(StripQuotes(value));
                         break;
                     case "paragraph_unit_id": seg.ParagraphUnitId = StripQuotes(value); break;
                     case "segment_id": seg.SegmentId = StripQuotes(value); break;
@@ -322,7 +323,11 @@ namespace Supervertaler.Trados.Core.Export
 
     public class ExportManifestSegment
     {
-        public int Number { get; set; }
+        /// <summary>The segment number as Trados Studio shows it, e.g. "243"
+        /// or "209a" for one half of a split. A string because a split id is
+        /// not a number - and the join key for the round trip, so export and
+        /// import must agree on its form. See <see cref="SegmentNumber"/>.</summary>
+        public string Number { get; set; } = "";
         public string ParagraphUnitId { get; set; } = "";
         public string SegmentId { get; set; } = "";
         public string SourceHash { get; set; } = "";

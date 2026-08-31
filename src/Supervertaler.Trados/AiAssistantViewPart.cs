@@ -13919,11 +13919,12 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         foreach (var grp in groups)
                         {
                             var perFileOpts = ClonePerFileOpts(opts, sourceFileName: grp.Key);
-                            // Renumber segments 1..N within each file so
-                            // the round-trip stays clean (manifest carries
-                            // the puId/segId identity anyway).
-                            int n = 1;
-                            foreach (var s in grp.Value) s.Number = n++;
+                            // Deliberately NOT renumbered. Splitting a file out used
+                            // to restart at 1, which is the same fault this numbering
+                            // work exists to remove: the number a reader sees has to be
+                            // the one Studio shows, whether they got one file or ten.
+                            // Studio's numbers are unique across the document, so a
+                            // per-file manifest still keys on them cleanly.
                             var fileName = Core.Export.BilingualExporter.DefaultFileName(perFileOpts);
                             var path = Path.Combine(targetDir, fileName);
                             var manifest = exporter.Export(grp.Value, perFileOpts, path);
@@ -14856,9 +14857,18 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 if (string.IsNullOrEmpty(segFileName))
                     segFileName = SafeGetActiveFileName();
 
+                // The counter survives only as a fallback for a segment with no
+                // id - which should not happen, but must not break an export.
+                var fallbackNumber = number++;
+
                 result.Add(new Core.Export.ExportSegment
                 {
-                    Number = number++,
+                    // Studio's own number, so a reader can look a row up in the grid
+                    // rather than counting rows. A split segment is "209a", and the
+                    // rows after it keep matching Studio instead of drifting by one.
+                    Number = !string.IsNullOrEmpty(segId)
+                        ? Core.Export.SegmentNumber.Canonical(segId)
+                        : fallbackNumber.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     ParagraphUnitId = puId,
                     SegmentId = segId,
                     SourceText = sourceText,
@@ -14966,9 +14976,14 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 try { puId = _activeDocument.GetParentParagraphUnit(pair)?.Properties?.ParagraphUnitId.Id ?? ""; } catch { }
                 try { segId = pair.Properties?.Id.Id ?? ""; } catch { }
 
+                var fallbackNumber = n++;
                 m.Segments.Add(new Core.Export.ExportManifestSegment
                 {
-                    Number = n++,
+                    // Same rule as the export itself: Studio's number, with the
+                    // counter only as a fallback for a segment carrying no id.
+                    Number = !string.IsNullOrEmpty(segId)
+                        ? Core.Export.SegmentNumber.Canonical(segId)
+                        : fallbackNumber.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     ParagraphUnitId = puId,
                     SegmentId = segId,
                     SourceHash = Core.Export.BilingualExporter.HashPrefix(src),

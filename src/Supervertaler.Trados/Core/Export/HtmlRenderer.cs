@@ -98,7 +98,7 @@ namespace Supervertaler.Trados.Core.Export
             foreach (var seg in segments)
             {
                 sb.Append("<tr><!-- sv-seg:").Append(seg.Number).Append(" -->");
-                sb.Append("<td class=\"num\">").Append(seg.Number).Append("</td>");
+                sb.Append("<td class=\"num\">").Append(seg.Number ?? "").Append("</td>");
                 sb.Append("<td>").Append(HtmlEscape(seg.SourceText)).Append("</td>");
                 sb.Append("<td>").Append(HtmlEscape(seg.TargetText ?? "")).Append("</td>");
                 sb.Append("<td>").Append(HtmlEscape(seg.DisplayStatus)).Append("</td>");

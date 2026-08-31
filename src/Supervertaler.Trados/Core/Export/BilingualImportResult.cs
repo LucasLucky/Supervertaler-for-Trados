@@ -34,7 +34,11 @@ namespace Supervertaler.Trados.Core.Export
 
     public class ImportSegmentDiff
     {
-        public int Number { get; set; }
+        /// <summary>The segment number as Trados Studio shows it, e.g. "243"
+        /// or "209a" for one half of a split. A string because a split id is
+        /// not a number - and the join key for the round trip, so export and
+        /// import must agree on its form. See <see cref="SegmentNumber"/>.</summary>
+        public string Number { get; set; } = "";
         public string ParagraphUnitId { get; set; }
         public string SegmentId { get; set; }
         public string OldTarget { get; set; }

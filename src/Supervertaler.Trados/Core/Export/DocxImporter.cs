@@ -71,10 +71,12 @@ namespace Supervertaler.Trados.Core.Export
                     // No segment data; skip.
                     if (cells.Count == 1) continue;
 
+                    // The "#" column carries Studio's number, which may end in a
+                    // letter ("209a"). Requiring a leading digit still skips the header
+                    // and file-name rows, which is all the old int.TryParse did here.
                     var numText = ExtractCellText(cells[0]).Trim();
-                    int number;
-                    if (!int.TryParse(numText, NumberStyles.Integer, CultureInfo.InvariantCulture, out number))
-                        continue;
+                    if (numText.Length == 0 || !char.IsDigit(numText[0])) continue;
+                    var number = SegmentNumber.Canonical(numText);
 
                     var seg = new ImportedSegment
                     {

@@ -278,7 +278,7 @@ namespace Supervertaler.Trados.Core.Export
                 // naturally as a vertical column when centred rather than
                 // right-aligned, especially when the column is narrow
                 // and the numbers vary in digit count (1 vs 21 vs 121).
-                row.AppendChild(MakeBodyCell(seg.Number.ToString(CultureInfo.InvariantCulture), alignment: "center"));
+                row.AppendChild(MakeBodyCell(seg.Number ?? "", alignment: "center"));
                 // Source + Target cells inherit any paragraph-level
                 // formatting flags (Heading 1 bold, whole-paragraph italic,
                 // etc.) from the segment so the bilingual file visually

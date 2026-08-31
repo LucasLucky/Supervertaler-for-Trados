@@ -52,7 +52,8 @@ namespace Supervertaler.Trados.Core.Export
             var result = new BilingualImportResult { Manifest = manifest };
 
             // Index manifest segments by number for O(1) lookup.
-            var manifestByNumber = new Dictionary<int, ExportManifestSegment>();
+            var manifestByNumber = new Dictionary<string, ExportManifestSegment>(
+                StringComparer.OrdinalIgnoreCase);
             foreach (var m in manifest.Segments)
                 manifestByNumber[m.Number] = m;
 
