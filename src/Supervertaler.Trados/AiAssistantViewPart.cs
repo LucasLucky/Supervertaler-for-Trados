@@ -14426,7 +14426,6 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         return currentTargetMap.TryGetValue(KeyOf(pu, sg), out val) ? val : null;
                     },
                     isWriteable: (pu, sg) => !lockedMap.Contains(KeyOf(pu, sg)),
-                    currentSourceLookup: null,
                     currentSourceTagCountLookup: (pu, sg) =>
                     {
                         int n;
@@ -14449,7 +14448,23 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 // separately so the user can see at a glance whether any
                 // segments would be skipped for safety.
                 var tagMismatch = result.TagMismatchCount;
-                var nonTagIssues = result.IssueCount - tagMismatch;
+                var sourceMismatch = result.SourceMismatchCount;
+                var nonTagIssues = result.IssueCount - tagMismatch - sourceMismatch;
+
+                // Called out separately, and named. This is not "a segment that
+                // could not be updated" - it means the row came back different from
+                // the one that was sent, so its target cannot be trusted to belong
+                // to that segment. A deleted row or a sorted table produces exactly
+                // this, and the number column alone would not notice.
+                var sourceLine = "";
+                if (sourceMismatch > 0)
+                {
+                    var nums = result.SourceMismatchNumbers;
+                    var shown = string.Join(", ", nums.GetRange(0, Math.Min(6, nums.Count)));
+                    if (nums.Count > 6) shown += ", and more";
+                    sourceLine = "  " + sourceMismatch + " row(s) no longer match the exported file "
+                               + "- will be SKIPPED (segment " + shown + ")" + Environment.NewLine;
+                }
                 var tagLine = tagMismatch > 0
                     ? (strict
                         ? $"  {tagMismatch} tag-mismatch (will be SKIPPED — would break Trados QA)\n"
@@ -14459,7 +14474,8 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                           $"  {result.ChangedCount} change(s) to apply\n" +
                           $"  {result.UnchangedCount} unchanged\n" +
                           tagLine +
-                          $"  {nonTagIssues} other issue(s) (missing, locked, source-mismatched)\n\n" +
+                          sourceLine +
+                          $"  {nonTagIssues} other issue(s) (missing or locked)\n\n" +
                           "Apply the changes to the active Trados document?";
                 var dr = MessageBox.Show(_control.Value, msg, "Re-import bilingual file",
                     MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
@@ -14649,13 +14665,15 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     ctrl.SetBusy(false);
                 }
 
-                var otherIssues = result.IssueCount - skippedTagMismatch;
+                var otherIssues = result.IssueCount - skippedTagMismatch - result.SourceMismatchCount;
                 var summary = (stoppedForMemory ? "Re-import stopped early: "
                         : cancelled ? "Re-import cancelled: "
                         : "Re-import complete: ")
                     + $"{applied} applied, {failed} failed";
                 if (skippedTagMismatch > 0)
                     summary += $", {skippedTagMismatch} skipped (tag mismatch)";
+                if (result.SourceMismatchCount > 0)
+                    summary += $", {result.SourceMismatchCount} skipped (row no longer matches the export)";
                 if (otherIssues > 0)
                     summary += $", {otherIssues} other issue(s) skipped";
                 summary += ".";

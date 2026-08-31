@@ -81,6 +81,28 @@ namespace Supervertaler.Trados.Core.Export
             }
         }
 
+        /// <summary>Rows whose source column no longer matches what was exported.
+        /// Counted apart from the other issues because it means something quite
+        /// different: not "this segment could not be updated" but "the file you are
+        /// importing has been altered where it should not have been".</summary>
+        public int SourceMismatchCount
+        {
+            get { int n = 0; foreach (var d in Diffs) if (d.Kind == ImportChangeKind.SourceMismatch) n++; return n; }
+        }
+
+        /// <summary>The segment numbers whose source was altered, so the message can
+        /// name them instead of leaving the user to hunt through the file.</summary>
+        public List<string> SourceMismatchNumbers
+        {
+            get
+            {
+                var list = new List<string>();
+                foreach (var d in Diffs)
+                    if (d.Kind == ImportChangeKind.SourceMismatch) list.Add(d.Number);
+                return list;
+            }
+        }
+
         public int TagMismatchCount
         {
             get { int n = 0; foreach (var d in Diffs) if (d.Kind == ImportChangeKind.TagMismatch) n++; return n; }

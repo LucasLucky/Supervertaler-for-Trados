@@ -39,7 +39,6 @@ namespace Supervertaler.Trados.Core.Export
             ExportManifest manifest,
             Func<string, string, string> currentTargetLookup,
             Func<string, string, bool> isWriteable,
-            Func<string, string, string> currentSourceLookup = null,
             Func<string, string, int> currentSourceTagCountLookup = null)
         {
             var ext = Path.GetExtension(importedFilePath).ToLowerInvariant();
@@ -81,9 +80,16 @@ namespace Supervertaler.Trados.Core.Export
                     Status = row.Status
                 };
 
-                // Source-text tamper check, if the imported file kept the
-                // source column (table layout) and a source lookup was given.
-                if (currentSourceLookup != null && !string.IsNullOrEmpty(row.SourceText) && !string.IsNullOrEmpty(m.SourceHash))
+                // Source-text tamper check, whenever the imported file kept its
+                // source column and the manifest recorded a hash for that row.
+                //
+                // This used to be gated on a `currentSourceLookup` callback being
+                // supplied - and the only caller passed null, so the check never
+                // ran once. Worse, the gate was meaningless: the comparison below
+                // hashes the source AS READ FROM THE FILE and compares it with the
+                // manifest, so it never needed a lookup at all. A proofreader could
+                // rewrite the source column and re-import would say nothing.
+                if (!string.IsNullOrEmpty(row.SourceText) && !string.IsNullOrEmpty(m.SourceHash))
                 {
                     var currentHash = BilingualExporter.HashPrefix(row.SourceText);
                     if (!string.Equals(currentHash, m.SourceHash, StringComparison.Ordinal))
