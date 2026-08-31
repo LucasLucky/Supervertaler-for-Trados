@@ -457,10 +457,7 @@ namespace Supervertaler.Trados
                     return "&Copy prompt to clipboard";
                 case "assistant":
                 default:
-                    var target = settings?.AiSettings?.QuickLauncherTarget ?? "TradosAssistant";
-                    return string.Equals(target, "WorkbenchSidekick", StringComparison.OrdinalIgnoreCase)
-                        ? "&Send to Supervertaler Workbench Chat"
-                        : "&Send to Supervertaler";
+                    return "&Send to Supervertaler";
             }
         }
 
@@ -471,7 +468,7 @@ namespace Supervertaler.Trados
                 case "clipboard":
                     return "Copy the expanded prompt to the system clipboard so you can paste it into an external chat (e.g. claude.ai).";
                 case "assistant":
-                    return "Send the prompt to the AI Assistant chat (in Trados or in Supervertaler Workbench's Chat panel, per your global setting).";
+                    return "Send the prompt to the AI Assistant chat panel in Trados.";
                 default:
                     return null;
             }
@@ -599,14 +596,10 @@ namespace Supervertaler.Trados
         private static void DispatchToAssistant(
             string promptName, string expanded, string displayExpanded, TermLensSettings settings)
         {
-            var target = settings?.AiSettings?.QuickLauncherTarget ?? "TradosAssistant";
-            if (string.Equals(target, "WorkbenchSidekick", StringComparison.OrdinalIgnoreCase))
-            {
-                var (ok, _) = Core.WorkbenchBridgeClient.RunPrompt(
-                    expanded, displayExpanded ?? expanded, promptName);
-                if (ok) return;
-                // Fell through – fall back to the in-Trados Assistant.
-            }
+            // Always the in-Trados Assistant. The Workbench route is gone; it was
+            // already a fall-back-on-failure path, so removing it changes nothing
+            // for anyone whose Workbench was not running - which, shortly, is
+            // everyone.
             AiAssistantViewPart.RunQuickLauncherPrompt(expanded, displayExpanded, promptName);
         }
     }

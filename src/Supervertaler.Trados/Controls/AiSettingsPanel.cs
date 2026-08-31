@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Threading;
@@ -684,20 +684,18 @@ namespace Supervertaler.Trados.Controls
             // (settings.QuickLauncherTarget == "WorkbenchSidekick") is kept
             // unchanged on disk so existing users' saved preferences still
             // resolve – it's an internal identifier, never user-visible.
-            _cmbQuickLauncherTarget.Items.Add("Workbench Chat");
+            // "Workbench Chat" was the second entry. Removed with Workbench's
+            // retirement: a destination that will not exist is not a choice, and
+            // anyone left on it would have got silence. The stored value
+            // (QuickLauncherTarget) is untouched on disk and simply ignored, so
+            // nothing has to migrate.
             _cmbQuickLauncherTarget.SelectedIndex = 0;
             var qlTargetTip = new ToolTip { AutoPopDelay = 10000, InitialDelay = 300 };
             qlTargetTip.SetToolTip(_cmbQuickLauncherTarget,
-                "Where Ctrl+Q QuickLauncher prompts are run.\r\n" +
+                "Where QuickLauncher prompts are run.\r\n" +
                 "\r\n" +
-                "  In-Trados AI Assistant – default. Prompt + response stay in the\r\n" +
-                "  Trados Assistant chat panel.\r\n" +
-                "\r\n" +
-                "  Workbench Chat – posts the prompt to Supervertaler Workbench's\r\n" +
-                "  AI tab → Chat sub-tab over a localhost bridge. Useful when you\r\n" +
-                "  prefer a larger chat window for the response, or want both\r\n" +
-                "  products' chat history in one place. Falls back to the in-Trados\r\n" +
-                "  Assistant if Workbench isn't running.");
+                "  In-Trados AI Assistant – prompt and response stay in the\r\n" +
+                "  Trados Assistant chat panel.");
             Pair(root, ref row, _lblQuickLauncherTarget, _cmbQuickLauncherTarget);
 
             // ===== External AI assistants (MCP) =====
@@ -825,9 +823,7 @@ namespace Supervertaler.Trados.Controls
                 Math.Min(_nudPromptContext.Maximum, settings.PromptContextMaxSegments));
             _nudSurroundingSegments.Value = Math.Max(_nudSurroundingSegments.Minimum,
                 Math.Min(_nudSurroundingSegments.Maximum, settings.QuickLauncherSurroundingSegments));
-            _cmbQuickLauncherTarget.SelectedIndex =
-                string.Equals(settings.QuickLauncherTarget, "WorkbenchSidekick", StringComparison.OrdinalIgnoreCase)
-                    ? 1 : 0;
+            _cmbQuickLauncherTarget.SelectedIndex = 0;   // only one destination now
             _chkIncludeTermMetadata.Checked = settings.IncludeTermMetadata;
             _chkIncludeSuperMemory.Checked = settings.IncludeSuperMemoryContext;
             _chkIncludeSuperMemoryAutoPrompt.Checked = settings.IncludeSuperMemoryInAutoPrompt;
@@ -911,8 +907,7 @@ namespace Supervertaler.Trados.Controls
             settings.DocumentContextMaxSegments = (int)_nudMaxSegments.Value;
             settings.PromptContextMaxSegments = (int)_nudPromptContext.Value;
             settings.QuickLauncherSurroundingSegments = (int)_nudSurroundingSegments.Value;
-            settings.QuickLauncherTarget = _cmbQuickLauncherTarget.SelectedIndex == 1
-                ? "WorkbenchSidekick" : "TradosAssistant";
+            settings.QuickLauncherTarget = "TradosAssistant";
             settings.IncludeTermMetadata = _chkIncludeTermMetadata.Checked;
             settings.IncludeSuperMemoryContext = _chkIncludeSuperMemory.Checked;
             settings.IncludeSuperMemoryInAutoPrompt = _chkIncludeSuperMemoryAutoPrompt.Checked;

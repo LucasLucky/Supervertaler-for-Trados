@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Windows.Forms;
 using Supervertaler.Trados.Core;
@@ -15,7 +15,6 @@ namespace Supervertaler.Trados.Controls
         private TextBox _txtName;
         private TextBox _txtDescription;
         private TextBox _txtDomain;
-        private ComboBox _cboApp;
         private CheckBox _chkShowInMenu;
         private TextBox _txtContent;
         private Label _lblDefault;
@@ -122,26 +121,13 @@ namespace Supervertaler.Trados.Controls
                 Width = 200,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left
             };
-            var lblApp = new Label
-            {
-                Text = "App:",
-                Location = new Point(310, y + 3),
-                AutoSize = true,
-                ForeColor = labelColor
-            };
-            _cboApp = new ComboBox
-            {
-                Location = new Point(355, y),
-                Width = 130,
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left
-            };
-            _cboApp.Items.AddRange(new object[] { "Both", "Trados only", "Workbench only" });
-            _cboApp.SelectedIndex = 0;
+            // The "App" dropdown (Both / Trados only / Workbench only) is gone.
+            // Only "Workbench only" ever did anything, and what it did was hide the
+            // prompt with no explanation; the other two were inert. A control whose
+            // options are two no-ops and one disappearing act is worse than none.
+            // The underlying field is still preserved in the file - see PromptLibrary.
             Controls.Add(lblDomain);
             Controls.Add(_txtDomain);
-            Controls.Add(lblApp);
-            Controls.Add(_cboApp);
             y += 30;
 
             // ─── Show in QuickLauncher menu ─────────────
@@ -363,15 +349,6 @@ namespace Supervertaler.Trados.Controls
             _txtDomain.Text = _prompt.Category ?? "";
             _txtContent.Text = _prompt.Content ?? "";
 
-            // Map App value to ComboBox selection
-            var app = (_prompt.App ?? "both").ToLowerInvariant();
-            if (app == "trados")
-                _cboApp.SelectedIndex = 1;
-            else if (app == "workbench")
-                _cboApp.SelectedIndex = 2;
-            else
-                _cboApp.SelectedIndex = 0; // "Both"
-
             // Show "Show in QuickLauncher menu" checkbox for QuickLauncher prompts
             UpdateShowInMenuVisibility();
             _chkShowInMenu.Checked = !_prompt.HiddenFromMenu;
@@ -395,7 +372,6 @@ namespace Supervertaler.Trados.Controls
                 _txtName.ReadOnly = true;
                 _txtDescription.ReadOnly = true;
                 _txtDomain.ReadOnly = true;
-                _cboApp.Enabled = false;
                 _chkShowInMenu.Enabled = false;
                 _chkModeAssistant.Enabled = false;
                 _chkModeClipboard.Enabled = false;
@@ -411,7 +387,6 @@ namespace Supervertaler.Trados.Controls
                 _txtName.ReadOnly = true;
                 _txtDescription.ReadOnly = true;
                 _txtDomain.ReadOnly = true;
-                _cboApp.Enabled = false;
                 _txtContent.ReadOnly = true;
                 // _chkShowInMenu, mode checkboxes, default combo stay enabled —
                 // users can hide a default prompt and toggle clipboard mode on
@@ -467,13 +442,9 @@ namespace Supervertaler.Trados.Controls
             _prompt.Category = _txtDomain.Text.Trim();
             _prompt.Content = _txtContent.Text;
 
-            // Map ComboBox selection back to App value
-            switch (_cboApp.SelectedIndex)
-            {
-                case 1: _prompt.App = "trados"; break;
-                case 2: _prompt.App = "workbench"; break;
-                default: _prompt.App = "both"; break;
-            }
+            // _prompt.App is deliberately left as loaded. The editor no longer
+            // offers it, and rewriting it here would silently rewrite every file
+            // it saved.
 
             // Save QuickLauncher menu visibility
             if (_chkShowInMenu.Visible)
