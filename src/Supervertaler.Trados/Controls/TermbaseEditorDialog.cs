@@ -92,16 +92,26 @@ namespace Supervertaler.Trados.Controls
                 Location = new Point(10, 10),
                 ForeColor = Color.FromArgb(80, 80, 80)
             };
-            toolbarPanel.Controls.Add(lblSearch);
 
+            // #96: the box used to sit at a hardcoded x=62 while the label
+            // auto-sizes with the user's DPI. Once the label reached past 62 it
+            // overlapped the box's left edge, and - having been added to the
+            // panel first, i.e. higher in the z-order - it painted OVER it.
+            // White on white, so nothing looked wrong; but the caret in this
+            // box sits at x=1, inside the covered strip, so it was swallowed
+            // whole while typing and filtering worked normally. Position the
+            // box from the MEASURED label instead, and add the label after the
+            // box so any future overlap paints underneath.
             _txtSearch = new TextBox
             {
-                Location = new Point(62, 7),
+                Location = new Point(lblSearch.Left + lblSearch.PreferredWidth + 8, 7),
                 Width = 220,
-                BackColor = Color.FromArgb(250, 250, 250)
+                BackColor = Color.FromArgb(250, 250, 250),
+                Font = new Font("Segoe UI", 9f)
             };
             _txtSearch.TextChanged += OnSearchTextChanged;
             toolbarPanel.Controls.Add(_txtSearch);
+            toolbarPanel.Controls.Add(lblSearch);
 
             _chkNtOnly = new CheckBox
             {
