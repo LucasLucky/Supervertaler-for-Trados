@@ -3057,6 +3057,33 @@ namespace Supervertaler.Trados
         /// </summary>
         private static bool HandleGlobalEscape()
         {
+            // Escape peels ONE layer per press, innermost first (#49).
+
+            // 0a. The Edit Term dialog. It sets CancelButton and by WinForms
+            // rules must close on Escape - but Studio consumes the key before
+            // the dialog ever sees it, which is the whole reason this hook
+            // exists. Active-form test, so it only fires for the dialog the
+            // user is actually in.
+            if (System.Windows.Forms.Form.ActiveForm is Controls.TermEntryEditorDialog editDlg)
+            {
+                try
+                {
+                    editDlg.DialogResult = System.Windows.Forms.DialogResult.Cancel;
+                    editDlg.Close();
+                    return true;
+                }
+                catch { }
+            }
+
+            // 0b. The term-details window (the metadata popup opened with I),
+            // whichever surface it hangs off. Checked BEFORE the TermPicker
+            // dialog below, so Escape inside the picker closes the details and
+            // leaves the picker standing rather than tearing down both.
+            if (Controls.TermPopup.TryHideVisible())
+            {
+                return true;
+            }
+
             // 1. The floating TermLens popup (Ctrl tap).
             if (TryCloseTermLensPopup())
             {

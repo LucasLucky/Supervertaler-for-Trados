@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -739,6 +739,20 @@ namespace Supervertaler.Trados.Controls
             if (_instance == null || _instance.IsDisposed)
                 _instance = new TermPopup();
             return _instance;
+        }
+
+        /// <summary>
+        /// Hides the popup if one is currently showing; true when it did.
+        /// For dismissal paths (the global Escape hook, #49): unlike
+        /// <see cref="GetInstance"/> it never CREATES the singleton just to
+        /// find out there was nothing to hide.
+        /// </summary>
+        public static bool TryHideVisible()
+        {
+            var popup = _instance;
+            if (popup == null || popup.IsDisposed || !popup.Visible) return false;
+            try { popup.HidePopup(); } catch { return false; }
+            return true;
         }
 
         protected override void Dispose(bool disposing)
