@@ -71,9 +71,29 @@ public enum ToolAccess
 /// </summary>
 public static class ToolRegistry
 {
-    private static readonly string CachePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Supervertaler", "mcp-tools-cache.json");
+    // Keyed by the SUPERVERTALER_BRIDGE_FILE override when one is set: the same
+    // exe can be configured twice in Claude Desktop, once per host (Trados, and
+    // the memoQ plugin's bridge), and those bridges serve different registries.
+    // With one shared cache file, whichever host was closed would advertise the
+    // other host's tools. The default (no override) keeps the historical path.
+    private static readonly string CachePath = BuildCachePath();
+
+    private static string BuildCachePath()
+    {
+        var dir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Supervertaler");
+
+        var overridePath = Environment.GetEnvironmentVariable("SUPERVERTALER_BRIDGE_FILE");
+        if (string.IsNullOrEmpty(overridePath))
+            return Path.Combine(dir, "mcp-tools-cache.json");
+
+        uint hash = 2166136261;
+        foreach (var ch in overridePath.ToLowerInvariant())
+            hash = (hash ^ ch) * 16777619;
+
+        return Path.Combine(dir, $"mcp-tools-cache-{hash:x8}.json");
+    }
 
     /// <summary>Fetch from the bridge if reachable (and refresh the cache);
     /// otherwise use the disk cache; otherwise the bundled fallback. Never
