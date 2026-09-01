@@ -35,6 +35,7 @@ namespace Supervertaler.Trados.Controls
         private Button _btnClose;
         private ContextMenuStrip _rowContextMenu;
         private ToolStripMenuItem _reverseItem;
+        private ToolStripMenuItem _deleteItem;
 
         // Synonym counts keyed by term ID, loaded once
         private Dictionary<long, int> _synonymCounts;
@@ -233,9 +234,9 @@ namespace Supervertaler.Trados.Controls
             _reverseItem.Click += OnContextReverseClick;
             _rowContextMenu.Items.Add(_reverseItem);
 
-            var deleteItem = new ToolStripMenuItem("Delete term");
-            deleteItem.Click += OnContextDeleteClick;
-            _rowContextMenu.Items.Add(deleteItem);
+            _deleteItem = new ToolStripMenuItem("Delete term");
+            _deleteItem.Click += OnContextDeleteClick;
+            _rowContextMenu.Items.Add(_deleteItem);
 
             // Update labels dynamically based on selection size when the menu opens.
             _rowContextMenu.Opening += (s, ev) =>
@@ -244,6 +245,9 @@ namespace Supervertaler.Trados.Controls
                 _reverseItem.Text = count > 1
                     ? $"Reverse source/target ({count} entries)"
                     : "Reverse source/target";
+                _deleteItem.Text = count > 1
+                    ? $"Delete {count} terms"
+                    : "Delete term";
             };
 
             _dgvTerms.CellMouseClick += OnCellMouseClick;
@@ -1052,6 +1056,15 @@ namespace Supervertaler.Trados.Controls
 
         private void OnContextDeleteClick(object sender, EventArgs e)
         {
+            // A range selected: delete all of it, the way the Delete key already
+            // does. Right-click keeps an existing multi-selection on purpose, so
+            // acting on the clicked row alone silently ignored the rest.
+            if (CountSelectedDataRows() > 1)
+            {
+                DeleteSelectedRows();
+                return;
+            }
+
             if (_contextRowIndex < 0 || _contextRowIndex >= _bindingSource.Count) return;
 
             var rowView = _bindingSource[_contextRowIndex] as DataRowView;

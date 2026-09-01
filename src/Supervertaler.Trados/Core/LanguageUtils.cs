@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
@@ -134,6 +134,38 @@ namespace Supervertaler.Trados.Core
             var region = parts[1].ToUpperInvariant();
             var rest = parts.Length > 2 ? "-" + string.Join("-", parts, 2, parts.Length - 2) : "";
             return baseCode + "-" + region + rest;
+        }
+
+        /// <summary>
+        /// Renders a stored locale code as the English language name used in a
+        /// column header: "en" to "English", "nl" to "Dutch", "en-GB" to
+        /// "English (United Kingdom)".
+        ///
+        /// The region is KEPT, matching <see cref="CanonicalLocale"/>. It costs
+        /// nothing at match time - the TSV importer strips a parenthesised region
+        /// before comparing, and comparison is on the base language either way -
+        /// and it tells a person opening the file in Excel which variant they have.
+        ///
+        /// Returns null for a missing code, so a caller can fall back to a neutral
+        /// header rather than writing an empty one; and the code itself for a locale
+        /// .NET does not recognise, which still matches because MatchesLanguage
+        /// compares codes as well as names.
+        /// </summary>
+        public static string LocaleToEnglishName(string code)
+        {
+            if (string.IsNullOrWhiteSpace(code)) return null;
+
+            var canonical = CanonicalLocale(code);
+            try
+            {
+                var culture = System.Globalization.CultureInfo.GetCultureInfo(canonical);
+                if (!string.IsNullOrEmpty(culture.EnglishName)
+                    && culture.EnglishName.IndexOf("Unknown", StringComparison.OrdinalIgnoreCase) < 0)
+                    return culture.EnglishName;
+            }
+            catch { /* not a locale .NET knows - fall through to the code */ }
+
+            return canonical;
         }
 
         /// <summary>

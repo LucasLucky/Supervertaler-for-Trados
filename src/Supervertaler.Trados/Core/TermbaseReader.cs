@@ -2651,11 +2651,37 @@ namespace Supervertaler.Trados.Core
                     }
                 }
 
-                // Fixed headers – language-neutral so the exported TSV can
-                // always be reimported regardless of the target termbase's
-                // language pair.
-                const string srcHeader = "Source";
-                const string tgtHeader = "Target";
+                // The termbase's own declared pair, for the headers below.
+                string srcLangCode = "", tgtLangCode = "";
+                using (var langCmd = new SqliteCommand(
+                    "SELECT source_lang, target_lang FROM termbases WHERE CAST(id AS INTEGER) = @tbId", conn))
+                {
+                    langCmd.Parameters.AddWithValue("@tbId", termbaseId);
+                    using (var langReader = langCmd.ExecuteReader())
+                    {
+                        if (langReader.Read())
+                        {
+                            srcLangCode = langReader.IsDBNull(0) ? "" : langReader.GetString(0);
+                            tgtLangCode = langReader.IsDBNull(1) ? "" : langReader.GetString(1);
+                        }
+                    }
+                }
+
+                // Headers name the LANGUAGE of each column, the way memoQ and
+                // MultiTerm write theirs. They used to be a fixed "Source"/"Target",
+                // reasoned as language-neutral so the file could always be
+                // reimported whatever the destination's pair was - but the importer
+                // already falls back to file order when it cannot match a language,
+                // so that cost the safety and bought nothing. With the language
+                // named, importing into a termbase pointing the other way swaps the
+                // columns to match instead of filing English terms as Dutch (#93).
+                //
+                // A termbase with no declared language keeps the old neutral header,
+                // so nothing about such a file changes. LocaleToEnglishName falls
+                // back to the raw code for a locale .NET does not know, which still
+                // matches: MatchesLanguage compares codes as well as names.
+                var srcHeader = LanguageUtils.LocaleToEnglishName(srcLangCode) ?? "Source";
+                var tgtHeader = LanguageUtils.LocaleToEnglishName(tgtLangCode) ?? "Target";
 
                 // Write TSV
                 using (var sw = new StreamWriter(tsvPath, false, new UTF8Encoding(true)))
@@ -2927,11 +2953,45 @@ namespace Supervertaler.Trados.Core
         /// <summary>
         /// Maps TSV header names to standardized column keys (case-insensitive).
         /// </summary>
+        /// <summary>
+        /// How the source and target columns of a TSV were identified. Reported so
+        /// the caller can tell the user what is about to happen: a file pointing the
+        /// other way is handled correctly, but silently doing so is how a reversed
+        /// termbase goes unnoticed (#93).
+        /// </summary>
+        internal enum TsvColumnOrigin
+        {
+            /// <summary>No source/target columns found at all.</summary>
+            Unresolved,
+            /// <summary>Headers said "Source"/"Target" - no language information, file order used.</summary>
+            NamedColumns,
+            /// <summary>Language headers matched the destination in the file's own order.</summary>
+            Aligned,
+            /// <summary>Language headers matched the destination reversed - the columns are swapped.</summary>
+            Swapped,
+            /// <summary>Languages could not be matched; the first two language-looking columns were used in file order.</summary>
+            Positional,
+            /// <summary>Both sides of the termbase are the same base language, so which column is which cannot be told apart.</summary>
+            Ambiguous,
+            /// <summary>Both header languages were read, and they are not this termbase's pair. The file does not belong here.</summary>
+            Mismatch
+        }
+
         private static Dictionary<string, int> MapTsvColumns(string[] headers, string sourceLang, string targetLang)
         {
+            return MapTsvColumns(headers, sourceLang, targetLang, out _);
+        }
+
+        private static Dictionary<string, int> MapTsvColumns(string[] headers, string sourceLang,
+            string targetLang, out TsvColumnOrigin origin)
+        {
             var map = new Dictionary<string, int>();
-            int firstLangCol = -1;
-            int secondLangCol = -1;
+
+            // Columns that are neither metadata nor an explicit Source/Target, in the
+            // order they appear. Collected rather than assigned on sight: which column
+            // is the source depends on what the OTHER one turns out to be, so nothing
+            // can be decided until both have been read (#93).
+            var languageCols = new List<int>();
 
             for (int i = 0; i < headers.Length; i++)
             {
@@ -2955,27 +3015,208 @@ namespace Supervertaler.Trados.Core
                     map["client"] = i;
                 else if (h == "forbidden" || h == "do not use" || h == "prohibited" || h == "banned")
                     map["forbidden"] = i;
-                else
-                {
-                    // Try matching language names as column headers
-                    if (!map.ContainsKey("source") && MatchesLanguage(h, sourceLang))
-                        map["source"] = i;
-                    else if (!map.ContainsKey("target") && MatchesLanguage(h, targetLang))
-                        map["target"] = i;
-                    else if (firstLangCol < 0 && IsKnownLanguage(h))
-                        firstLangCol = i;
-                    else if (secondLangCol < 0 && IsKnownLanguage(h))
-                        secondLangCol = i;
-                }
+                else if (ResolveHeaderLanguage(h) != null || IsKnownLanguage(h)
+                         || MatchesLanguage(h, sourceLang) || MatchesLanguage(h, targetLang))
+                    languageCols.Add(i);
             }
 
-            // Fallback: if source/target not yet mapped, use first two language columns
-            if (!map.ContainsKey("source") && firstLangCol >= 0)
-                map["source"] = firstLangCol;
-            if (!map.ContainsKey("target") && secondLangCol >= 0)
-                map["target"] = secondLangCol;
+            // Both columns already named outright - no language information to weigh.
+            if (map.ContainsKey("source") && map.ContainsKey("target"))
+            {
+                origin = TsvColumnOrigin.NamedColumns;
+                return map;
+            }
+
+            // Exactly one named: fill its partner from the first language column that
+            // is not already spoken for.
+            if (map.ContainsKey("source") || map.ContainsKey("target"))
+            {
+                int taken = map.ContainsKey("source") ? map["source"] : map["target"];
+                foreach (var col in languageCols)
+                {
+                    if (col == taken) continue;
+                    if (!map.ContainsKey("source")) map["source"] = col;
+                    else map["target"] = col;
+                    break;
+                }
+                origin = map.ContainsKey("source") && map.ContainsKey("target")
+                    ? TsvColumnOrigin.NamedColumns
+                    : TsvColumnOrigin.Unresolved;
+                return map;
+            }
+
+            if (languageCols.Count < 2)
+            {
+                origin = TsvColumnOrigin.Unresolved;
+                return map;
+            }
+
+            // Judge the two as a PAIR. Assigning whichever matched first is what put
+            // Dutch terms into a German termbase: "English" matched that termbase's
+            // target, "Dutch" matched nothing, and the leftover slot made Dutch the
+            // source. A column's role is only knowable once both are read.
+            int a = languageCols[0], b = languageCols[1];
+            var langA = ResolveHeaderLanguage(headers[a].Trim());
+            var langB = ResolveHeaderLanguage(headers[b].Trim());
+            var destSrc = ResolveHeaderLanguage(sourceLang);
+            var destTgt = ResolveHeaderLanguage(targetLang);
+
+            bool bothKnown = langA != null && langB != null && destSrc != null && destTgt != null;
+            bool sameSides = bothKnown && string.Equals(destSrc, destTgt, StringComparison.OrdinalIgnoreCase);
+
+            // Default placement is file order; only a confident match reorders it.
+            map["source"] = a;
+            map["target"] = b;
+
+            if (!bothKnown)
+                origin = TsvColumnOrigin.Positional;
+            else if (!sameSides
+                     && string.Equals(langA, destSrc, StringComparison.OrdinalIgnoreCase)
+                     && string.Equals(langB, destTgt, StringComparison.OrdinalIgnoreCase))
+                origin = TsvColumnOrigin.Aligned;
+            else if (!sameSides
+                     && string.Equals(langA, destTgt, StringComparison.OrdinalIgnoreCase)
+                     && string.Equals(langB, destSrc, StringComparison.OrdinalIgnoreCase))
+            {
+                // The file points the other way. Swap, so each term still lands on
+                // the side that speaks its language.
+                map["source"] = b;
+                map["target"] = a;
+                origin = TsvColumnOrigin.Swapped;
+            }
+            else if (sameSides
+                     && string.Equals(langA, destSrc, StringComparison.OrdinalIgnoreCase)
+                     && string.Equals(langB, destTgt, StringComparison.OrdinalIgnoreCase))
+                // en-US to en-GB: both columns are the same base language as both
+                // sides, so a match carries no information and direction must not be
+                // claimed from it.
+                origin = TsvColumnOrigin.Ambiguous;
+            else
+                // Both languages read, and they are not this termbase's pair. Saying
+                // "the columns will be read in order" here would be technically true
+                // and useless: the real news is that the file belongs somewhere else.
+                origin = TsvColumnOrigin.Mismatch;
 
             return map;
+        }
+
+        /// <summary>
+        /// Resolves a column header or a stored locale to a two-letter language code:
+        /// "English" and "English (United States)" and "en-US" all to "en". Null when
+        /// it is not a language at all, which is the signal that a direction cannot
+        /// be judged rather than an invitation to guess one.
+        /// </summary>
+        private static string ResolveHeaderLanguage(string header)
+        {
+            if (string.IsNullOrWhiteSpace(header)) return null;
+            var text = header.Trim();
+
+            // A locale code, with or without a region.
+            var baseCode = text.Split('-', '_')[0];
+            if (baseCode.Length == 2 || baseCode.Length == 3)
+            {
+                try
+                {
+                    var culture = System.Globalization.CultureInfo.GetCultureInfo(baseCode);
+                    var two = culture.TwoLetterISOLanguageName;
+                    if (!string.IsNullOrEmpty(two) && two != "iv")
+                        return two.ToLowerInvariant();
+                }
+                catch { /* not a locale - try it as a name below */ }
+            }
+
+            if (LanguageNameToCode.Value.TryGetValue(StripParenthesisedRegion(text), out var byName))
+                return byName;
+            return LanguageNameToCode.Value.TryGetValue(text, out var exact) ? exact : null;
+        }
+
+        /// <summary>
+        /// Language name to two-letter code, built once from every culture .NET knows
+        /// plus the Dutch exonyms that appear in Workbench exports.
+        /// </summary>
+        private static readonly Lazy<Dictionary<string, string>> LanguageNameToCode =
+            new Lazy<Dictionary<string, string>>(() =>
+            {
+                var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                try
+                {
+                    foreach (var culture in System.Globalization.CultureInfo.GetCultures(
+                                 System.Globalization.CultureTypes.NeutralCultures))
+                    {
+                        var two = culture.TwoLetterISOLanguageName;
+                        if (string.IsNullOrEmpty(two) || two == "iv") continue;
+                        foreach (var name in new[] { culture.EnglishName, culture.NativeName })
+                        {
+                            if (string.IsNullOrEmpty(name)) continue;
+                            var key = StripParenthesisedRegion(name);
+                            if (!names.ContainsKey(key)) names[key] = two.ToLowerInvariant();
+                        }
+                    }
+                }
+                catch { }
+
+                foreach (var pair in new[]
+                {
+                    new[] { "nederlands", "nl" }, new[] { "engels", "en" }, new[] { "duits", "de" },
+                    new[] { "frans", "fr" }, new[] { "spaans", "es" }, new[] { "italiaans", "it" },
+                    new[] { "portugees", "pt" }
+                })
+                {
+                    if (!names.ContainsKey(pair[0])) names[pair[0]] = pair[1];
+                }
+                return names;
+            });
+
+        /// <summary>What a TSV's header row says about the languages in it.</summary>
+        internal sealed class TsvHeaderInfo
+        {
+            /// <summary>The header text over the column that will be read as source, verbatim.</summary>
+            public string SourceHeader;
+            /// <summary>The header text over the column that will be read as target, verbatim.</summary>
+            public string TargetHeader;
+            public TsvColumnOrigin Origin;
+        }
+
+        /// <summary>
+        /// Reads only the header row and reports how its columns will be matched
+        /// against a destination termbase, so the user can be told - and can stop -
+        /// before anything is written. Never throws: an unreadable or headerless
+        /// file reports Unresolved and the import itself produces the real error.
+        /// </summary>
+        internal static TsvHeaderInfo InspectTsvHeader(string tsvPath, string sourceLang, string targetLang)
+        {
+            var info = new TsvHeaderInfo { Origin = TsvColumnOrigin.Unresolved };
+            try
+            {
+                string first;
+                using (var sr = new StreamReader(tsvPath, new UTF8Encoding(true)))
+                    first = sr.ReadLine();
+                if (string.IsNullOrEmpty(first)) return info;
+
+                var headers = first.Split('\t');
+                TsvColumnOrigin origin;
+                var map = MapTsvColumns(headers, sourceLang, targetLang, out origin);
+                info.Origin = origin;
+                if (map.TryGetValue("source", out var si) && si < headers.Length)
+                    info.SourceHeader = headers[si].Trim();
+                if (map.TryGetValue("target", out var ti) && ti < headers.Length)
+                    info.TargetHeader = headers[ti].Trim();
+            }
+            catch { }
+            return info;
+        }
+
+        /// <summary>
+        /// True when two locale codes name the same base language, regardless of
+        /// region: "en" and "en-GB" yes, "en-GB" and "nl-BE" no. Used to recognise
+        /// a termbase whose direction cannot be derived from language names at all.
+        /// </summary>
+        private static bool SameBaseLanguage(string a, string b)
+        {
+            if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b)) return false;
+            var baseA = a.Trim().Split('-', '_')[0];
+            var baseB = b.Trim().Split('-', '_')[0];
+            return string.Equals(baseA, baseB, StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool MatchesLanguage(string header, string langCode)
@@ -3045,11 +3286,40 @@ namespace Supervertaler.Trados.Core
         /// Checks if a header looks like a language name. Handles parenthesised
         /// region suffixes (e.g., "Dutch (BE)") by stripping them before lookup.
         /// </summary>
+        /// <summary>
+        /// Every language name .NET knows, region stripped, built once.
+        /// KnownLanguages above stays as a supplement because it carries Dutch
+        /// exonyms ("engels", "duits") that CultureInfo's English names do not.
+        /// Without this the hardcoded list decided what counted as a language
+        /// column, so a file headed "Icelandic"/"Welsh" matched neither the
+        /// destination nor the positional fallback and the import threw (#93).
+        /// </summary>
+        private static readonly Lazy<HashSet<string>> CultureLanguageNames =
+            new Lazy<HashSet<string>>(() =>
+            {
+                var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                try
+                {
+                    foreach (var ci in System.Globalization.CultureInfo.GetCultures(
+                                 System.Globalization.CultureTypes.NeutralCultures))
+                    {
+                        if (!string.IsNullOrEmpty(ci.EnglishName))
+                            set.Add(StripParenthesisedRegion(ci.EnglishName));
+                        if (!string.IsNullOrEmpty(ci.NativeName))
+                            set.Add(StripParenthesisedRegion(ci.NativeName));
+                    }
+                }
+                catch { }
+                return set;
+            });
+
         private static bool IsKnownLanguage(string header)
         {
-            if (KnownLanguages.Contains(header)) return true;
+            if (KnownLanguages.Contains(header) || CultureLanguageNames.Value.Contains(header))
+                return true;
             var baseName = StripParenthesisedRegion(header);
-            return baseName != header && KnownLanguages.Contains(baseName);
+            return baseName != header
+                && (KnownLanguages.Contains(baseName) || CultureLanguageNames.Value.Contains(baseName));
         }
 
         private static string GetField(string[] fields, Dictionary<string, int> colMap, string key)

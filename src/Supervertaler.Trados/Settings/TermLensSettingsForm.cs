@@ -1634,16 +1634,78 @@ namespace Supervertaler.Trados.Settings
                     rowCount = 0;
                 }
 
-                var langPair = $"{LanguageUtils.ShortenLanguageName(selected.SourceLang)} \u2192 " +
-                               $"{LanguageUtils.ShortenLanguageName(selected.TargetLang)}";
+                var srcName = LanguageUtils.ShortenLanguageName(selected.SourceLang);
+                var tgtName = LanguageUtils.ShortenLanguageName(selected.TargetLang);
+                var langPair = $"{srcName} \u2192 {tgtName}";
                 var fileName = Path.GetFileName(dlg.FileName);
                 var confirmMsg = rowCount > 0
                     ? $"Import {rowCount:N0} row{(rowCount == 1 ? "" : "s")} from \"{fileName}\" " +
                       $"into \"{selected.Name}\" ({langPair})?"
                     : $"Import \"{fileName}\" into \"{selected.Name}\" ({langPair})?";
 
+                // Which way round is the FILE? The dialog has always named the
+                // destination's pair and never the file's, so importing one that
+                // pointed the other way filed every term on the wrong side without
+                // a word (#93).
+                var headerInfo = TermbaseReader.InspectTsvHeader(
+                    dlg.FileName, selected.SourceLang, selected.TargetLang);
+                var confirmIcon = MessageBoxIcon.Question;
+                var confirmDefault = MessageBoxDefaultButton.Button1;
+
+                switch (headerInfo.Origin)
+                {
+                    case TermbaseReader.TsvColumnOrigin.Swapped:
+                        // Handled correctly, but say so - the user asked for one
+                        // direction and is getting the other, which is right here
+                        // and would be alarming to discover later.
+                        confirmMsg += $"\r\n\r\nThis file is {headerInfo.TargetHeader} \u2192 " +
+                                      $"{headerInfo.SourceHeader}, the other way round from this " +
+                                      "termbase. Its two columns will be swapped so each term lands " +
+                                      "on the side it belongs to.";
+                        break;
+
+                    case TermbaseReader.TsvColumnOrigin.NamedColumns:
+                        confirmMsg += $"\r\n\r\nThis file's columns are headed \u201cSource\u201d and " +
+                                      $"\u201cTarget\u201d, so it does not say which languages are in it. " +
+                                      $"They will be read in the order they appear: the first as " +
+                                      $"{srcName}, the second as {tgtName}. If the file is actually " +
+                                      "the other way round, every term will be stored reversed.";
+                        confirmIcon = MessageBoxIcon.Warning;
+                        break;
+
+                    case TermbaseReader.TsvColumnOrigin.Mismatch:
+                        // Named both pairs rather than describing column order: the
+                        // useful fact is that this file is for a different termbase.
+                        confirmMsg += $"\r\n\r\nThis file is {headerInfo.SourceHeader} \u2192 " +
+                                      $"{headerInfo.TargetHeader}, which is not this termbase's " +
+                                      $"language pair ({langPair}). Importing it will store " +
+                                      $"{headerInfo.SourceHeader} terms as {srcName} and " +
+                                      $"{headerInfo.TargetHeader} terms as {tgtName}. That is almost " +
+                                      "certainly not what you want - check you picked the right " +
+                                      "termbase.";
+                        confirmIcon = MessageBoxIcon.Warning;
+                        confirmDefault = MessageBoxDefaultButton.Button2;   // Cancel
+                        break;
+
+                    case TermbaseReader.TsvColumnOrigin.Ambiguous:
+                        confirmMsg += $"\r\n\r\nBoth sides of this termbase are the same language " +
+                                      $"({srcName} and {tgtName}), so which column is which cannot be " +
+                                      $"told from the headers. They will be read in the order they " +
+                                      $"appear: the first as {srcName}, the second as {tgtName}.";
+                        confirmIcon = MessageBoxIcon.Warning;
+                        break;
+
+                    case TermbaseReader.TsvColumnOrigin.Positional:
+                        confirmMsg += $"\r\n\r\nThis file's languages ({headerInfo.SourceHeader}, " +
+                                      $"{headerInfo.TargetHeader}) do not match this termbase's pair, " +
+                                      $"so its columns will be read in the order they appear: the first " +
+                                      $"as {srcName}, the second as {tgtName}.";
+                        confirmIcon = MessageBoxIcon.Warning;
+                        break;
+                }
+
                 if (MessageBox.Show(confirmMsg, "TermLens",
-                    MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
+                    MessageBoxButtons.OKCancel, confirmIcon, confirmDefault) != DialogResult.OK)
                     return;
 
                 // Run import on a background thread with a progress dialog.
