@@ -1931,6 +1931,55 @@ namespace Supervertaler.Trados.Core
         }
 
         /// <summary>
+        /// Deletes many terms in a single connection and transaction, mirroring
+        /// <see cref="InsertTermBatch"/> on the write side.
+        ///
+        /// Deleting a selection used to call <see cref="DeleteTerm"/> per row, so a
+        /// few hundred rows meant a few hundred connections and transactions. That
+        /// alone took the best part of a minute; combined with a full panel re-render
+        /// per row it froze Studio outright.
+        ///
+        /// Returns the number of rows actually removed, so a caller can tell a
+        /// partial failure from a clean run instead of assuming success.
+        /// </summary>
+        public static int DeleteTermBatch(string dbPath, IEnumerable<long> termIds)
+        {
+            if (termIds == null) return 0;
+
+            var connStr = new SqliteConnectionStringBuilder
+            {
+                DataSource = dbPath,
+                Mode = SqliteOpenMode.ReadWrite
+            }.ToString();
+
+            int deleted = 0;
+            using (var conn = new SqliteConnection(connStr))
+            {
+                conn.Open();
+
+                // Foreign keys on, so termbase_synonyms cascades as it does for a
+                // single delete.
+                using (var pragma = new SqliteCommand("PRAGMA foreign_keys=ON;", conn))
+                    pragma.ExecuteNonQuery();
+
+                using (var tx = conn.BeginTransaction())
+                using (var cmd = new SqliteCommand(
+                    "DELETE FROM termbase_terms WHERE id = @id", conn, tx))
+                {
+                    var p = cmd.Parameters.Add("@id", Microsoft.Data.Sqlite.SqliteType.Integer);
+                    foreach (var id in termIds)
+                    {
+                        if (id <= 0) continue;
+                        p.Value = id;
+                        deleted += cmd.ExecuteNonQuery();
+                    }
+                    tx.Commit();
+                }
+            }
+            return deleted;
+        }
+
+        /// <summary>
         /// Toggles the is_nontranslatable flag on a term. When toggling on,
         /// also sets target_term = source_term so the term copies verbatim.
         /// </summary>

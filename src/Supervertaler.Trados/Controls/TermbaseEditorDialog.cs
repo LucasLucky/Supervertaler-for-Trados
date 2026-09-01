@@ -780,26 +780,56 @@ namespace Supervertaler.Trados.Controls
             if (result != DialogResult.Yes) return;
 
             _isLoading = true;
+            var previousCursor = Cursor;
+            Cursor = Cursors.WaitCursor;
             try
             {
-                foreach (var (id, row) in toDelete)
+                var ids = new List<long>();
+                foreach (var (id, _) in toDelete) ids.Add(id);
+
+                // One transaction for the database...
+                int deleted = TermbaseReader.DeleteTermBatch(_dbPath, ids);
+
+                // ...one pass over the grid, with the binding suspended so removing
+                // rows does not raise an event and repaint per row. Suspended, NOT
+                // detached: the columns are auto-generated from the DataTable, so
+                // clearing DataSource would regenerate them and lose the header
+                // captions and widths applied after binding.
+                _dgvTerms.SuspendLayout();
+                _bindingSource.SuspendBinding();
+                try
                 {
-                    try
-                    {
-                        TermbaseReader.DeleteTerm(_dbPath, id);
-                        _dataTable.Rows.Remove(row);
-                        TermLensEditorViewPart.NotifyTermDeleted(id);
-                    }
-                    catch
-                    {
-                        // Continue with other deletions
-                    }
+                    _dataTable.BeginLoadData();
+                    foreach (var (_, row) in toDelete) _dataTable.Rows.Remove(row);
+                    _dataTable.EndLoadData();
+                }
+                finally
+                {
+                    _bindingSource.ResumeBinding();
+                    _bindingSource.ResetBindings(false);
+                    _dgvTerms.ResumeLayout();
                 }
 
+                // ...and one re-render of the TermLens panel. Doing this per row is
+                // what froze Studio and wedged the panel.
+                TermLensEditorViewPart.NotifyTermsDeleted(ids);
+
                 UpdateTermCountLabel();
+
+                if (deleted < ids.Count)
+                    MessageBox.Show(
+                        $"{deleted:N0} of {ids.Count:N0} terms were deleted. " +
+                        "The rest could not be removed and are still in the termbase.",
+                        "TermLens", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to delete terms:\n{ex.Message}",
+                    "TermLens", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
+                Cursor = previousCursor;
                 _isLoading = false;
             }
         }

@@ -2697,6 +2697,31 @@ namespace Supervertaler.Trados
         /// Called after a term is deleted. Removes it from the in-memory index
         /// and refreshes the segment display, without reloading the database.
         /// </summary>
+        /// <summary>
+        /// The batch counterpart of <see cref="NotifyTermDeleted"/>: drops every id
+        /// from the in-memory index, then re-renders and refreshes the snapshot
+        /// ONCE.
+        ///
+        /// Calling the single-term version in a loop re-entered the panel's layout
+        /// once per row. At a few hundred rows that froze the UI thread and left the
+        /// panel drawing only the first word or two of a segment - a state that
+        /// survived a refresh and a panel close, because the control is a lazy
+        /// singleton and only a restart replaces it.
+        /// </summary>
+        public static void NotifyTermsDeleted(IEnumerable<long> termIds)
+        {
+            if (termIds == null) return;
+            var instance = _currentInstance;
+            if (instance == null) return;
+
+            var control = _control.Value;
+            foreach (var id in termIds)
+                control.RemoveTermFromIndex(id);
+
+            instance.UpdateFromActiveSegment();
+            try { instance.RefreshTermbaseDbSnapshot(); } catch { }
+        }
+
         public static void NotifyTermDeleted(long termId)
         {
             var instance = _currentInstance;
