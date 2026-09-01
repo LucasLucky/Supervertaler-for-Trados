@@ -2424,17 +2424,42 @@ namespace Supervertaler.Trados.Core
                         var client = UnescapeTsvField(GetField(fields, colMap, "client") ?? "");
                         var forbidden = ParseBool(GetField(fields, colMap, "forbidden"));
 
-                        // UUID: check for existing term or generate new
+                        // UUID: does this term already exist IN THE DESTINATION?
+                        //
+                        // Scoped to termbaseId deliberately. Unscoped, an export of
+                        // termbase X imported into termbase Y matched X's rows and the
+                        // UPDATE below - which keys on id and never sets termbase_id -
+                        // rewrote them where they stood. Y stayed empty while X was
+                        // silently overwritten, and the caller still reported success.
                         long termId = -1;
                         if (!string.IsNullOrWhiteSpace(uuid))
                         {
                             using (var qry = new SqliteCommand(
-                                "SELECT id FROM termbase_terms WHERE term_uuid = @uuid", conn, tx))
+                                @"SELECT id FROM termbase_terms
+                                  WHERE term_uuid = @uuid
+                                    AND CAST(termbase_id AS INTEGER) = @tbId", conn, tx))
                             {
                                 qry.Parameters.AddWithValue("@uuid", uuid);
+                                qry.Parameters.AddWithValue("@tbId", termbaseId);
                                 var existing = qry.ExecuteScalar();
                                 if (existing != null)
                                     termId = Convert.ToInt64(existing);
+                            }
+
+                            // Not in the destination, but term_uuid is globally UNIQUE:
+                            // if the identity belongs to a term elsewhere, this row is a
+                            // new term here and needs a new one. Reusing it would break
+                            // the index and abort the whole import.
+                            if (termId <= 0)
+                            {
+                                using (var owned = new SqliteCommand(
+                                    "SELECT 1 FROM termbase_terms WHERE term_uuid = @uuid LIMIT 1",
+                                    conn, tx))
+                                {
+                                    owned.Parameters.AddWithValue("@uuid", uuid);
+                                    if (owned.ExecuteScalar() != null)
+                                        uuid = Guid.NewGuid().ToString();
+                                }
                             }
                         }
 
@@ -2808,7 +2833,8 @@ namespace Supervertaler.Trados.Core
             return parts;
         }
 
-        /// <summary>Reverses <see cref="EscapePipeSegment"/>: <c>\\</c> → <c>\</c>, <c>\|</c> → <c>|</c>.</summary>
+        /// <summary>Reverses <see cref="EscapePipeSegment"/>: <c>\\</c> → <c>\</c>,
+        /// <c>\|</c> → <c>|</c>, <c>\[</c> → <c>[</c>.</summary>
         private static string UnescapePipeSegment(string segment)
         {
             if (string.IsNullOrEmpty(segment) || segment.IndexOf('\\') < 0) return segment ?? "";
@@ -2816,7 +2842,7 @@ namespace Supervertaler.Trados.Core
             for (int i = 0; i < segment.Length; i++)
             {
                 if (segment[i] == '\\' && i + 1 < segment.Length &&
-                    (segment[i + 1] == '|' || segment[i + 1] == '\\'))
+                    (segment[i + 1] == '|' || segment[i + 1] == '\\' || segment[i + 1] == '['))
                 {
                     sb.Append(segment[i + 1]);
                     i++;
@@ -2845,6 +2871,38 @@ namespace Supervertaler.Trados.Core
         }
 
         /// <summary>
+        /// Disambiguates a synonym that looks like the forbidden-synonym marker.
+        /// "[!x]" as a synonym's own text is indistinguishable from the wrapper
+        /// the writer puts around a forbidden one, so it would come back as a
+        /// forbidden synonym "x" with its brackets eaten (issue #61, the same
+        /// round-trip fault as the unescaped pipe).
+        ///
+        /// Only a segment that both starts "[!" and ends "]" is ambiguous, so
+        /// only that one gets a backslash. Escaping every bracket would litter
+        /// ordinary terms like "[abc]" for nothing.
+        ///
+        /// Applied to synonyms only: ParsePipeDelimitedCell tests the marker on
+        /// parts[1..], never on the main term, so parts[0] stays bare.
+        /// </summary>
+        private static string EscapeForbiddenMarker(string escapedSegment)
+        {
+            if (string.IsNullOrEmpty(escapedSegment)) return escapedSegment ?? "";
+            var s = escapedSegment.Trim();
+            if (!(s.StartsWith("[!") && s.EndsWith("]") && s.Length > 3))
+                return escapedSegment;
+
+            // Against the first non-space character, not the front of the string:
+            // the parser trims before testing, and a backslash followed by a space
+            // is not an escape sequence, so a leading-space synonym would keep the
+            // backslash as literal text. Such synonyms are real - the phantom ones
+            // in issue #61 read " mode".
+            int lead = 0;
+            while (lead < escapedSegment.Length && char.IsWhiteSpace(escapedSegment[lead]))
+                lead++;
+            return escapedSegment.Substring(0, lead) + "\\" + escapedSegment.Substring(lead);
+        }
+
+        /// <summary>
         /// Builds a pipe-delimited cell: "main|syn1|[!forbidden_syn]"
         /// </summary>
         private static string BuildPipeDelimitedCell(string mainTerm, List<(string text, bool forbidden)> synonyms)
@@ -2859,7 +2917,9 @@ namespace Supervertaler.Trados.Core
             {
                 sb.Append('|');
                 var escaped = EscapePipeSegment(text);
-                sb.Append(forbidden ? $"[!{escaped}]" : escaped);
+                // The forbidden branch writes the marker, so its own brackets stay
+                // bare; only a plain synonym that merely LOOKS like one is escaped.
+                sb.Append(forbidden ? $"[!{escaped}]" : EscapeForbiddenMarker(escaped));
             }
             return sb.ToString();
         }
