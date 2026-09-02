@@ -26,6 +26,10 @@ public static class LocalTools
 
     public static IEnumerable<(string Name, string Description, JsonElement Schema)> Definitions()
     {
+        // memoQ runs one instance with one handshake; the instance tools would
+        // only ever answer "the one memoQ", and their wording is Trados's.
+        if (BridgeClient.IsMemoQ) yield break;
+
         yield return (ListInstances,
             "List the Trados Studio instances currently running with the Supervertaler bridge, "
             + "with the Studio version and open project of each, and say which one your tool calls "

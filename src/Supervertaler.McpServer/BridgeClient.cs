@@ -114,10 +114,31 @@ public sealed class BridgeClient
     // than the slowest legitimate call, not a safety limit in its own right.
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(5) };
 
+    /// <summary>
+    /// Which CAT tool this exe serves: "trados" (default) or "memoq", from
+    /// SUPERVERTALER_HOST. The memoQ plugin speaks the same bridge protocol and
+    /// writes its handshake to &lt;root&gt;\memoq\runtime\bridge.json; the memoQ
+    /// .mcpb sets this variable and nothing else, so one exe serves both plugins
+    /// without a hard-coded path in the manifest.
+    /// </summary>
+    public static string Host =>
+        (Environment.GetEnvironmentVariable("SUPERVERTALER_HOST") ?? "trados").Trim().ToLowerInvariant();
+
+    public static bool IsMemoQ => Host == "memoq";
+
     /// <summary>Set when a custom handshake path is passed via SUPERVERTALER_BRIDGE_FILE.
     /// Pins this exe to exactly one handshake, which is also the manual way to aim two
-    /// chat clients at two Studios before the selector work in #72 stage 2 lands.</summary>
-    private static string? HandshakeOverride => Environment.GetEnvironmentVariable("SUPERVERTALER_BRIDGE_FILE");
+    /// chat clients at two Studios before the selector work in #72 stage 2 lands.
+    /// A memoQ host implies one: memoQ runs a single instance and a single handshake.</summary>
+    private static string? HandshakeOverride
+    {
+        get
+        {
+            var explicitPath = Environment.GetEnvironmentVariable("SUPERVERTALER_BRIDGE_FILE");
+            if (!string.IsNullOrEmpty(explicitPath)) return explicitPath;
+            return IsMemoQ ? Path.Combine(ResolveSharedRoot(), "memoq", "runtime", "bridge.json") : null;
+        }
+    }
 
     private sealed record Handshake(
         [property: JsonPropertyName("version")] int Version,
@@ -244,10 +265,13 @@ public sealed class BridgeClient
 
         if (live.Count == 0)
         {
-            throw new BridgeUnavailableException(
-                "Supervertaler bridge handshake file not found. Start Trados Studio, open a project " +
-                "in the editor, and make sure the Supervertaler for Trados plugin is installed with " +
-                "the bridge enabled (Supervertaler settings > AI Assistant).");
+            throw new BridgeUnavailableException(IsMemoQ
+                ? "Supervertaler bridge handshake file not found. Start memoQ, open a project, and click " +
+                  "into a segment with Supervertaler selected as the MT engine — that starts the bridge. " +
+                  "Make sure Supervertaler for memoQ is installed (Resource console > MT settings)."
+                : "Supervertaler bridge handshake file not found. Start Trados Studio, open a project " +
+                  "in the editor, and make sure the Supervertaler for Trados plugin is installed with " +
+                  "the bridge enabled (Supervertaler settings > AI Assistant).");
         }
 
         var selector = ActiveSelector;
@@ -343,7 +367,10 @@ public sealed class BridgeClient
         }
     }
 
-    private static string ResolveRuntimeDir()
+    private static string ResolveRuntimeDir() => Path.Combine(ResolveSharedRoot(), "trados", "runtime");
+
+    /// <summary>The shared Supervertaler data folder — config.json's user_data_path, else ~\Supervertaler.</summary>
+    private static string ResolveSharedRoot()
     {
         // Default root matches the plugin's UserDataPath.DefaultRoot (~\Supervertaler);
         // %APPDATA%\Supervertaler\config.json may point elsewhere via "user_data_path".
@@ -370,7 +397,7 @@ public sealed class BridgeClient
             }
         }
 
-        return Path.Combine(root, "trados", "runtime");
+        return root;
     }
 
     /// <summary>

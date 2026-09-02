@@ -84,12 +84,16 @@ public static class ToolRegistry
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Supervertaler");
 
+        // One cache per (host, pinned handshake): the memoQ and Trados bridges
+        // serve different registries, and two server entries sharing one file
+        // would advertise each other's tools whenever one CAT tool is closed.
         var overridePath = Environment.GetEnvironmentVariable("SUPERVERTALER_BRIDGE_FILE");
-        if (string.IsNullOrEmpty(overridePath))
+        var key = BridgeClient.Host + "|" + (overridePath ?? "");
+        if (key == "trados|")
             return Path.Combine(dir, "mcp-tools-cache.json");
 
         uint hash = 2166136261;
-        foreach (var ch in overridePath.ToLowerInvariant())
+        foreach (var ch in key.ToLowerInvariant())
             hash = (hash ^ ch) * 16777619;
 
         return Path.Combine(dir, $"mcp-tools-cache-{hash:x8}.json");
@@ -125,6 +129,11 @@ public static class ToolRegistry
         catch { }
 
         // 3. Bundled fallback (embedded at build time).
+        // The bundled fallback is the Trados registry. Advertising it for a
+        // memoQ host would offer fifty tools of which a third do not exist
+        // there; better to offer none until the memoQ bridge has been seen once.
+        if (BridgeClient.IsMemoQ) return new List<ToolDef>();
+
         try
         {
             var asm = typeof(ToolRegistry).Assembly;
