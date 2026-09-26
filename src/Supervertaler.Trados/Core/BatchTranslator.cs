@@ -324,7 +324,7 @@ namespace Supervertaler.Trados.Core
                         // Call LLM - suppress per-batch log entries; we fire one aggregated entry at the end.
                         // enablePromptCaching: the system prompt (base instructions + custom prompt + KB +
                         // termbase + document context) is byte-stable across every batch in this run, so
-                        // caching pays off from batch 2 onwards. A one-segment run (Ctrl+T) has one batch,
+                        // caching pays off from batch 2 onwards. A one-segment run (Alt+T, Translate active segment) has one batch,
                         // but the NEXT segment's run sends the same system prompt, because its terms travel
                         // in the user prompt (SystemPromptFor) - so it pays off from the second segment.
                         // Anthropic native and OpenRouter->Anthropic get explicit cache_control markers;
@@ -602,7 +602,7 @@ namespace Supervertaler.Trados.Core
         /// <summary>
         /// Whether a run's termbase hits travel in the user prompt, with its
         /// segments, rather than in the system prompt. Yes for a one-segment run -
-        /// Ctrl+T, which the translator repeats down the document. Its terms are
+        /// Translate active segment (Alt+T), which the translator repeats down the document. Its terms are
         /// that one segment's (#102), so they change with every segment, and in
         /// the system prompt they changed the whole prompt with them: every
         /// request paid 1.25x to write a cache that the next one could never
