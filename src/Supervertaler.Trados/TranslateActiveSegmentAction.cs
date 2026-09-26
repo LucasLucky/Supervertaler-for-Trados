@@ -14,9 +14,18 @@ namespace Supervertaler.Trados
     /// Default shortcut is Alt+T, NOT Ctrl+T. Ctrl+T is a Trados factory default
     /// ("Apply Translation Result"); binding this action there too made a single
     /// keypress fire both commands, which raced on the same segment and could
-    /// freeze Studio. Alt+T is collision-free. (Existing users keep whatever they
-    /// have already bound — Studio stores per-user shortcuts — so this default
-    /// only changes fresh installs.)
+    /// freeze Studio. (Existing users keep whatever they have already bound —
+    /// Studio stores per-user shortcuts — so this default only changes fresh
+    /// installs.)
+    ///
+    /// Alt+T is NOT free either, in Studio 2024 or 2026: Studio's own
+    /// TranslationResultsToggleSourceTargetFocusAction ("Toggle between Source and
+    /// Target in Translation Results View") is on it by default, and Studio's
+    /// binding wins - pressing Alt+T just toggles the Translation Results window and
+    /// this action never runs, silently (found 2026-09-26). Kept anyway, as with
+    /// Alt+Q: that toggle is obscure, and the help's first-time setup table tells
+    /// users to clear it. .dev/studio-alt-t-probe.ps1 lists Studio's Alt+letter
+    /// defaults (Alt+C, Alt+G, Alt+T in both versions).
     /// </summary>
     [Action("Supervertaler_TranslateActiveSegment", typeof(EditorController),
         Name = "Translate active segment",
