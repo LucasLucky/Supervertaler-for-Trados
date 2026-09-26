@@ -184,6 +184,13 @@ namespace Supervertaler.Trados.Core
             int aggOutputTokens = 0;
             bool aggHasError = false;
 
+            // Why the last failed request failed, for the aggregated entry. A run
+            // whose only request failed used to leave no entry at all - nothing in
+            // Reports, the usage log or the prompt log - because the entry was only
+            // fired when some tokens had been counted, and a failed request counts
+            // none. The reason was on screen in the Batch log and nowhere else.
+            string lastError = null;
+
             // Real API-reported usage, if every batch returned parseable usage info.
             // If even one batch fails to report (e.g. Ollama, parse failure on a
             // weird response shape), we drop back to the chars/4 estimate for the
@@ -290,6 +297,7 @@ namespace Supervertaler.Trados.Core
                     if (MemoryGuard.IsOverHardLimit())
                     {
                         aggHasError = true;
+                        lastError = "Stopped to protect Trados: 32-bit memory limit reached";
                         RaiseProgress(startIdx, segments.Count,
                             "✗ Stopped to protect Trados: this job is too large for 32-bit Trados " +
                             "Studio 2024 (memory limit reached). Translate the remaining segments in smaller " +
@@ -441,6 +449,7 @@ namespace Supervertaler.Trados.Core
                         // Log the batch error and continue to next batch
                         failed += batchCount;
                         aggHasError = true;
+                        lastError = ex.Message;
                         for (int i = startIdx; i < endIdx; i++) notTranslated.Add(segments[i]);
                         RaiseProgress(endIdx, segments.Count,
                             $"\u2717 Batch {batchNum + 1} failed: {ex.Message}",
@@ -532,6 +541,7 @@ namespace Supervertaler.Trados.Core
                             catch (Exception ex)
                             {
                                 aggHasError = true;
+                                lastError = ex.Message;
                                 for (int i = rs; i < re; i++) stillEmpty.Add(pending[i]);
                                 RaiseProgress(translated, segments.Count,
                                     $"\u2717 Retry {pass} batch {b + 1} failed: {ex.Message}",
@@ -545,8 +555,9 @@ namespace Supervertaler.Trados.Core
 
             sw.Stop();
 
-            // Fire a single aggregated log entry for the entire Batch Translate operation
-            if (aggInputTokens > 0 || aggOutputTokens > 0)
+            // Fire a single aggregated log entry for the entire Batch Translate operation -
+            // also when nothing came back, so a failure is on record (see lastError).
+            if (aggInputTokens > 0 || aggOutputTokens > 0 || aggHasError)
             {
                 var aggModelInfo = LlmModels.FindModel(model);
                 var aggEntry = new PromptLogEntry
@@ -566,7 +577,8 @@ namespace Supervertaler.Trados.Core
                     EstimatedCost = TokenEstimator.EstimateCost(model, aggInputTokens, aggOutputTokens),
                     IsCostKnown = TokenEstimator.HasPricing(model),
                     Duration = sw.Elapsed,
-                    IsError = aggHasError
+                    IsError = aggHasError,
+                    ErrorMessage = lastError
                 };
 
                 // If every batch reported real usage, attach the cache-aware actuals

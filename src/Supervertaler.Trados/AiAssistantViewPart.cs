@@ -14225,12 +14225,15 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             });
         }
 
-        // ─── Ctrl+T: Translate Active Segment via Batch Pipeline ──
+        // ─── Alt+T: Translate Active Segment via Batch Pipeline ──
+        // (Alt+T since 20.119; Ctrl+T is Trados's Apply Translation Result. Older
+        // comments below still say "Ctrl+T" for this path.)
 
         /// <summary>
         /// Translates the active segment using the batch translate pipeline
         /// (same provider, prompt, and termbase settings as the Batch Translate tab).
-        /// Called by TranslateActiveSegmentAction (Ctrl+T).
+        /// Called by TranslateActiveSegmentAction (Alt+T, and the editor's
+        /// right-click menu).
         /// </summary>
         public static void HandleTranslateActiveSegment()
         {
@@ -14360,10 +14363,16 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     var structureMode = ApplyStructureMarkers(instance._activeDocument, segments, aiCfgD, out var structureNote);   // #109
                     if (structureNote != null) _control.Value.BatchTranslateControl.AppendLog(structureNote);
                     var termbaseTerms = allTerms.Where(t => aiCfgD.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
-                    termbaseTerms = TermsForPrompt(termbaseTerms, new[] { sourceText }, null);   // #102
+
+                    // The same termbase feedback a batch run gives: a warning when
+                    // terms are loaded but no termbase is ticked for AI, and how many
+                    // terms go with this segment. Without it a translation that
+                    // ignored the termbase gave no hint that none was sent.
+                    var batchControl = _control.Value.BatchTranslateControl;
+                    WarnIfNoAiTermbases(batchControl, allTerms.Count, termbaseTerms.Count);
+                    termbaseTerms = TermsForPrompt(termbaseTerms, new[] { sourceText }, batchControl);   // #102
 
                     // Resolve custom prompt (from batch translate tab selection)
-                    var batchControl = _control.Value.BatchTranslateControl;
                     if (batchControl.CurrentMode == BatchMode.Translate)
                         aiSettings.SelectedPromptPath = batchControl.GetSelectedPromptPath();
 
@@ -14384,7 +14393,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
 
                     // Log and run
                     batchControl.AppendLog(
-                        $"Ctrl+T: translating \"{Truncate(SegmentTagHandler.StripTagPlaceholders(sourceText), 60)}\"...");
+                        $"Translate segment: \"{Truncate(SegmentTagHandler.StripTagPlaceholders(sourceText), 60)}\"...");
 
                     instance._batchCts = new CancellationTokenSource();
                     instance._batchTranslator = new BatchTranslator();
@@ -14409,7 +14418,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         {
                             instance.SafeInvoke(() =>
                             {
-                                batchControl.AppendLog($"Ctrl+T failed: {ex.Message}", true);
+                                batchControl.AppendLog($"Translate segment failed: {ex.Message}", true);
                                 batchControl.SetRunning(false);
                             });
                         }
@@ -14503,7 +14512,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 var sourceText = hasTags ? serialization.SerializedText : (pair.Source?.ToString() ?? "");
                 if (string.IsNullOrWhiteSpace(SegmentTagHandler.StripTagPlaceholders(sourceText)))
                 {
-                    BridgeLog.Write("Ctrl+T: active segment has no source text.");
+                    BridgeLog.Write("Translate segment: active segment has no source text.");
                     return;
                 }
 
@@ -14555,7 +14564,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 catch { }
                 var customSystemPrompt = aiSettings.CustomSystemPrompt;
 
-                BridgeLog.Write($"Ctrl+T (standalone): translating \"{Truncate(SegmentTagHandler.StripTagPlaceholders(sourceText), 60)}\"...");
+                BridgeLog.Write($"Translate segment (standalone): translating \"{Truncate(SegmentTagHandler.StripTagPlaceholders(sourceText), 60)}\"...");
 
                 var worker = new BatchTranslator();
                 worker.SegmentTranslated += (s, e) =>
@@ -14565,7 +14574,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     else doWrite();
                 };
                 worker.Completed += (s, e) =>
-                    BridgeLog.Write($"Ctrl+T (standalone): done ({e.Translated} translated, {e.Failed} failed).");
+                    BridgeLog.Write($"Translate segment (standalone): done ({e.Translated} translated, {e.Failed} failed).");
 
                 var cts = new CancellationTokenSource();
                 Task.Run(async () =>
@@ -14581,7 +14590,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     }
                     catch (Exception ex)
                     {
-                        BridgeLog.Write($"Ctrl+T (standalone) failed: {ex.Message}");
+                        BridgeLog.Write($"Translate segment (standalone) failed: {ex.Message}");
                         if (ui != null)
                             ui.Post(_ => MessageBox.Show($"Translate failed: {ex.Message}",
                                 "Supervertaler", MessageBoxButtons.OK, MessageBoxIcon.Error), null);
@@ -14646,7 +14655,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             catch (Exception ex)
             {
                 e.WriteSucceeded = false;
-                BridgeLog.Write($"Ctrl+T write error: {ex.Message}");
+                BridgeLog.Write($"Translate segment write error: {ex.Message}");
             }
         }
 
