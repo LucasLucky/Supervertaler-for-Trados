@@ -93,6 +93,12 @@ namespace Supervertaler.Trados
         private MemoryBankReader _kbReader;
         private string _kbReaderBankName;
 
+        // The bank block translations send for the open document, and what it
+        // was built from (see KbContextForTranslation). One document at a time;
+        // UI thread only, like _kbReader.
+        private string _translationKbKey;
+        private Task<TranslationBankContext.Result> _translationKb;
+
         /// <summary>
         /// Resolves the on-disk path of the active memory bank for the current
         /// session. Reads <c>AiSettings.ActiveMemoryBankName</c> and falls back
@@ -7347,7 +7353,11 @@ namespace Supervertaler.Trados
                 if (aiSettings.IncludeSuperMemoryContext && aiSettings.IncludeSuperMemoryInAutoPrompt)
                 {
                     var projectName = TermLensEditorViewPart.GetCurrentProjectName();
-                    kbContext = LoadKbContextForPrompt(projectName, sourceLang, targetLang)?.Trim();
+                    // A translation use: notes marked audience: assistant stay out.
+                    // Otherwise the whole bank within the budget, not a per-document
+                    // selection - the same as memoQ's AutoPrompt.
+                    kbContext = LoadKbContextForPrompt(projectName, sourceLang, targetLang,
+                        forTranslation: true)?.Trim();
                 }
 
                 // Phase 4b (#113): decide the gloss register. One small model call per
@@ -8090,10 +8100,15 @@ namespace Supervertaler.Trados
         // ─── SuperMemory ─────────────────────────────────────────────
 
         /// <summary>
-        /// Loads SuperMemory KB context for the current project/document.
-        /// Returns the formatted prompt section, or null if KB is empty/unavailable.
+        /// Loads SuperMemory KB context for the current project/document, whole
+        /// within the budget. Returns the formatted prompt section, or null if KB
+        /// is empty/unavailable. For the chat, and for AutoPrompt with
+        /// <paramref name="forTranslation"/> (it writes a translation prompt, so
+        /// assistant-only notes stay out). Translating a document goes through
+        /// <see cref="KbContextForTranslation"/> instead.
         /// </summary>
-        private string LoadKbContextForPrompt(string projectName, string sourceLang, string targetLang, string queryText = null)
+        private string LoadKbContextForPrompt(string projectName, string sourceLang, string targetLang,
+            string queryText = null, bool forTranslation = false)
         {
             try
             {
@@ -8106,7 +8121,7 @@ namespace Supervertaler.Trados
 
                 var ctx = reader.LoadContext(
                     projectName, DetectDocumentDomain(), sourceLang, targetLang,
-                    tokenBudget: 24000, queryText: queryText);
+                    tokenBudget: 24000, queryText: queryText, forTranslation: forTranslation);
 
                 if (ctx == null) return null;
 
@@ -8133,6 +8148,170 @@ namespace Supervertaler.Trados
                 _kbReaderBankName = bankName;
             }
             return _kbReader;
+        }
+
+        /// <summary>
+        /// The bank block a translation of the open document sends: Batch
+        /// Translate, Alt+T, the prompt preview and SuperBench. Notes marked for
+        /// the assistants stay out, and a bank over the selection threshold is
+        /// narrowed to the part this document needs (see
+        /// <see cref="TranslationBankContext"/>).
+        ///
+        /// <para>Made once per document, language pair and state of the bank, and
+        /// the same task is handed to every caller after that, so all the requests
+        /// of a job carry the same bytes. A bank at or under the threshold is ready
+        /// at once. A larger one is selected on a pool thread - it may ask the
+        /// model which articles the document needs - and each caller waits where it
+        /// can: the batch and Alt+T inside their own background task
+        /// (<see cref="AwaitKbForTranslation"/>), the preview and SuperBench on the
+        /// UI thread (<see cref="KbBlockNow"/>).</para>
+        ///
+        /// <para>UI thread only: it reads the Trados document and the unsynchronised
+        /// cache fields. The task it returns never faults.</para>
+        /// </summary>
+        private Task<TranslationBankContext.Result> KbContextForTranslation(string projectName, string sourceLang, string targetLang)
+        {
+            try
+            {
+                if (_settings?.AiSettings?.IncludeSuperMemoryContext == false)
+                    return Task.FromResult<TranslationBankContext.Result>(null);
+
+                var reader = EnsureKbReader();
+                if (reader == null || !reader.VaultExists)
+                    return Task.FromResult<TranslationBankContext.Result>(null);
+
+                var bankDir = ActiveMemoryBankDir;
+                var documentKey = DocumentKeyForBank();
+                var key = string.Join("\n", bankDir, TranslationBankContext.BankFingerprint(bankDir),
+                    sourceLang, targetLang, documentKey);
+                if (_translationKb != null && string.Equals(key, _translationKbKey, StringComparison.Ordinal))
+                    return _translationKb;
+
+                // Untrimmed: the selection decides what goes before the budget does.
+                // No domain: it only labels the result, and detecting it analyses the
+                // whole document on every call.
+                var full = reader.LoadContext(projectName, null, sourceLang, targetLang,
+                    tokenBudget: 0, forTranslation: true);
+
+                Task<TranslationBankContext.Result> task;
+                if (full == null)
+                {
+                    task = Task.FromResult<TranslationBankContext.Result>(null);
+                }
+                else if (full.EstimatedTokens <= BankExtract.Threshold)
+                {
+                    // Sent whole, as before: needs neither the document nor a model.
+                    task = Task.FromResult(TranslationBankContext.Build(full, null, sourceLang, targetLang,
+                        null, null, null, null, null));
+                }
+                else
+                {
+                    var documentText = string.Join("\n",
+                        CollectDocumentSourceSegments(_activeDocument).Select(SegmentTagHandler.StripTagPlaceholders));
+                    var client = CreateLlmClient(out _);   // none: no way to choose, so every article is kept
+                    var ai = _settings?.AiSettings;
+                    var chooserName = ai == null ? null
+                        : (ai.SelectedProvider == LlmModels.ProviderCustomOpenAi
+                            ? ai.GetActiveCustomProfile()?.Model
+                            : ai.GetSelectedModel());
+                    var fileName = GetActiveFileNameSafe();
+                    var label = (projectName ?? "this project") + ", " + (fileName ?? "this document")
+                        + ", bank '" + ActiveMemoryBankName + "'";
+                    var stem = TranslationBankContext.FileStem(fileName, documentKey);
+
+                    task = Task.Run(() =>
+                    {
+                        try
+                        {
+                            return TranslationBankContext.Build(full, documentText, sourceLang, targetLang,
+                                client == null
+                                    ? null
+                                    : (Func<ArticleSelectionRequest, IList<string>>)(request =>
+                                        TranslationBankContext.ChooseArticles(client, request, TranslationBankContext.ChooserTimeout)),
+                                chooserName,
+                                // A fresh reader: _kbReader belongs to the UI thread.
+                                () => new MemoryBankReader(bankDir).LoadContext(projectName, null, sourceLang, targetLang,
+                                    tokenBudget: TranslationBankContext.TokenBudget, forTranslation: true),
+                                label, stem);
+                        }
+                        finally { client?.Dispose(); }
+                    });
+                }
+
+                _translationKbKey = key;
+                _translationKb = task;
+                return task;
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLog.Log("SuperMemory", "Could not prepare the bank for translation: " + ex.Message);
+                return Task.FromResult<TranslationBankContext.Result>(null);   // the bank is optional - never block translation
+            }
+        }
+
+        /// <summary>
+        /// Which document the editor holds, for keying its bank selection: the ids
+        /// of its files (a merged document has several). When they cannot be read,
+        /// a key that matches nothing, so no other document's selection is reused.
+        /// </summary>
+        private string DocumentKeyForBank()
+        {
+            try
+            {
+                var ids = _activeDocument?.Files?.Select(f => f.Id.ToString("N")).ToList();
+                if (ids != null && ids.Count > 0) return string.Join("+", ids);
+            }
+            catch { /* document in transition */ }
+            return "unknown:" + Guid.NewGuid().ToString("N");
+        }
+
+        /// <summary>
+        /// The bank block for a caller on the UI thread that needs it at once: the
+        /// prompt preview and SuperBench. A large bank's first selection can take a
+        /// model call, shown with a wait cursor, and the batch that follows reuses
+        /// it. Waiting here cannot deadlock: the selection runs on the pool, and
+        /// nothing it does waits for this thread (the prompt log posts to it with
+        /// BeginInvoke).
+        /// </summary>
+        private static string KbBlockNow(Task<TranslationBankContext.Result> task)
+        {
+            if (!task.IsCompleted)
+            {
+                var previous = Cursor.Current;
+                Cursor.Current = Cursors.WaitCursor;
+                try { task.Wait(); }
+                catch { /* never faults; a block we cannot get is no block */ }
+                finally { Cursor.Current = previous; }
+            }
+            return task.Status == TaskStatus.RanToCompletion ? task.Result?.Block : null;
+        }
+
+        /// <summary>
+        /// Waits for the bank block inside a run's background task, and says in the
+        /// Batch log what it holds: every time for a batch, and for Alt+T only when
+        /// this press had to wait for the selection. Cancelling the run ends the
+        /// wait, not the selection, which finishes and serves the next run.
+        /// </summary>
+        private async Task<string> AwaitKbForTranslation(Task<TranslationBankContext.Result> task,
+            CancellationToken ct, BatchTranslateControl log, bool alwaysReport)
+        {
+            var waited = !task.IsCompleted;
+            if (waited)
+                SafeInvoke(() => log.AppendLog(
+                    "SuperMemory: choosing the parts of the memory bank this document needs (once per document)..."));
+
+            var cancelled = new TaskCompletionSource<bool>();
+            using (ct.Register(() => cancelled.TrySetResult(true)))
+                await Task.WhenAny(task, cancelled.Task).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+
+            var result = task.Status == TaskStatus.RanToCompletion ? task.Result : null;
+            if (result != null && (waited || alwaysReport))
+            {
+                var lines = result.Log.ToList();
+                SafeInvoke(() => { foreach (var line in lines) log.AppendLog(line); });
+            }
+            return result?.Block;
         }
 
         /// <summary>
@@ -9509,42 +9688,74 @@ namespace Supervertaler.Trados
                 }
                 catch { }
 
-                // Stray root files: searchable, but never sent to the AI.
+                // Other files at the bank root. This used to warn that they were
+                // never sent to the AI; the reader has loaded every root *.md since
+                // it moved to core, so they are sent like the three.
                 try
                 {
-                    var strays = Directory.GetFiles(bankDir, "*.md", SearchOption.TopDirectoryOnly)
+                    var others = Directory.GetFiles(bankDir, "*.md", SearchOption.TopDirectoryOnly)
                         .Select(Path.GetFileName)
-                        .Where(n => !MemoryBankReader.BankFiles.Contains(n, StringComparer.OrdinalIgnoreCase))
+                        .Where(n => !MemoryBankReader.BankFiles.Contains(n, StringComparer.OrdinalIgnoreCase)
+                                    && !n.StartsWith(".", StringComparison.Ordinal))
                         .ToList();
-                    if (strays.Count > 0)
-                        warnings.Add("These sit in the bank root but are never sent to the AI - fold them " +
-                            "into the three files or move them to `reference/`: " +
-                            string.Join(", ", strays.Select(n => "`" + n + "`")));
+                    if (others.Count > 0)
+                    {
+                        sb.AppendLine();
+                        sb.AppendLine("Also read from the bank root: " +
+                            string.Join(", ", others.Select(n => "`" + n + "`")) + ".");
+                    }
                 }
                 catch { }
 
-                // What actually reaches a prompt, shared layer included.
+                // What a translation sends, shared layer included. The chat and the
+                // MCP tools also get the notes marked for the assistants; a large
+                // bank is further narrowed per document (TranslationBankContext).
                 try
                 {
                     var ctx = EnsureKbReader()?.LoadContext(GetProjectName(), null,
-                        GetDocumentSourceLanguage(), GetDocumentTargetLanguage());
+                        GetDocumentSourceLanguage(), GetDocumentTargetLanguage(),
+                        tokenBudget: 0, forTranslation: true);
                     sb.AppendLine();
                     if (ctx == null || !ctx.HasContent)
                     {
-                        sb.AppendLine("**Nothing would be sent to the AI from this bank.**");
+                        sb.AppendLine("**Nothing from this bank would be sent with a translation.**");
                     }
                     else
                     {
-                        sb.AppendLine("**~" + ctx.EstimatedTokens + " tokens** would be added to a prompt.");
+                        // Before trimming, which drops the shared layer first: a
+                        // trimmed-away _shared still exists.
                         bool shared =
                             !string.IsNullOrWhiteSpace(ctx.SharedBriefText) ||
                             !string.IsNullOrWhiteSpace(ctx.SharedTerminologyText) ||
-                            !string.IsNullOrWhiteSpace(ctx.SharedStyleText);
+                            !string.IsNullOrWhiteSpace(ctx.SharedStyleText) ||
+                            ctx.SharedExtraArticles.Count > 0;
+
+                        var wholeTokens = ctx.EstimatedTokens;
+                        ctx.TrimToTokenBudget(TranslationBankContext.TokenBudget);
+                        if (wholeTokens <= BankExtract.Threshold)
+                        {
+                            sb.AppendLine("**~" + ctx.EstimatedTokens + " tokens** would be added to a translation prompt.");
+                        }
+                        else
+                        {
+                            sb.AppendLine("**Up to ~" + ctx.EstimatedTokens + " tokens** would be added to a translation prompt. " +
+                                "The bank is over " + BankExtract.Threshold.ToString("N0") + " tokens, so each document " +
+                                "gets only the part it needs, chosen the first time you translate it. What each " +
+                                "document got, and why, is written to `" + TranslationBankContext.ExtractsDir + "`.");
+                        }
                         sb.AppendLine(shared
                             ? "Includes the `" + MemoryBankReader.SharedBankName +
                               "` bank, which this one overrides where they disagree."
                             : "No `" + MemoryBankReader.SharedBankName +
                               "` bank found - house defaults are not being applied.");
+                    }
+
+                    if (ctx != null && ctx.AssistantOnlyPaths.Count > 0)
+                    {
+                        sb.AppendLine();
+                        sb.AppendLine("Kept for the AI Assistant chat and the MCP tools, left out of translation " +
+                            "(`audience: assistant`): " +
+                            string.Join(", ", ctx.AssistantOnlyPaths.Select(p => "`" + p + "`")) + ".");
                     }
                 }
                 catch { }
@@ -10258,29 +10469,12 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
 
                 int batchSize = aiSettings.BatchSize > 0 ? aiSettings.BatchSize : 20;
 
-                // Load SuperMemory KB context
-                var projectName = GetProjectName();
-                var kbContext = LoadKbContextForPrompt(projectName, sourceLang, targetLang);
-
                 // Start the batch translation
                 batchControl.SetRunning(true);
 
-                var kbSummary = "";
-                if (kbContext != null)
-                {
-                    try
-                    {
-                        _kbReader?.RefreshIndex();
-                        var kbCtx = _kbReader?.LoadContext(projectName, null, sourceLang, targetLang);
-                        if (kbCtx != null)
-                            kbSummary = " | " + kbCtx.GetSummary();
-                    }
-                    catch { }
-                }
-
                 batchControl.AppendLog(
                     $"Starting: {segments.Count} segments, provider={provider}, model={model}, " +
-                    $"batch size={batchSize}{kbSummary}");
+                    $"batch size={batchSize}");
 
                 // Warn if document context will be truncated for the AI. Truncation
                 // happens silently inside TranslationPrompt.BuildSystemPrompt – without
@@ -10319,8 +10513,20 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 }
 
                 // Warn-only monthly-budget pre-flight (advisory; never blocks).
+                // Declining it must undo SetRunning(true) above: a bare return left
+                // the panel showing a run that did not exist, with nothing to stop.
                 if (!Core.UsageBudget.Preflight(null, aiSettings, segments != null ? segments.Count : 0))
+                {
+                    batchControl.AppendLog("Not started: monthly AI budget reached.");
+                    batchControl.SetRunning(false);
                     return;
+                }
+
+                // SuperMemory: ready now for a small bank; a large one is selected for
+                // this document in the background (after the pre-flight, so a declined
+                // run asks no model) and awaited in the run below.
+                var projectName = GetProjectName();
+                var kbTask = KbContextForTranslation(projectName, sourceLang, targetLang);
 
                 _batchCts = new CancellationTokenSource();
                 _batchTranslator = new BatchTranslator();
@@ -10330,6 +10536,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 _batchTranslator.Completed += OnBatchCompleted;
 
                 var ct = _batchCts.Token;
+                var translator = _batchTranslator;
 
                 // Warm the usage-attribution cache on the UI thread before the
                 // background batch starts, so the off-thread usage logger reads the
@@ -10356,7 +10563,10 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                                 + tmPlan.MinScore + "% or better (" + sw.ElapsedMilliseconds + " ms)."));
                         }
 
-                        await _batchTranslator.TranslateAsync(
+                        // After the TM search, so a large bank's selection runs alongside it.
+                        var kbContext = await AwaitKbForTranslation(kbTask, ct, batchControl, alwaysReport: true);
+
+                        await translator.TranslateAsync(
                             segments, sourceLang, targetLang,
                             aiSettings, termbaseTerms, batchSize, ct,
                             customPromptContent, customSystemPrompt,
@@ -10366,12 +10576,13 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     }
                     catch (OperationCanceledException)
                     {
-                        // #116: Cancel pressed during the TM search, before
-                        // TranslateAsync could take over reporting. Its own
-                        // cancellation path raises Completed and resets the button;
-                        // this one has to.
+                        // #116: Cancel pressed during the TM search or while the
+                        // memory bank was being selected, before TranslateAsync
+                        // could take over reporting. Its own cancellation path
+                        // raises Completed and resets the button; this one has to.
                         SafeInvoke(() =>
                         {
+                            ReleaseBatchTranslator(translator);
                             batchControl.AppendLog("Cancelled.");
                             batchControl.SetRunning(false);
                         });
@@ -10380,12 +10591,34 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     {
                         SafeInvoke(() =>
                         {
+                            ReleaseBatchTranslator(translator);
                             batchControl.AppendLog($"Unexpected error: {ex.Message}", true);
                             batchControl.SetRunning(false);
                         });
                     }
                 });
             });
+        }
+
+        /// <summary>
+        /// Lets go of a run's translator the way <see cref="OnBatchCompleted"/>
+        /// does, for a run that ended before the translator could raise Completed:
+        /// cancelled or failed while still preparing. Without it the reference
+        /// stayed set, and Alt+T refused to start ("already running") until some
+        /// later batch completed. Only this run's translator: a newer run's is left
+        /// alone. UI thread.
+        /// </summary>
+        private void ReleaseBatchTranslator(BatchTranslator translator)
+        {
+            if (translator == null || !ReferenceEquals(_batchTranslator, translator)) return;
+
+            translator.Progress -= OnBatchProgress;
+            translator.SegmentTranslated -= OnBatchSegmentTranslated;
+            translator.Completed -= OnBatchCompleted;
+            _batchTranslator = null;
+
+            _batchCts?.Dispose();
+            _batchCts = null;
         }
 
         private void OnOpenBackupFolderRequested(object sender, EventArgs e)
@@ -12001,8 +12234,11 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         // prompt whatever the mode was, so it could not show the batch
                         // instructions or the translation-memory block - it showed a
                         // prompt that was never sent. Mirror BatchTranslator instead.
-                        var kbContext = LoadKbContextForPrompt(
-                            GetProjectName(), sourceLang, targetLang);
+                        // The block the run will send. Made here when this preview
+                        // comes first - for a large bank that is the one model call
+                        // that picks what this document needs - and the run reuses it.
+                        var kbContext = KbBlockNow(KbContextForTranslation(
+                            GetProjectName(), sourceLang, targetLang));
 
                         // Through the run's own functions, which also decide where the
                         // terms go (a one-segment scope carries them in the user message).
@@ -12626,7 +12862,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             var customPromptContent = ResolveCustomPromptContent(sourceLang, targetLang);
             List<string> docSegments = aiSettings.IncludeDocumentContext ? CollectDocumentContext(structureMode).Item1 : null;   // #122
             var projectName = GetProjectName();
-            var kbContext = LoadKbContextForPrompt(projectName, sourceLang, targetLang);
+            var kbContext = KbBlockNow(KbContextForTranslation(projectName, sourceLang, targetLang));   // what a batch sends
             var promptName = batchControl.GetSelectedPrompt()?.Name ?? "(default prompt)";
 
             return new SuperBenchInputs
@@ -14400,7 +14636,9 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     List<string> docSegments = null;
                     if (aiSettings.IncludeDocumentContext)
                         docSegments = instance.CollectDocumentContext(structureMode).Item1;   // #122
-                    var kbContext = instance.LoadKbContextForPrompt(
+                    // This document's bank block: the batch's, so one selection
+                    // serves both and the system prompt stays byte-identical.
+                    var kbTask = instance.KbContextForTranslation(
                         instance.GetProjectName(), sourceLang, targetLang);
 
                     // Log and run
@@ -14414,22 +14652,37 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     instance._batchTranslator.Completed += instance.OnBatchCompleted;
 
                     var ct = instance._batchCts.Token;
+                    var translator = instance._batchTranslator;
 
                     Task.Run(async () =>
                     {
                         try
                         {
-                            await instance._batchTranslator.TranslateAsync(
+                            var kbContext = await instance.AwaitKbForTranslation(kbTask, ct, batchControl, alwaysReport: false);
+
+                            await translator.TranslateAsync(
                                 segments, sourceLang, targetLang,
                                 aiSettings, termbaseTerms, 1, ct,
                                 customPromptContent, customSystemPrompt,
                                 docSegments, kbContext,
                                 structureContext: structureMode);
                         }
+                        catch (OperationCanceledException)
+                        {
+                            // Stopped while the memory bank was being selected,
+                            // before TranslateAsync could report it.
+                            instance.SafeInvoke(() =>
+                            {
+                                instance.ReleaseBatchTranslator(translator);
+                                batchControl.AppendLog("Cancelled.");
+                                batchControl.SetRunning(false);
+                            });
+                        }
                         catch (Exception ex)
                         {
                             instance.SafeInvoke(() =>
                             {
+                                instance.ReleaseBatchTranslator(translator);
                                 batchControl.AppendLog($"Translate segment failed: {ex.Message}", true);
                                 batchControl.SetRunning(false);
                             });
