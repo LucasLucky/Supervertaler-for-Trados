@@ -860,6 +860,10 @@ namespace Supervertaler.Trados.Settings
                 // between the two actions.
                 ReferenceImagesFolder = existing?.ReferenceImagesFolder ?? "",
                 MemoryBankName = existing?.MemoryBankName ?? "",
+                // Not a setting but the project's identity, which is how its
+                // settings follow it through a rename in Studio. Blanked here, a
+                // renamed project would arrive as a stranger again.
+                ProjectId = existing?.ProjectId ?? "",
             };
         }
 

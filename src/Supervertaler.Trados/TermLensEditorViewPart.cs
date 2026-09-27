@@ -1243,10 +1243,20 @@ namespace Supervertaler.Trados
                 if (string.IsNullOrEmpty(projectPath))
                     return;
 
-                // Load incoming project settings
-                var ps = ProjectSettings.Load(projectPath);
+                // Load incoming project settings - or, for a project Studio has
+                // renamed, the ones it had under its old path.
+                var ps = LoadOrAdoptProjectSettings(projectPath, projectName, project);
                 if (ps != null)
                 {
+                    // Record Studio's id for the project in files that predate it,
+                    // so that a later rename can find these settings.
+                    var projectId = ProjectIdOf(project);
+                    if (projectId != null && string.IsNullOrEmpty(ps.ProjectId))
+                    {
+                        ps.ProjectId = projectId;
+                        ProjectSettings.Save(projectPath, ps);
+                    }
+
                     System.Diagnostics.Debug.WriteLine($"[TermLens] Loaded project settings: db={ps.TermbasePath}, write={ps.WriteTermbaseIds?.Count ?? 0}, disabled={ps.DisabledTermbaseIds?.Count ?? 0}");
 
                     // One-time migration: older project files have an empty DisabledAiTermbaseIds
@@ -1405,6 +1415,7 @@ namespace Supervertaler.Trados
             {
                 ProjectPath = projectPath ?? "",
                 ProjectName = projectName ?? "",
+                ProjectId = ProjectIdOf(project) ?? "",
                 TermbasePath = termbasePath,
                 WriteTermbaseIds = new List<long>(),
                 ProjectTermbaseId = -1,
@@ -1431,7 +1442,16 @@ namespace Supervertaler.Trados
         {
             if (string.IsNullOrEmpty(projectPath)) return null;
 
-            var ps = ProjectSettings.Load(projectPath);
+            // The project gives the id a rename is recognised by and the template's
+            // MultiTerm choices, so it is looked up here rather than threaded
+            // through every caller.
+            var project = ProjectAt(projectPath);
+            if (string.IsNullOrEmpty(projectName))
+            {
+                try { projectName = project?.GetProjectInfo()?.Name; } catch { }
+            }
+
+            var ps = LoadOrAdoptProjectSettings(projectPath, projectName, project, via);
             if (ps != null) return ps;
 
             if (ProjectSettings.HasProjectSettings(projectPath))
@@ -1441,19 +1461,54 @@ namespace Supervertaler.Trados
                 return null;
             }
 
-            // The project itself only feeds the template's MultiTerm choices, so
-            // it is looked up here rather than threaded through every caller.
-            var project = ProjectAt(projectPath);
-            if (string.IsNullOrEmpty(projectName))
-            {
-                try { projectName = project?.GetProjectInfo()?.Name; } catch { }
-            }
-
             ps = NewProjectDefaults(project, projectPath, projectName, out var allIds);
             DiagnosticLog.Log("Overlay", "no settings yet for " + (projectName ?? projectPath)
                 + ": new-project defaults for " + via + " (database " + (ps.TermbasePath.Length > 0 ? ps.TermbasePath : "(none)")
                 + ", " + allIds.Count + " termbase(s) off)");
             return ps;
+        }
+
+        /// <summary>
+        /// The project's stored settings, or - when nothing is stored at its path -
+        /// the settings of the same Studio project under the path it had before
+        /// Studio renamed or moved it, moved to the new one
+        /// (<see cref="ProjectSettings.AdoptRenamed"/>). Null when there are
+        /// neither, or the file there cannot be read.
+        ///
+        /// <para>Every reader that runs when a project opens goes through this
+        /// rather than ProjectSettings.Load, or whichever view part sees the new
+        /// path first would find nothing and act on that - the bank would be
+        /// matched afresh by name, the termbases reset.</para>
+        /// </summary>
+        internal static ProjectSettings LoadOrAdoptProjectSettings(string projectPath, string projectName,
+            FileBasedProject project = null,
+            [System.Runtime.CompilerServices.CallerMemberName] string via = "")
+        {
+            if (string.IsNullOrEmpty(projectPath)) return null;
+
+            var ps = ProjectSettings.Load(projectPath);
+            if (ps != null || ProjectSettings.HasProjectSettings(projectPath)) return ps;
+
+            project = project ?? ProjectAt(projectPath);
+            if (string.IsNullOrEmpty(projectName))
+            {
+                try { projectName = project?.GetProjectInfo()?.Name; } catch { }
+            }
+            return ProjectSettings.AdoptRenamed(ProjectIdOf(project), projectPath, projectName, via);
+        }
+
+        /// <summary>Studio's own id for the project, which renaming it does not change; null when unknown.</summary>
+        internal static string ProjectIdOf(FileBasedProject project)
+        {
+            try
+            {
+                var id = project?.GetProjectInfo()?.Id;
+                return id.HasValue && id.Value != Guid.Empty ? id.Value.ToString("D") : null;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>The open or selected Studio project at <paramref name="projectPath"/>, or null.</summary>

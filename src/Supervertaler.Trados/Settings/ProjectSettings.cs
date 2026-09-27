@@ -36,6 +36,18 @@ namespace Supervertaler.Trados.Settings
         public string ProjectName { get; set; } = "";
 
         /// <summary>
+        /// Studio's own id for the project (its GUID), which renaming the project
+        /// does not change. The file is keyed by the .sdlproj PATH, and renaming a
+        /// project in Studio renames the .sdlproj, so without this a renamed
+        /// project arrived as a stranger: every termbase off, no drawings folder,
+        /// no prompt. <see cref="AdoptRenamed"/> finds the settings by this id.
+        /// Empty in files written before 18/19.20.198 until the project is next
+        /// opened.
+        /// </summary>
+        [DataMember(Name = "projectId")]
+        public string ProjectId { get; set; } = "";
+
+        /// <summary>
         /// Optional client / end-customer name for this project. Attributed to each
         /// token-usage record so the ledger can produce per-client cost reports.
         /// Free text; blank if unset.
@@ -301,35 +313,74 @@ namespace Supervertaler.Trados.Settings
                 if (path == null || !File.Exists(path))
                     return null;
 
-                var json = File.ReadAllText(path, Encoding.UTF8);
+                var ps = ReadFile(path);
+                if (ps == null) return null;
+
+                // Migrate old hash-only filenames to readable format
+                if (!string.IsNullOrEmpty(ps.ProjectName))
+                {
+                    var key = GetProjectKey(projectFilePath);
+                    var safeName = SanitiseProjectName(ps.ProjectName);
+                    if (key != null && !string.IsNullOrEmpty(safeName))
+                    {
+                        var readablePath = Path.Combine(ProjectsDir, key + " - " + safeName + ".json");
+                        if (!string.Equals(path, readablePath, StringComparison.OrdinalIgnoreCase)
+                            && !File.Exists(readablePath))
+                        {
+                            try { File.Move(path, readablePath); } catch { }
+                        }
+                    }
+                }
+
+                return ps;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// One settings file, or null when it cannot be read. A file locked for a
+        /// moment - a backup or sync tool reading it - is tried again briefly; one
+        /// that does not parse is not.
+        /// </summary>
+        private static ProjectSettings ReadFile(string path)
+        {
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    return Parse(File.ReadAllText(path, Encoding.UTF8));
+                }
+                catch (IOException) when (attempt < 3 && File.Exists(path))
+                {
+                    System.Threading.Thread.Sleep(100);
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+        }
+
+        private static ProjectSettings Parse(string json)
+        {
+            try
+            {
                 using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(json)))
                 {
-                    var serializer = new DataContractJsonSerializer(typeof(ProjectSettings));
-                    var ps = (ProjectSettings)serializer.ReadObject(stream);
+                    var ps = (ProjectSettings)new DataContractJsonSerializer(typeof(ProjectSettings)).ReadObject(stream);
+                    if (ps == null) return null;
 
-                    // Null-safety for lists
+                    // The serializer runs no initialisers: a member absent from the
+                    // file (every file older than the member) comes back null.
                     if (ps.WriteTermbaseIds == null) ps.WriteTermbaseIds = new List<long>();
                     if (ps.DisabledTermbaseIds == null) ps.DisabledTermbaseIds = new List<long>();
                     if (ps.DisabledMultiTermIds == null) ps.DisabledMultiTermIds = new List<long>();
                     if (ps.DisabledAiTermbaseIds == null) ps.DisabledAiTermbaseIds = new List<long>();
                     if (ps.EnabledAiMultiTermIds == null) ps.EnabledAiMultiTermIds = new List<long>();
-
-                    // Migrate old hash-only filenames to readable format
-                    if (!string.IsNullOrEmpty(ps.ProjectName))
-                    {
-                        var key = GetProjectKey(projectFilePath);
-                        var safeName = SanitiseProjectName(ps.ProjectName);
-                        if (key != null && !string.IsNullOrEmpty(safeName))
-                        {
-                            var readablePath = Path.Combine(ProjectsDir, key + " - " + safeName + ".json");
-                            if (!string.Equals(path, readablePath, StringComparison.OrdinalIgnoreCase)
-                                && !File.Exists(readablePath))
-                            {
-                                try { File.Move(path, readablePath); } catch { }
-                            }
-                        }
-                    }
-
+                    if (ps.ProjectId == null) ps.ProjectId = "";
                     return ps;
                 }
             }
@@ -340,17 +391,110 @@ namespace Supervertaler.Trados.Settings
         }
 
         /// <summary>
+        /// Moves the settings of Studio project <paramref name="projectId"/> from
+        /// the path it had to <paramref name="projectFilePath"/>, when Studio has
+        /// renamed or moved it, and returns them. Null when there is nothing to
+        /// move.
+        ///
+        /// <para>Only settings whose own .sdlproj is GONE are taken, from a drive
+        /// that is there to look at: a project copied rather than renamed has the
+        /// same id and its original still exists, and the original keeps its
+        /// settings - the copy starts from the new-project defaults, as before. A
+        /// file on a disconnected drive may belong to a project that is simply
+        /// offline. Several candidates (renamed twice, the first move
+        /// interrupted): the most recently written.</para>
+        ///
+        /// <para>The old file is deleted only once the new one reads back, so an
+        /// interrupted move leaves both rather than neither. Scale: reads every
+        /// file in the projects folder, but only for a path that has no settings
+        /// yet - once per new or renamed project - and parses only files that
+        /// contain the id.</para>
+        /// </summary>
+        public static ProjectSettings AdoptRenamed(string projectId, string projectFilePath, string projectName,
+            [System.Runtime.CompilerServices.CallerMemberName] string via = "")
+        {
+            if (string.IsNullOrEmpty(projectId) || string.IsNullOrEmpty(projectFilePath)) return null;
+            if (!Directory.Exists(ProjectsDir)) return null;
+
+            ProjectSettings found = null;
+            string foundFile = null;
+            var foundTime = DateTime.MinValue;
+            foreach (var file in Directory.GetFiles(ProjectsDir, "*.json"))
+            {
+                string text;
+                try { text = File.ReadAllText(file, Encoding.UTF8); }
+                catch { continue; }
+                if (text.IndexOf(projectId, StringComparison.OrdinalIgnoreCase) < 0) continue;
+
+                var ps = Parse(text);
+                if (ps == null || !string.Equals(ps.ProjectId, projectId, StringComparison.OrdinalIgnoreCase)) continue;
+                if (string.IsNullOrEmpty(ps.ProjectPath)
+                    || string.Equals(ps.ProjectPath.Trim(), projectFilePath.Trim(), StringComparison.OrdinalIgnoreCase)
+                    || File.Exists(ps.ProjectPath)
+                    || !VolumeAvailable(ps.ProjectPath))
+                    continue;
+
+                var written = File.GetLastWriteTimeUtc(file);
+                if (found != null && written <= foundTime) continue;
+                found = ps;
+                foundFile = file;
+                foundTime = written;
+            }
+            if (found == null) return null;
+
+            var previousPath = found.ProjectPath;
+            found.ProjectPath = projectFilePath;
+            if (!string.IsNullOrEmpty(projectName)) found.ProjectName = projectName;
+            Save(projectFilePath, found, via);
+
+            var moved = Load(projectFilePath);
+            if (moved == null) return found;   // the write failed: use them this session, keep the old file
+            try { File.Delete(foundFile); } catch { }
+
+            try
+            {
+                Supervertaler.Trados.Core.DiagnosticLog.Log("Overlay", "settings of " + (found.ProjectName ?? "") + " carried over from "
+                    + previousPath + ": the same Studio project, renamed or moved (" + via + ")");
+            }
+            catch { }
+            return moved;
+        }
+
+        private static bool VolumeAvailable(string path)
+        {
+            try
+            {
+                var root = Path.GetPathRoot(path);
+                return !string.IsNullOrEmpty(root) && Directory.Exists(root);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Saves project-specific settings for the given .sdlproj path.
         /// Uses the project name from the settings object to create a human-readable filename.
         /// Cleans up old files with a different name for the same hash (e.g. after a project rename).
+        ///
+        /// <para>Never destroys a settings file it cannot read. Every file this
+        /// write replaces either parses - and the new one supersedes it - or is
+        /// kept beside it as <c>.unreadable-&lt;time&gt;</c>, which nothing reads: a
+        /// damaged or locked file may still be the project's real settings, and
+        /// defaults written over one is how a project loses its termbases. The
+        /// write itself goes to a temporary file that is then swapped in, and the
+        /// same project's file under an older name is deleted only after that, so
+        /// a crash or a full disk leaves the previous file whole.</para>
         /// </summary>
         public static void Save(string projectFilePath, ProjectSettings ps,
             [System.Runtime.CompilerServices.CallerMemberName] string via = "")
         {
+            string tmp = null;
             try
             {
                 var key = GetProjectKey(projectFilePath);
-                if (key == null) return;
+                if (key == null || ps == null) return;
 
                 // #135: every overlay write is logged with its caller. The recorded
                 // bank drifted between projects on 2026-09-18 and no writer owned up.
@@ -368,37 +512,62 @@ namespace Supervertaler.Trados.Settings
                 var targetPath = GetProjectSettingsPath(projectFilePath, ps.ProjectName);
                 if (targetPath == null) return;
 
-                // Clean up old files for the same hash if the name has changed
-                var existingFiles = Directory.GetFiles(ProjectsDir, key + "*.json");
-                foreach (var oldFile in existingFiles)
-                {
-                    if (!string.Equals(oldFile, targetPath, StringComparison.OrdinalIgnoreCase))
-                    {
-                        try { File.Delete(oldFile); } catch { }
-                    }
-                }
-
-                // Serialise to JSON
+                string json;
                 using (var stream = new MemoryStream())
                 {
                     var serializerSettings = new DataContractJsonSerializerSettings
                     {
                         UseSimpleDictionaryFormat = true
                     };
-                    var serializer = new DataContractJsonSerializer(typeof(ProjectSettings), serializerSettings);
-                    serializer.WriteObject(stream, ps);
-
-                    var json = Encoding.UTF8.GetString(stream.ToArray());
+                    new DataContractJsonSerializer(typeof(ProjectSettings), serializerSettings).WriteObject(stream, ps);
 
                     // Pretty-print the JSON for human readability
-                    json = IndentJson(json);
+                    json = IndentJson(Encoding.UTF8.GetString(stream.ToArray()));
+                }
 
-                    File.WriteAllText(targetPath, json, Encoding.UTF8);
+                var replaced = Directory.GetFiles(ProjectsDir, key + "*.json");
+                foreach (var file in replaced)
+                {
+                    if (ReadFile(file) != null) continue;
+                    // Throws when it cannot be moved either: the save is abandoned
+                    // and the file left exactly as it was.
+                    File.Move(file, file + ".unreadable-" + DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+                    try { Supervertaler.Trados.Core.DiagnosticLog.Log("Overlay", "kept an unreadable settings file aside: " + Path.GetFileName(file)); }
+                    catch { }
+                }
+
+                tmp = targetPath + ".tmp";
+                File.WriteAllText(tmp, json, Encoding.UTF8);
+                if (File.Exists(targetPath))
+                {
+                    try { File.Replace(tmp, targetPath, null); }
+                    catch (PlatformNotSupportedException) { File.Copy(tmp, targetPath, true); }
+                }
+                else
+                {
+                    File.Move(tmp, targetPath);
+                }
+
+                // Only now that the new file is in place: this project's file under an older name.
+                foreach (var file in replaced)
+                {
+                    if (!string.Equals(file, targetPath, StringComparison.OrdinalIgnoreCase) && File.Exists(file))
+                    {
+                        try { File.Delete(file); } catch { }
+                    }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Silently ignore save failures
+                try { Supervertaler.Trados.Core.DiagnosticLog.Log("Overlay", "write FAILED for " + (ps?.ProjectName ?? projectFilePath) + " via " + via + ": " + ex.Message); }
+                catch { }
+            }
+            finally
+            {
+                if (tmp != null && File.Exists(tmp))
+                {
+                    try { File.Delete(tmp); } catch { }
+                }
             }
         }
 

@@ -8833,7 +8833,9 @@ namespace Supervertaler.Trados
 
                 var projectName = CurrentProjectNameFromDocument() ?? "this project";
                 string wanted = null;
-                try { wanted = Settings.ProjectSettings.Load(projectPath)?.MemoryBankName; }
+                // Through the adoption: a project Studio has renamed keeps the bank
+                // recorded under its old path, whichever view part sees it first.
+                try { wanted = TermLensEditorViewPart.LoadOrAdoptProjectSettings(projectPath, CurrentProjectNameFromDocument())?.MemoryBankName; }
                 catch { }
 
                 // #135: a project with no recorded bank gets the one named after it,
