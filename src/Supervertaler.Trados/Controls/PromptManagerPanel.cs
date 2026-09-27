@@ -1541,7 +1541,13 @@ namespace Supervertaler.Trados.Controls
         {
             try
             {
-                var ps = ProjectSettings.Load(projectPath) ?? new ProjectSettings();
+                var ps = TermLensEditorViewPart.LoadOrCreateProjectSettings(projectPath, null);
+                if (ps == null)
+                {
+                    MessageBox.Show(this, "Could not save the reference images folder: this project's settings file could not be read.",
+                        "Reference images", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
                 ps.ReferenceImagesFolder = folder ?? "";
                 if (string.IsNullOrEmpty(ps.ProjectPath)) ps.ProjectPath = projectPath;
                 if (string.IsNullOrEmpty(ps.ProjectName))

@@ -1287,32 +1287,7 @@ namespace Supervertaler.Trados
                     // the previous project's overlay (write IDs, project termbase, etc.).
                     System.Diagnostics.Debug.WriteLine($"[TermLens] No project settings found – creating clean defaults");
 
-                    // Default: all termbases disabled for new projects; user opts in per project.
-                    var allIds = GetAllTermbaseIds(_settings.TermbasePath);
-
-                    // Seed the MultiTerm "AI" opt-in from the Trados project settings
-                    // bundle. When this project was created from a project template that
-                    // had MultiTerm termbases ticked for AI, that choice is carried in the
-                    // bundle and inherited here — so CLI/template-driven workflows don't
-                    // need to re-tick every new project (issue #36). Empty otherwise.
-                    var inheritedAiMtIds = ProjectBundleSettings.ReadEnabledMultiTermIds(project);
-                    if (inheritedAiMtIds.Count > 0)
-                        DiagnosticLog.Log("ProjectBundle",
-                            $"New project '{projectName}': inherited {inheritedAiMtIds.Count} AI-enabled MultiTerm termbase(s) from its template.");
-
-                    var newPs = new ProjectSettings
-                    {
-                        ProjectPath = projectPath ?? "",
-                        ProjectName = projectName ?? "",
-                        TermbasePath = _settings.TermbasePath ?? "",
-                        WriteTermbaseIds = new List<long>(),
-                        ProjectTermbaseId = -1,
-                        DisabledTermbaseIds = allIds,
-                        DisabledMultiTermIds = new List<long>(),
-                        DisabledAiTermbaseIds = new List<long>(allIds),
-                        EnabledAiMultiTermIds = inheritedAiMtIds,
-                        AiTermbaseIdsInitialized = true,
-                    };
+                    var newPs = NewProjectDefaults(project, projectPath, projectName, out var allIds);
                     _settings.ApplyProjectOverlay(newPs, allIds);
                     FollowProjectPrompt(newPs, projectName);
                     ProjectSettings.Save(projectPath, newPs);
@@ -1389,7 +1364,118 @@ namespace Supervertaler.Trados
             }
         }
 
-        private List<long> GetAllTermbaseIds(string termbasePath)
+        /// <summary>
+        /// The settings a project gets the first time the plugin sees it - a new
+        /// project, or one at a new path because Studio renamed its .sdlproj: the
+        /// database in use now, every termbase OFF until the user opts in, and the
+        /// MultiTerm AI choices of the project's template (#36).
+        ///
+        /// <para>The only definition. Everything that has to create a project's
+        /// file comes here, through <see cref="LoadOrCreateProjectSettings"/>,
+        /// because to the next reader a file is never "no settings yet" - it IS
+        /// the project's settings. Recording a bank matched by project name used
+        /// to save a new ProjectSettings holding the bank and nothing else. When
+        /// that handler ran before this view part's own (the order between two
+        /// view parts on one event is not guaranteed), the project opened with an
+        /// empty database path and no write or project termbase, and
+        /// SaveCurrentProjectSettings kept it that way.</para>
+        /// </summary>
+        internal static ProjectSettings NewProjectDefaults(
+            FileBasedProject project, string projectPath, string projectName, out List<long> allIds)
+        {
+            // Not a snapshot of the global settings: they still carry the previous
+            // project's overlay (write ids, project termbase). Only the database
+            // carries over - it is the installation's, not the job's.
+            var termbasePath = SettingsService.Current?.TermbasePath ?? "";
+            allIds = GetAllTermbaseIds(termbasePath);
+
+            // Seed the MultiTerm "AI" opt-in from the Trados project settings
+            // bundle. When this project was created from a project template that
+            // had MultiTerm termbases ticked for AI, that choice is carried in the
+            // bundle and inherited here — so CLI/template-driven workflows don't
+            // need to re-tick every new project (issue #36). Empty otherwise.
+            var inheritedAiMtIds = project != null
+                ? ProjectBundleSettings.ReadEnabledMultiTermIds(project)
+                : new List<long>();
+            if (inheritedAiMtIds.Count > 0)
+                DiagnosticLog.Log("ProjectBundle",
+                    $"New project '{projectName}': inherited {inheritedAiMtIds.Count} AI-enabled MultiTerm termbase(s) from its template.");
+
+            return new ProjectSettings
+            {
+                ProjectPath = projectPath ?? "",
+                ProjectName = projectName ?? "",
+                TermbasePath = termbasePath,
+                WriteTermbaseIds = new List<long>(),
+                ProjectTermbaseId = -1,
+                DisabledTermbaseIds = new List<long>(allIds),
+                DisabledMultiTermIds = new List<long>(),
+                DisabledAiTermbaseIds = new List<long>(allIds),
+                EnabledAiMultiTermIds = inheritedAiMtIds,
+                AiTermbaseIdsInitialized = true,
+            };
+        }
+
+        /// <summary>
+        /// The project's stored settings, or the new-project defaults when it has
+        /// none yet, for a caller that changes one field and saves (the bank, the
+        /// images folder). Never a bare <c>new ProjectSettings()</c>: see
+        /// <see cref="NewProjectDefaults"/>.
+        ///
+        /// <para>Null when a file exists but cannot be read - a caller must then
+        /// save nothing, because defaults written over it would replace the
+        /// project's real settings, which is the loss this exists to prevent.</para>
+        /// </summary>
+        internal static ProjectSettings LoadOrCreateProjectSettings(string projectPath, string projectName,
+            [System.Runtime.CompilerServices.CallerMemberName] string via = "")
+        {
+            if (string.IsNullOrEmpty(projectPath)) return null;
+
+            var ps = ProjectSettings.Load(projectPath);
+            if (ps != null) return ps;
+
+            if (ProjectSettings.HasProjectSettings(projectPath))
+            {
+                DiagnosticLog.Log("Overlay", "settings for " + projectPath + " exist but could not be read; "
+                    + via + " left them alone");
+                return null;
+            }
+
+            // The project itself only feeds the template's MultiTerm choices, so
+            // it is looked up here rather than threaded through every caller.
+            var project = ProjectAt(projectPath);
+            if (string.IsNullOrEmpty(projectName))
+            {
+                try { projectName = project?.GetProjectInfo()?.Name; } catch { }
+            }
+
+            ps = NewProjectDefaults(project, projectPath, projectName, out var allIds);
+            DiagnosticLog.Log("Overlay", "no settings yet for " + (projectName ?? projectPath)
+                + ": new-project defaults for " + via + " (database " + (ps.TermbasePath.Length > 0 ? ps.TermbasePath : "(none)")
+                + ", " + allIds.Count + " termbase(s) off)");
+            return ps;
+        }
+
+        /// <summary>The open or selected Studio project at <paramref name="projectPath"/>, or null.</summary>
+        private static FileBasedProject ProjectAt(string projectPath)
+        {
+            var candidates = new List<FileBasedProject> { GetActiveDocumentProject() };
+            try { candidates.Add(SdlTradosStudio.Application?.GetController<ProjectsController>()?.CurrentProject); }
+            catch { }
+
+            foreach (var p in candidates)
+            {
+                try
+                {
+                    if (p != null && string.Equals(p.FilePath, projectPath, StringComparison.OrdinalIgnoreCase))
+                        return p;
+                }
+                catch { }
+            }
+            return null;
+        }
+
+        private static List<long> GetAllTermbaseIds(string termbasePath)
         {
             var dbPath = termbasePath;
             if (string.IsNullOrEmpty(dbPath) || !File.Exists(dbPath))
@@ -3360,7 +3446,7 @@ namespace Supervertaler.Trados
                 if (ps != null)
                 {
                     instance._settings.ApplyProjectOverlay(ps,
-                        instance.GetAllTermbaseIds(ps.TermbasePath ?? instance._settings.TermbasePath));
+                        GetAllTermbaseIds(ps.TermbasePath ?? instance._settings.TermbasePath));
                     // Keep the global settings file in sync so disk-based
                     // readers (QuickAddTermAction, AddTermAction) see the
                     // current project's effective Write/Project termbase IDs.
@@ -3408,7 +3494,7 @@ namespace Supervertaler.Trados
                 if (ps != null)
                 {
                     instance._settings.ApplyProjectOverlay(ps,
-                        instance.GetAllTermbaseIds(ps.TermbasePath ?? instance._settings.TermbasePath));
+                        GetAllTermbaseIds(ps.TermbasePath ?? instance._settings.TermbasePath));
                     // Keep the global settings file in sync (see notes above).
                     SettingsService.Save();
                 }

@@ -8771,7 +8771,12 @@ namespace Supervertaler.Trados
             {
                 if (string.IsNullOrEmpty(projectPath)) return;
 
-                var ps = Settings.ProjectSettings.Load(projectPath) ?? new Settings.ProjectSettings();
+                // Often the first write for a project: this view part's document
+                // handler can run before TermLens's, which creates the file. So the
+                // new-project defaults, never a bare file - a file holding only the
+                // bank was then applied as the project's settings, with no database.
+                var ps = TermLensEditorViewPart.LoadOrCreateProjectSettings(projectPath, projectName);
+                if (ps == null) return;
                 ps.MemoryBankName = bankName ?? "";
                 if (string.IsNullOrEmpty(ps.ProjectPath)) ps.ProjectPath = projectPath;
                 if (string.IsNullOrEmpty(ps.ProjectName))
@@ -11567,7 +11572,12 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
 
             try
             {
-                var ps = Settings.ProjectSettings.Load(projectPath) ?? new Settings.ProjectSettings();
+                var ps = TermLensEditorViewPart.LoadOrCreateProjectSettings(projectPath, null);
+                if (ps == null)
+                {
+                    batchControl.AppendLog("Could not save the folder: this project's settings file could not be read.", true);
+                    return;
+                }
                 ps.ReferenceImagesFolder = chosen;
                 if (string.IsNullOrEmpty(ps.ProjectPath)) ps.ProjectPath = projectPath;
                 if (string.IsNullOrEmpty(ps.ProjectName))
