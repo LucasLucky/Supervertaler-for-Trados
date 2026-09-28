@@ -101,7 +101,7 @@ namespace Supervertaler.Trados.Core
         /// the difference between 300 KB and 6 MB per run.
         /// </summary>
         public static void RecordBatchExchange(string provider, string model, int batchNumber, int totalBatches,
-            string systemPrompt, string userPrompt, string response)
+            string systemPrompt, string userPrompt, string response, string promptName = null)
         {
             try
             {
@@ -112,7 +112,7 @@ namespace Supervertaler.Trados.Core
                 {
                     Ts = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
                     Feature = "BatchTranslate.batch",
-                    PromptName = $"batch {batchNumber} of {totalBatches}",
+                    PromptName = promptName ?? $"batch {batchNumber} of {totalBatches}",
                     Provider = provider,
                     Model = model,
                     SystemPrompt = batchNumber == 1 ? systemPrompt : null,

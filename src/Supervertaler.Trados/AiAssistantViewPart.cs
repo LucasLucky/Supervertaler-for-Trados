@@ -10709,19 +10709,19 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     var pair = e.SegmentPairRef as ISegmentPair;
                     if (pair == null) { e.WriteSucceeded = false; return; }
 
-                    doc.ProcessSegmentPair(pair, "Supervertaler",
+                    void Write(string translation) => doc.ProcessSegmentPair(pair, "Supervertaler",
                         (sp, cancel) =>
                         {
                             // Tagged segments: reconstruct with full tag handling
                             if (e.HasTags && e.TagMap != null && e.TagMap.Count > 0)
                             {
                                 bool reconstructed = SegmentTagHandler.ReconstructTarget(
-                                    sp.Target, sp.Source, e.Translation, e.TagMap);
+                                    sp.Target, sp.Source, translation, e.TagMap);
 
                                 if (!reconstructed)
                                 {
                                     // Fall back to plain text (strip placeholders)
-                                    var plainTranslation = SegmentTagHandler.StripTagPlaceholders(e.Translation);
+                                    var plainTranslation = SegmentTagHandler.StripTagPlaceholders(translation);
                                     var textTemplate = SegmentTagHandler.FindFirstText(sp.Source);
                                     if (textTemplate != null && !string.IsNullOrEmpty(plainTranslation))
                                     {
@@ -10741,16 +10741,20 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                             // preserves the text properties so Trados renders soft returns
                             // instead of paragraph marks.
                             var textTpl = SegmentTagHandler.FindFirstText(sp.Source);
-                            if (textTpl != null && !string.IsNullOrEmpty(e.Translation))
+                            if (textTpl != null && !string.IsNullOrEmpty(translation))
                             {
                                 sp.Target.Clear();
                                 var textClone = (IText)textTpl.Clone();
-                                textClone.Properties.Text = e.Translation;
+                                textClone.Properties.Text = translation;
                                 sp.Target.Add(textClone);
                                 // EditLens: we wrote this, so we know the proposal.
                                 Core.EditCapture.CaptureController.NoteProposal(sp, _activeDocument);
                             }
                         });
+
+                    Write(e.Translation);
+                    if (e.Comment != null && !TryAddTcComment(doc, pair, e.Comment))
+                        Write(BatchTranslator.InlineComment(e.Translation, e.Comment));
 
                     // Back up to TMX regardless of tag complexity
                     _batchBackup?.AddSegment(e.SourceText, e.Translation);
@@ -10768,6 +10772,28 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 ctrl.Invoke(new Action(DoWrite));
             else
                 DoWrite();
+        }
+
+        /// <summary>
+        /// Adds the AI's [[TC: ...]] comment to a segment as a Trados comment, when
+        /// the translator has chosen comments over the inline marker. Called AFTER
+        /// the target is written, never before: writing a target clears what is in
+        /// it. False when Studio refused; every caller then writes the comment
+        /// inline instead, so a flag the AI raised is never lost. UI thread.
+        /// </summary>
+        private static bool TryAddTcComment(IStudioDocument doc, ISegmentPair pair, string comment)
+        {
+            try
+            {
+                doc.AddCommentOnSegment(pair, comment, Sdl.FileTypeSupport.Framework.NativeApi.Severity.Medium);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Core.DiagnosticLog.Log("ReplyCheck", "The [[TC]] comment could not be added as a Trados comment ("
+                    + ex.Message + "); written at the end of the target instead");
+                return false;
+            }
         }
 
         private void OnBatchCompleted(object sender, BatchCompletedEventArgs e)
@@ -12401,9 +12427,11 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     // on the hard limit). All a no-op on 64-bit Studio 2026.
                     int success = 0;
                     int failed = 0;
+                    int refused = 0;
                     int tagWarnings = 0;
                     int processed = 0;
                     bool cancelled = false, stoppedForMemory = false;
+                    var tcAsComments = _settings?.AiSettings?.TcMarkersAsComments == true;
 
                     var progress = new Controls.ReimportProgressForm(
                         "Paste from Clipboard",
@@ -12439,23 +12467,42 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                                 continue;
                             }
 
+                            // The reply check an API run makes (see BatchTranslator), with no
+                            // second chance: nobody can be asked again from here. A reply
+                            // holding more than the translation is not written; the log says
+                            // which segment and why, by the number the AI chat shows.
+                            var problem = Supervertaler.Core.ReplyCheck.Problem(seg.SourceText, pt.Translation);
+                            if (problem != null)
+                            {
+                                refused++;
+                                processed++;
+                                batchControl.AppendLog($"Segment {pt.Number} not imported: the reply holds more than a translation "
+                                    + $"({problem}). Ask the AI for it again, or translate it by hand.", true);
+                                continue;
+                            }
+                            var toWrite = BatchTranslator.PlaceComment(pt.Translation, tcAsComments, out var comment);
+
                             try
                             {
-                                _activeDocument.ProcessSegmentPair(pair, "Supervertaler",
+                                if (seg.HasTags && seg.TagMap != null && seg.TagMap.Count > 0
+                                    && !SegmentTagHandler.ValidateTagsPresent(toWrite, seg.TagMap))
+                                    tagWarnings++;
+
+                                Write(toWrite);
+                                if (comment != null && !TryAddTcComment(_activeDocument, pair, comment))
+                                    Write(BatchTranslator.InlineComment(toWrite, comment));
+
+                                void Write(string translation) => _activeDocument.ProcessSegmentPair(pair, "Supervertaler",
                                     (sp, cancel) =>
                                     {
                                         if (seg.HasTags && seg.TagMap != null && seg.TagMap.Count > 0)
                                         {
-                                            // Validate tags
-                                            if (!SegmentTagHandler.ValidateTagsPresent(pt.Translation, seg.TagMap))
-                                                tagWarnings++;
-
                                             bool reconstructed = SegmentTagHandler.ReconstructTarget(
-                                                sp.Target, sp.Source, pt.Translation, seg.TagMap);
+                                                sp.Target, sp.Source, translation, seg.TagMap);
 
                                             if (!reconstructed)
                                             {
-                                                var plainTranslation = SegmentTagHandler.StripTagPlaceholders(pt.Translation);
+                                                var plainTranslation = SegmentTagHandler.StripTagPlaceholders(translation);
                                                 var textTemplate = SegmentTagHandler.FindFirstText(sp.Source);
                                                 if (textTemplate != null && !string.IsNullOrEmpty(plainTranslation))
                                                 {
@@ -12471,11 +12518,11 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                                         else
                                         {
                                             var textTpl = SegmentTagHandler.FindFirstText(sp.Source);
-                                            if (textTpl != null && !string.IsNullOrEmpty(pt.Translation))
+                                            if (textTpl != null && !string.IsNullOrEmpty(translation))
                                             {
                                                 sp.Target.Clear();
                                                 var textClone = (IText)textTpl.Clone();
-                                                textClone.Properties.Text = pt.Translation;
+                                                textClone.Properties.Text = translation;
                                                 sp.Target.Add(textClone);
                                                 // EditLens: we wrote this, so we know the proposal.
                                                 Core.EditCapture.CaptureController.NoteProposal(sp, _activeDocument);
@@ -12522,6 +12569,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                             : "Imported ")
                         + $"{success} translation{(success != 1 ? "s" : "")}";
                     if (failed > 0) msg += $", {failed} failed";
+                    if (refused > 0) msg += $", {refused} not imported (more than a translation; see above)";
                     if (tagWarnings > 0) msg += $", {tagWarnings} tag warning{(tagWarnings != 1 ? "s" : "")}";
                     var missing = _clipboardSegments.Count - parsed.Count;
                     if (missing > 0) msg += $", {missing} segment{(missing != 1 ? "s" : "")} not found in response";
@@ -14838,8 +14886,25 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     if (ui != null) ui.Send(_ => doWrite(), null);   // sync: WriteSucceeded set before worker reads it
                     else doWrite();
                 };
+                // The translator reports what goes wrong - a refused key, an overloaded
+                // server, a reply the reply check would not write - as progress, not as
+                // exceptions, and this path has no Batch log to show it in. Keep the
+                // last one and say it when nothing was written; until this, a failed
+                // Alt+T here left the segment empty with no word why.
+                string lastProblem = null;
+                worker.Progress += (s, e) =>
+                {
+                    if (e.IsError && !string.IsNullOrWhiteSpace(e.Message)) lastProblem = e.Message.Trim();
+                };
                 worker.Completed += (s, e) =>
+                {
                     BridgeLog.Write($"Translate segment (standalone): done ({e.Translated} translated, {e.Failed} failed).");
+                    if (e.Translated > 0 || e.WasCancelled || lastProblem == null) return;
+                    BridgeLog.Write("Translate segment (standalone): " + lastProblem);
+                    if (ui != null)
+                        ui.Post(_ => MessageBox.Show(lastProblem, "Supervertaler – Translate segment",
+                            MessageBoxButtons.OK, MessageBoxIcon.Warning), null);
+                };
 
                 var cts = new CancellationTokenSource();
                 Task.Run(async () =>
@@ -14882,15 +14947,19 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 var pair = e.SegmentPairRef as ISegmentPair;
                 if (pair == null) { e.WriteSucceeded = false; return; }
 
-                doc.ProcessSegmentPair(pair, "Supervertaler", (sp, cancel) =>
+                Write(e.Translation);
+                if (e.Comment != null && !TryAddTcComment(doc, pair, e.Comment))
+                    Write(BatchTranslator.InlineComment(e.Translation, e.Comment));
+
+                void Write(string translation) => doc.ProcessSegmentPair(pair, "Supervertaler", (sp, cancel) =>
                 {
                     if (e.HasTags && e.TagMap != null && e.TagMap.Count > 0)
                     {
                         bool reconstructed = SegmentTagHandler.ReconstructTarget(
-                            sp.Target, sp.Source, e.Translation, e.TagMap);
+                            sp.Target, sp.Source, translation, e.TagMap);
                         if (!reconstructed)
                         {
-                            var plain = SegmentTagHandler.StripTagPlaceholders(e.Translation);
+                            var plain = SegmentTagHandler.StripTagPlaceholders(translation);
                             var tpl = SegmentTagHandler.FindFirstText(sp.Source);
                             if (tpl != null && !string.IsNullOrEmpty(plain))
                             {
@@ -14907,11 +14976,11 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         return;
                     }
                     var textTpl = SegmentTagHandler.FindFirstText(sp.Source);
-                    if (textTpl != null && !string.IsNullOrEmpty(e.Translation))
+                    if (textTpl != null && !string.IsNullOrEmpty(translation))
                     {
                         sp.Target.Clear();
                         var clone = (IText)textTpl.Clone();
-                        clone.Properties.Text = e.Translation;
+                        clone.Properties.Text = translation;
                         sp.Target.Add(clone);
                     }
                     Core.EditCapture.CaptureController.NoteProposal(sp, doc);

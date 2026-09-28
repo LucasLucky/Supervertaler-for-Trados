@@ -127,6 +127,15 @@ namespace Supervertaler.Trados.Core
         public Dictionary<int, TagInfo> TagMap { get; set; }
 
         /// <summary>
+        /// The AI's [[TC: ...]] comment on this segment, to be added as a Trados
+        /// comment once the target is written, or null. Set only when the
+        /// translator has chosen comments (<see cref="AiSettings.TcMarkersAsComments"/>);
+        /// otherwise the marker stays at the end of <see cref="Translation"/>. See
+        /// <see cref="BatchTranslator.PlaceComment"/>.
+        /// </summary>
+        public string Comment { get; set; }
+
+        /// <summary>
         /// Set by the event handler to <c>false</c> when writing the translation
         /// to Trados fails. <see cref="BatchTranslator"/> reads this back after
         /// the event returns and treats a failed write as a failed segment in
@@ -206,6 +215,11 @@ namespace Supervertaler.Trados.Core
             // that segment's terms. A longer run shows a placeholder instead.
             string singleUserPrompt = null;
 
+            // Segments left empty because their reply broke the output contract
+            // twice (see RecheckAsync below), for the closing summary.
+            int refusedTotal = 0;
+            var tcAsComments = aiSettings?.TcMarkersAsComments == true;
+
             if (segments == null || segments.Count == 0)
             {
                 Completed?.Invoke(this, new BatchCompletedEventArgs
@@ -274,6 +288,134 @@ namespace Supervertaler.Trados.Core
 
             // Split into batches
             int totalBatches = (segments.Count + batchSize - 1) / batchSize;
+
+            // How a segment is named in the log. A one-segment run (Alt+T) carries
+            // Index 0 whatever the segment's place in the document.
+            string Name(BatchSegment seg) =>
+                segments.Count == 1 ? "The segment" : "Segment " + (seg.Index + 1);
+
+            // Every request of the run is counted here, whichever pass sends it, so
+            // the one aggregated Reports entry adds up.
+            void Count(LlmClient c, string userPrompt, string response)
+            {
+                aggInputTokens += TokenEstimator.EstimateInputTokens(userPrompt, systemPrompt);
+                aggOutputTokens += TokenEstimator.EstimateTokens(response);
+                var usage = c.LastUsage;
+                if (usage != null)
+                {
+                    aggActualRegularIn += usage.RegularInputTokens;
+                    aggActualCacheRead += usage.CacheReadTokens;
+                    aggActualCacheWrite += usage.CacheWriteTokens;
+                    aggActualOutput += usage.OutputTokens;
+                }
+                else
+                {
+                    // Provider didn't report usage - disqualify the run
+                    // from showing actuals so we don't display a partial total.
+                    aggActualUsageComplete = false;
+                }
+            }
+
+            // Reported, never refused: a target that drops a formatting tag is often
+            // right, and ReconstructTarget falls back to plain text when it cannot
+            // place them. This line is the only record that it happened.
+            void NoteTagDifference(BatchSegment seg, string reply)
+            {
+                var tags = ReplyCheck.TagDifference(seg.SourceText, reply);
+                if (tags != null)
+                    DiagnosticLog.Log("ReplyCheck", $"{Name(seg)}: tags differ from the source ({tags}); written");
+            }
+
+            // The reply check (core ReplyCheck, OutputContract). A reply holding
+            // anything besides the translation - a note, markdown, an explanation -
+            // is taken out of `replies` and asked for once more, in one request with
+            // the batch's other offenders and the contract said again in front. A
+            // second offence is not written: the segment is left empty, with the
+            // reason in the log. An empty segment costs the translator one segment;
+            // a note in the target can reach a client.
+            //
+            // `sent` maps each number in the request to its segment. Returns the
+            // numbers refused, which "Retry segments left empty" must not send a
+            // third time. A re-ask that fails or is cancelled refuses nothing: those
+            // segments were never answered, and are left empty like any other.
+            //
+            // The log lines carry reasons and sizes, never text: the diagnostic log
+            // gets pasted into issues, and the source is client material. The whole
+            // exchange is in the prompt log, when that is on.
+            async Task<HashSet<int>> RecheckAsync(LlmClient c, Dictionary<int, string> replies,
+                Dictionary<int, BatchSegment> sent, string where)
+            {
+                var refused = new HashSet<int>();
+                var offenders = new List<int>();
+                foreach (var kv in sent)
+                {
+                    if (!replies.TryGetValue(kv.Key, out var reply) || string.IsNullOrWhiteSpace(reply)) continue;
+                    var problem = ReplyCheck.Problem(kv.Value.SourceText, reply);
+                    if (problem == null) { NoteTagDifference(kv.Value, reply); continue; }
+
+                    offenders.Add(kv.Key);
+                    replies.Remove(kv.Key);
+                    DiagnosticLog.Log("ReplyCheck", $"{Name(kv.Value)}, {where}: {problem} "
+                        + $"({reply.Length} chars back for {kv.Value.SourceText?.Length ?? 0}); asked again");
+                    RaiseProgress(0, 0, $"{Name(kv.Value)} came back with more than a translation ({problem}); asking again.",
+                        false, sw.Elapsed);
+                }
+                if (offenders.Count == 0 || cancellationToken.IsCancellationRequested) return refused;
+
+                var again = new List<BatchSegmentInput>();
+                for (int k = 0; k < offenders.Count; k++)
+                    again.Add(ToPromptInput(sent[offenders[k]], k + 1, structureContext));
+                var userPrompt = OutputContract.Reminder + Environment.NewLine + Environment.NewLine
+                    + UserPromptFor(segments.Count, termbaseTerms, includeTermMeta, again);
+
+                string response;
+                try
+                {
+                    response = await c.SendPromptAsync(userPrompt, systemPrompt, maxTokens, cancellationToken,
+                        feature: PromptLogFeature.BatchTranslate, suppressLog: true, enablePromptCaching: true);
+                }
+                catch (OperationCanceledException)
+                {
+                    return refused;
+                }
+                catch (Exception ex)
+                {
+                    aggHasError = true;
+                    lastError = ex.Message;
+                    RaiseProgress(0, 0, $"Asking again failed: {ex.Message}", true, sw.Elapsed);
+                    return refused;
+                }
+                PromptFileLogger.RecordBatchExchange(provider, model, 0, totalBatches, null, userPrompt, response,
+                    promptName: where + ", asked again");
+                Count(c, userPrompt, response);
+
+                var answers = new Dictionary<int, string>();
+                foreach (var p in TranslationPrompt.ParseBatchResponse(response, again))
+                    answers[p.Number] = p.Translation;
+
+                for (int k = 0; k < offenders.Count; k++)
+                {
+                    var seg = sent[offenders[k]];
+                    answers.TryGetValue(k + 1, out var t);
+                    t = CleanTarget(t, seg.Index + 1, structureContext);
+                    if (string.IsNullOrWhiteSpace(t)) continue;   // not answered: an ordinary empty segment
+
+                    var second = ReplyCheck.Problem(seg.SourceText, t);
+                    if (second == null)
+                    {
+                        replies[offenders[k]] = t;
+                        NoteTagDifference(seg, t);
+                        DiagnosticLog.Log("ReplyCheck", $"{Name(seg)}, {where}: the second answer was a clean translation");
+                        continue;
+                    }
+
+                    refused.Add(offenders[k]);
+                    DiagnosticLog.Log("ReplyCheck", $"{Name(seg)}, {where}: refused - {second}, twice; left for the translator");
+                    RaiseProgress(0, 0, $"{Name(seg)} was left empty: it came back with more than a translation twice "
+                        + $"({second}). Translate it again, or by hand.", true, sw.Elapsed);
+                }
+                return refused;
+            }
 
             RaiseProgress(0, segments.Count, "Starting translation...", false, TimeSpan.Zero);
 
@@ -351,25 +493,8 @@ namespace Supervertaler.Trados.Core
                         PromptFileLogger.RecordBatchExchange(provider, model, batchNum + 1, totalBatches,
                             systemPrompt, userPrompt, response);
 
-                        // Accumulate token counts for the aggregated log entry
-                        aggInputTokens += TokenEstimator.EstimateInputTokens(userPrompt, systemPrompt);
-                        aggOutputTokens += TokenEstimator.EstimateTokens(response);
-
-                        // Also accumulate real API-reported usage when available.
-                        var usage = client.LastUsage;
-                        if (usage != null)
-                        {
-                            aggActualRegularIn += usage.RegularInputTokens;
-                            aggActualCacheRead += usage.CacheReadTokens;
-                            aggActualCacheWrite += usage.CacheWriteTokens;
-                            aggActualOutput += usage.OutputTokens;
-                        }
-                        else
-                        {
-                            // Provider didn't report usage - disqualify the run
-                            // from showing actuals so we don't display a partial total.
-                            aggActualUsageComplete = false;
-                        }
+                        // Token counts and real API-reported usage, for the aggregated log entry
+                        Count(client, userPrompt, response);
 
                         // Parse response
                         var parsed = TranslationPrompt.ParseBatchResponse(response, promptSegments);
@@ -379,6 +504,13 @@ namespace Supervertaler.Trados.Core
                         foreach (var p in parsed)
                             translationMap[p.Number] = CleanTarget(p.Translation,
                                 p.Number >= 1 && p.Number <= segments.Count ? segments[p.Number - 1].Index + 1 : p.Number, structureContext);
+
+                        // Nothing reaches the document before the reply check.
+                        var sent = new Dictionary<int, BatchSegment>();
+                        for (int i = startIdx; i < endIdx; i++) sent[i + 1] = segments[i];
+                        var refused = await RecheckAsync(client, translationMap, sent,
+                            $"batch {batchNum + 1} of {totalBatches}");
+                        refusedTotal += refused.Count;
 
                         // Apply translations
                         int batchTranslated = 0;
@@ -396,7 +528,8 @@ namespace Supervertaler.Trados.Core
                                 {
                                     SegmentIndex = segments[i].Index,
                                     SourceText = segments[i].SourceText,
-                                    Translation = translation,
+                                    Translation = PlaceComment(translation, tcAsComments, out var comment),
+                                    Comment = comment,
                                     SegmentPairRef = segments[i].SegmentPairRef,
                                     HasTags = segments[i].HasTags,
                                     TagMap = segments[i].TagMap
@@ -426,7 +559,7 @@ namespace Supervertaler.Trados.Core
                             {
                                 batchFailed++;
                                 failed++;
-                                notTranslated.Add(segments[i]);
+                                if (!refused.Contains(number)) notTranslated.Add(segments[i]);
                             }
 
                             RaiseProgress(i + 1, segments.Count, null, false, sw.Elapsed);
@@ -493,23 +626,18 @@ namespace Supervertaler.Trados.Core
                                     feature: PromptLogFeature.BatchTranslate,
                                     suppressLog: true, enablePromptCaching: true);
 
-                                aggInputTokens += TokenEstimator.EstimateInputTokens(rUserPrompt, systemPrompt);
-                                aggOutputTokens += TokenEstimator.EstimateTokens(rResponse);
-                                var rUsage = client.LastUsage;
-                                if (rUsage != null)
-                                {
-                                    aggActualRegularIn += rUsage.RegularInputTokens;
-                                    aggActualCacheRead += rUsage.CacheReadTokens;
-                                    aggActualCacheWrite += rUsage.CacheWriteTokens;
-                                    aggActualOutput += rUsage.OutputTokens;
-                                }
-                                else aggActualUsageComplete = false;
+                                Count(client, rUserPrompt, rResponse);
 
                                 var rParsed = TranslationPrompt.ParseBatchResponse(rResponse, ps);
                                 var rMap = new Dictionary<int, string>();
                                 foreach (var p in rParsed)
                                     rMap[p.Number] = CleanTarget(p.Translation,
                                         rs + p.Number - 1 < pending.Count && p.Number >= 1 ? pending[rs + p.Number - 1].Index + 1 : p.Number, structureContext);
+
+                                var rSent = new Dictionary<int, BatchSegment>();
+                                for (int i = rs; i < re; i++) rSent[(i - rs) + 1] = pending[i];
+                                var rRefused = await RecheckAsync(client, rMap, rSent, $"retry {pass}");
+                                refusedTotal += rRefused.Count;
 
                                 for (int i = rs; i < re; i++)
                                 {
@@ -520,7 +648,8 @@ namespace Supervertaler.Trados.Core
                                         {
                                             SegmentIndex = pending[i].Index,
                                             SourceText = pending[i].SourceText,
-                                            Translation = t,
+                                            Translation = PlaceComment(t, tcAsComments, out var comment),
+                                            Comment = comment,
                                             SegmentPairRef = pending[i].SegmentPairRef,
                                             HasTags = pending[i].HasTags,
                                             TagMap = pending[i].TagMap
@@ -529,7 +658,7 @@ namespace Supervertaler.Trados.Core
                                         if (args.WriteSucceeded) { translated++; failed--; }
                                         else stillEmpty.Add(pending[i]);
                                     }
-                                    else stillEmpty.Add(pending[i]);
+                                    else if (!rRefused.Contains((i - rs) + 1)) stillEmpty.Add(pending[i]);
                                     RaiseProgress(translated, segments.Count, null, false, sw.Elapsed);
                                 }
                             }
@@ -554,6 +683,11 @@ namespace Supervertaler.Trados.Core
             }
 
             sw.Stop();
+
+            // One line to find them by in a long log. A one-segment run has just said it.
+            if (refusedTotal > 0 && segments.Count > 1)
+                RaiseProgress(0, 0, $"{refusedTotal} segment(s) left empty because the AI's reply held more than "
+                    + "a translation twice. Their numbers are in the log above.", true, sw.Elapsed);
 
             // Fire a single aggregated log entry for the entire Batch Translate operation -
             // also when nothing came back, so a failure is on record (see lastError).
@@ -637,14 +771,44 @@ namespace Supervertaler.Trados.Core
             List<string> documentSegments, int maxDocumentSegments, bool includeTermMetadata,
             string kbContext, StructureContextMode structureContext)
         {
-            return TranslationPrompt.BuildSystemPrompt(
+            var prompt = TranslationPrompt.BuildSystemPrompt(
                 sourceLang, targetLang,
                 customPromptContent,
                 TermsTravelWithTheSegment(segmentCount) ? null : termbaseTerms,
                 customSystemPrompt,
                 documentSegments, maxDocumentSegments, includeTermMetadata,
                 kbContext, structureContext);
+
+            // Last, after the prompt, the bank, the terms and the document, so no
+            // prompt can switch it off and nothing after it can soften it: the
+            // translator's own prompt, AutoPrompt's, and a replaced base prompt
+            // all get it. Backed by the reply check in TranslateAsync. The same
+            // text on every request, so it sits inside the cached prefix.
+            return prompt + Environment.NewLine + Environment.NewLine + OutputContract.Text;
         }
+
+        /// <summary>
+        /// Where the AI's [[TC: ...]] comment goes. With
+        /// <paramref name="asTradosComment"/> it comes off the translation and out
+        /// in <paramref name="comment"/>, for the caller to add as a Trados comment
+        /// once the target is written. Otherwise it stays at the end, rewritten in
+        /// the standard form one space after the text, whatever bracket form or
+        /// line break the model used, and <paramref name="comment"/> is null. An
+        /// empty marker is dropped either way. Call it after the reply check: a
+        /// reply with a misplaced marker is refused there, not placed here.
+        /// </summary>
+        internal static string PlaceComment(string translation, bool asTradosComment, out string comment)
+        {
+            var body = ReplyCheck.WithoutComment(translation, out comment);
+            if (comment == null || asTradosComment) return body;
+            var inline = InlineComment(body, comment);
+            comment = null;
+            return inline;
+        }
+
+        /// <summary>A translation with its [[TC: ...]] comment at the end, the way it is kept inline.</summary>
+        internal static string InlineComment(string translation, string comment) =>
+            translation + " [[TC: " + comment + "]]";
 
         /// <summary>
         /// One request's user prompt: its segments, preceded - in a one-segment

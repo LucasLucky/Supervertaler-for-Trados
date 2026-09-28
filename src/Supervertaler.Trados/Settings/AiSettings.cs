@@ -85,6 +85,21 @@ namespace Supervertaler.Trados.Settings
         [DataMember(Name = "structureContext")]
         public bool StructureContext { get; set; } = true;
 
+        /// <summary>
+        /// Where the AI's [[TC: ...]] comment on a segment goes when a translation is
+        /// written: false (the default) keeps it at the end of the target, true takes
+        /// it out and adds it to the segment as a Trados comment. Batch Translate,
+        /// Translate active segment and Paste from Clipboard all honour it.
+        ///
+        /// <para>Inline by default because that is how a translator who reads every
+        /// flag works: the marker is in front of them while they review, and they
+        /// turn it into a comment by hand, anchored to the exact words it is about
+        /// (ruled 2026-09-24, default confirmed 2026-09-28). A bool whose default is
+        /// false needs no OnDeserializing seed.</para>
+        /// </summary>
+        [DataMember(Name = "tcMarkersAsComments")]
+        public bool TcMarkersAsComments { get; set; }
+
         [DataMember(Name = "selectedCustomProfileName")]
         public string SelectedCustomProfileName { get; set; } = "";
 

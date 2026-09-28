@@ -67,7 +67,16 @@ namespace Supervertaler.Trados.Core
             sb.AppendLine("- Do NOT reformat the output into a plain list, a table, or prose, and do NOT drop "
                 + "the segment numbers. The result is parsed by its \"Segment <n>\" headers to import it back "
                 + "into the CAT tool, so losing them breaks re-import.");
-            sb.AppendLine("- Do NOT add commentary, explanations, or notes.");
+            // The API path's output contract in the one form this layout allows: its
+            // own text says "never the source text again", and this format asks for
+            // the source line back, so the contract itself is not appended here. The
+            // paste is checked the same way (ReplyCheck), without the second chance.
+            sb.AppendLine("- Do NOT add commentary, explanations, or notes, with one exception: if something must be "
+                + "brought to the translator's attention (a defect in the source, a real ambiguity), end that "
+                + "segment's translation with ONE marker on the same line, [[TC: <text>]], 5 to 20 words written "
+                + "as the translator's comment to the client, in English unless the instructions above say otherwise. "
+                + "A segment with nothing to flag gets no marker. "
+                + "A translation with anything else added is not imported.");
             sb.AppendLine("- Preserve ALL tag placeholders (<t1>, </t1>, <t2/>, etc.) exactly as they appear.");
             sb.AppendLine();
 
@@ -155,7 +164,7 @@ namespace Supervertaler.Trados.Core
             sb.AppendLine();
             sb.AppendLine("Segment numbers are document-absolute and are NOT contiguous: segments with no");
             sb.AppendLine("translatable content are omitted from this batch but still occupy their number.");
-            sb.AppendLine("Use the OUTPUT FORMAT defined above, and cite these same numbers in Evidence lines.");
+            sb.AppendLine("Answer in the format of the OUTPUT CONTRACT above, and cite these same numbers in Evidence lines.");
             sb.AppendLine();
             sb.AppendLine("**SEGMENTS TO REVIEW (" + segments.Count + " segments):**");
             sb.AppendLine();

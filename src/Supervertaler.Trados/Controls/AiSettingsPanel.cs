@@ -81,6 +81,7 @@ namespace Supervertaler.Trados.Controls
         private NumericUpDown _nudMonthlyBudget;
         private Label _lblBatchSize;
         private NumericUpDown _nudBatchSize;
+        private CheckBox _chkTcAsComments;
         private Label _lblAiTermbases;
 
         // AI Context section – Chat & QuickLauncher only
@@ -638,6 +639,20 @@ namespace Supervertaler.Trados.Controls
                 "higher values reduce cost and improve cross-segment consistency.");
             Pair(root, ref row, _lblBatchSize, _nudBatchSize);
 
+            _chkTcAsComments = Check("Add the AI's [[TC: …]] notes as Trados comments");
+            var tcTip = new ToolTip { AutoPopDelay = 20000, InitialDelay = 300 };
+            tcTip.SetToolTip(_chkTcAsComments,
+                "When the AI needs to flag something in a segment – a defect in the source, a real\r\n" +
+                "ambiguity, a deliberate departure from the TM or the termbase – it adds one short note\r\n" +
+                "at the end of that segment's translation, written as your comment to the client:\r\n" +
+                "[[TC: …]].\r\n\r\n" +
+                "Unticked (the default): the note stays at the end of the target, where you see it while\r\n" +
+                "you review. Remove it before you confirm the segment, or turn it into a comment yourself.\r\n\r\n" +
+                "Ticked: the note is taken out of the target and added to the segment as a Trados\r\n" +
+                "comment instead.\r\n\r\n" +
+                "Applies to Batch Translate, Translate active segment (Alt+T) and Paste from Clipboard.");
+            Span(root, ref row, _chkTcAsComments);
+
             // Termbase AI inclusion is now chosen on the Termbases tab (the "AI"
             // column in the termbase grid), so this is just a pointer to that.
             _lblAiTermbases = new Label
@@ -890,6 +905,7 @@ namespace Supervertaler.Trados.Controls
                 Math.Min(_nudMonthlyBudget.Maximum, (decimal)settings.MonthlyBudgetUsd));
             _nudBatchSize.Value = Math.Max(_nudBatchSize.Minimum,
                 Math.Min(_nudBatchSize.Maximum, settings.BatchSize > 0 ? settings.BatchSize : 20));
+            _chkTcAsComments.Checked = settings.TcMarkersAsComments;
         }
 
 
@@ -985,6 +1001,7 @@ namespace Supervertaler.Trados.Controls
             settings.PersistUsageLog = _chkPersistUsageLog.Checked;
             settings.MonthlyBudgetUsd = (double)_nudMonthlyBudget.Value;
             settings.BatchSize = (int)_nudBatchSize.Value;
+            settings.TcMarkersAsComments = _chkTcAsComments.Checked;
             // NOTE: DisabledAiTermbaseIds / AiTermbaseIdsInitialized are now owned by the
             // Termbases tab (the "AI" column in the termbase grid), not this panel.
         }

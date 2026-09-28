@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Text.RegularExpressions;
+using Supervertaler.Core;
 using Supervertaler.Trados.Models;
 
 namespace Supervertaler.Trados.Core
@@ -46,26 +47,16 @@ namespace Supervertaler.Trados.Core
             // Language-specific checks
             AppendLanguageSpecificChecks(sb, targetLang);
 
-            // Output format
-            sb.AppendLine("**OUTPUT FORMAT**:");
-            sb.AppendLine("For each segment, respond in EXACTLY this format:");
-            sb.AppendLine();
-            sb.AppendLine("[SEGMENT 0001] OK");
-            sb.AppendLine("[SEGMENT 0002] ISSUE");
-            sb.AppendLine("Issue: <description of the problem>");
-            sb.AppendLine("Evidence: <specific source segment numbers cited from # DOCUMENT CONTENT, where applicable; otherwise omit this line>");
-            sb.AppendLine("Suggestion: <how to fix it>");
-            sb.AppendLine();
-
-            // Rules
+            // Rules. The reply's format is NOT here: it is the output contract at the
+            // very end (OutputContract.ProofreadText, core), where a custom prompt
+            // cannot override it. It was once stated here and again in the clipboard
+            // request, the two drifted, and a model obeying the later one dropped
+            // Evidence: - so it is written down once.
             sb.AppendLine("**IMPORTANT RULES**:");
-            sb.AppendLine("- You MUST respond for EVERY segment in the batch.");
-            sb.AppendLine("- Use OK if the translation is correct.");
-            sb.AppendLine("- Use ISSUE if there is a problem, followed by Issue: and Suggestion: lines (and Evidence: where relevant).");
-            sb.AppendLine("- Do NOT provide corrected translations \u2014 only describe the issues and suggest fixes.");
+            sb.AppendLine("- Answer in the format set out in the OUTPUT CONTRACT at the end of these instructions.");
             sb.AppendLine("- Be concise but specific in your descriptions.");
             sb.AppendLine("- Do NOT flag stylistic preferences unless they are clear errors.");
-            sb.AppendLine("- Segment numbers in OUTPUT and any Evidence citations refer to the document-absolute numbers shown in [SEGMENT XXXX] headers and in # DOCUMENT CONTENT \u2014 NOT to within-batch positions.");
+            sb.AppendLine("- Segment numbers in your verdicts and any Evidence citations refer to the document-absolute numbers shown in [SEGMENT XXXX] headers and in # DOCUMENT CONTENT \u2013 NOT to within-batch positions.");
 
             // Termbase injection
             if (terms != null && terms.Count > 0)
@@ -148,6 +139,12 @@ namespace Supervertaler.Trados.Core
                     sb.AppendLine();
                 }
             }
+
+            // Last, after the custom prompt and the document, as on the translation
+            // side (BatchTranslator.SystemPromptFor).
+            sb.AppendLine();
+            sb.AppendLine();
+            sb.Append(OutputContract.ProofreadText);
 
             return sb.ToString().TrimEnd();
         }
