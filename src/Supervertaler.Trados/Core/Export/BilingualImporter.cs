@@ -156,7 +156,7 @@ namespace Supervertaler.Trados.Core.Export
                         diff.Detail =
                             $"Edit has {targetStructural} structural tag marker(s) (<tN>) " +
                             $"but source has {sourceStructural}; applying would break Trados " +
-                            "(structural tags must round-trip exactly — semantic <b>/<i>/<u> " +
+                            "(structural tags must round-trip exactly – semantic <b>/<i>/<u> " +
                             "can be freely added or removed)";
                         diff.Apply = false; // strict mode default — caller can flip to true to force
                         result.Diffs.Add(diff);

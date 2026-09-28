@@ -134,7 +134,7 @@ public static class LocalTools
                 error = $"\"{selector}\" matches {matches.Count} running instances, so it does not "
                       + "identify one.",
                 matched = matches.Select(Describe),
-                hint = "Narrow it down — a longer part of the project name, or the Studio version.",
+                hint = "Narrow it down – a longer part of the project name, or the Studio version.",
             });
 
         bridge.SessionSelector = selector;

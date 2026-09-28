@@ -220,7 +220,7 @@ namespace Supervertaler.Trados.Controls
                 Text = extensionInstalled
                     ? "Replacing the installed extension (Claude Desktop cannot delete the server while it is running):\r\n" +
                       "1.  Download the new extension file (Supervertaler-MCP-Server.mcpb).\r\n" +
-                      "2.  Quit Claude Desktop completely — closing the window is not enough, it keeps\r\n" +
+                      "2.  Quit Claude Desktop completely – closing the window is not enough, it keeps\r\n" +
                       "     running in the notification area. Then start it again.\r\n" +
                       "3.  Settings → Extensions → Advanced settings → Install extension…\r\n" +
                       "4.  Restart Claude Desktop and ask: \"What's the status of my Trados project?\""

@@ -56,7 +56,7 @@ namespace Supervertaler.Trados
                         "No write termbase is configured.\n\n" +
                         "Open TermLens settings (gear icon) and check the \u201cWrite\u201d column " +
                         "for the termbases where new terms should be added.",
-                        "TermLens \u2014 Add Term",
+                        "TermLens \u2013 Add Term",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
@@ -66,7 +66,7 @@ namespace Supervertaler.Trados
                 {
                     MessageBox.Show(
                         "Database file not found. Please check the TermLens settings.",
-                        "TermLens \u2014 Add Term",
+                        "TermLens \u2013 Add Term",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
@@ -141,7 +141,7 @@ namespace Supervertaler.Trados
                     MessageBox.Show(
                         "The configured write termbases were not found in the database.\n" +
                         "Please check the TermLens settings.",
-                        "TermLens \u2014 Add Term",
+                        "TermLens \u2013 Add Term",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }

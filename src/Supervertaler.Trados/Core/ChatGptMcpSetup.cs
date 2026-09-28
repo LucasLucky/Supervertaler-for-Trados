@@ -170,7 +170,7 @@ namespace Supervertaler.Trados.Core
                 if (!File.Exists(ServerExePath))
                 {
                     result.Message = "The server could not be downloaded. Check your internet "
-                                   + "connection, or install it by hand — see the documentation.";
+                                   + "connection, or install it by hand – see the documentation.";
                     return result;
                 }
 
@@ -182,8 +182,8 @@ namespace Supervertaler.Trados.Core
                     (result.Updated
                         ? "The MCP server has been updated and ChatGPT desktop is set up.\r\n\r\n"
                         : "ChatGPT desktop is set up.\r\n\r\n")
-                    + "Quit ChatGPT completely — closing the window is not enough, it keeps "
-                    + "running in the notification area — then start it again and ask:\r\n\r\n"
+                    + "Quit ChatGPT completely – closing the window is not enough, it keeps "
+                    + "running in the notification area – then start it again and ask:\r\n\r\n"
                     + "    What Trados project is open?";
                 return result;
             }
@@ -207,7 +207,7 @@ namespace Supervertaler.Trados.Core
             var assetUrl = await ResolveAssetUrlAsync().ConfigureAwait(false);
             if (assetUrl == null)
                 return "Could not find the MCP server download on the latest release. Check your "
-                     + "internet connection, or install it by hand — see the documentation.";
+                     + "internet connection, or install it by hand – see the documentation.";
 
             Directory.CreateDirectory(ServerDir);
             SweepReplacedServers();
@@ -366,7 +366,7 @@ namespace Supervertaler.Trados.Core
             if (updated.Length > 0 && !updated.EndsWith("\n")) updated += "\n";
 
             var block = new StringBuilder();
-            block.Append("\n# Supervertaler for Trados — live connection to the open Studio session.\n");
+            block.Append("\n# Supervertaler for Trados – live connection to the open Studio session.\n");
             block.Append("# Local stdio server; it reaches Trados on this machine only.\n");
             block.Append("[").Append(BlockName).Append("]\n");
             block.Append("type = \"stdio\"\n");

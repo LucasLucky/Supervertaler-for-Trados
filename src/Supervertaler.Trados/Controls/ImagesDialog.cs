@@ -370,7 +370,7 @@ namespace Supervertaler.Trados.Controls
             item.SubItems.Add(row.Note ?? "");
             // A name wider than its column is cut off on screen; the tooltip carries
             // the whole row, so nothing is unreadable.
-            item.ToolTipText = (row.Name ?? "") + "  \u2014  " + (row.Note ?? "");
+            item.ToolTipText = (row.Name ?? "") + "  \u2013  " + (row.Note ?? "");
             _lstDocs.Items.Add(item);
         }
 

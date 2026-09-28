@@ -57,7 +57,7 @@ namespace Supervertaler.Trados
                         "No write termbase is configured.\n\n" +
                         "Open TermLens settings (gear icon) and check the \u201cWrite\u201d column " +
                         "for the termbases where new terms should be added.",
-                        "TermLens \u2014 Quick-Add Term",
+                        "TermLens \u2013 Quick-Add Term",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
@@ -67,7 +67,7 @@ namespace Supervertaler.Trados
                 {
                     MessageBox.Show(
                         "Database file not found. Please check the TermLens settings.",
-                        "TermLens \u2014 Quick-Add Term",
+                        "TermLens \u2013 Quick-Add Term",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
@@ -115,9 +115,9 @@ namespace Supervertaler.Trados
                 targetText = targetText.Trim();
 
                 // Trimming is for edges; a dropped letter, digit or symbol is asked about.
-                sourceText = TermSaveGuard.Confirm(srcSelRaw, sourceText, doc.ActiveSegmentPair?.Source, fullSource, "TermLens \u2014 Quick-Add Term");
+                sourceText = TermSaveGuard.Confirm(srcSelRaw, sourceText, doc.ActiveSegmentPair?.Source, fullSource, "TermLens \u2013 Quick-Add Term");
                 if (sourceText == null) return;
-                targetText = TermSaveGuard.Confirm(tgtSelRaw, targetText, doc.ActiveSegmentPair?.Target, fullTarget, "TermLens \u2014 Quick-Add Term");
+                targetText = TermSaveGuard.Confirm(tgtSelRaw, targetText, doc.ActiveSegmentPair?.Target, fullTarget, "TermLens \u2013 Quick-Add Term");
                 if (targetText == null) return;
 
                 // Validate we have text to work with
@@ -127,7 +127,7 @@ namespace Supervertaler.Trados
                         "Both source and target text are required.\n\n" +
                         "Make sure you have an active segment with text in both " +
                         "the source and target columns.",
-                        "TermLens \u2014 Quick-Add Term",
+                        "TermLens \u2013 Quick-Add Term",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
@@ -153,7 +153,7 @@ namespace Supervertaler.Trados
                     MessageBox.Show(
                         "No write termbases found (the project termbase is excluded \u2013 use Alt+\u2191 to add there).\n" +
                         "Please check the TermLens settings.",
-                        "TermLens \u2014 Quick-Add Term",
+                        "TermLens \u2013 Quick-Add Term",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
@@ -347,7 +347,7 @@ namespace Supervertaler.Trados
                     {
                         MessageBox.Show(
                             "This term already exists in the termbase.",
-                            "TermLens \u2014 Quick-Add Term",
+                            "TermLens \u2013 Quick-Add Term",
                             MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
                 }
@@ -356,7 +356,7 @@ namespace Supervertaler.Trados
                     MessageBox.Show(
                         $"Failed to add term: {ex.Message}\n\n" +
                         "The database may be locked by another application.",
-                        "TermLens \u2014 Quick-Add Term",
+                        "TermLens \u2013 Quick-Add Term",
                         MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }

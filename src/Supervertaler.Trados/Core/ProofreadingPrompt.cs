@@ -37,11 +37,11 @@ namespace Supervertaler.Trados.Core
 
             // Quality check categories
             sb.AppendLine("**CHECK FOR THE FOLLOWING ISSUES**:");
-            sb.AppendLine("1. **Accuracy** \u2014 Does the translation convey the same meaning as the source?");
-            sb.AppendLine("2. **Completeness** \u2014 Is anything missing or added that shouldn't be?");
-            sb.AppendLine("3. **Terminology** \u2014 Are terms translated consistently and correctly?");
-            sb.AppendLine("4. **Grammar & Style** \u2014 Is the target grammatically correct and stylistically appropriate?");
-            sb.AppendLine("5. **Number Formatting** \u2014 Are numbers, dates, and measurements formatted correctly for the target language?");
+            sb.AppendLine("1. **Accuracy** \u2013 Does the translation convey the same meaning as the source?");
+            sb.AppendLine("2. **Completeness** \u2013 Is anything missing or added that shouldn't be?");
+            sb.AppendLine("3. **Terminology** \u2013 Are terms translated consistently and correctly?");
+            sb.AppendLine("4. **Grammar & Style** \u2013 Is the target grammatically correct and stylistically appropriate?");
+            sb.AppendLine("5. **Number Formatting** \u2013 Are numbers, dates, and measurements formatted correctly for the target language?");
             sb.AppendLine();
 
             // Language-specific checks

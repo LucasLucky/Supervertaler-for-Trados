@@ -127,7 +127,7 @@ namespace Supervertaler.Trados.Core.Export
                     MakeRun("Comments ", bold: true, italic: true),
                     MakeRun("are copied from your Trados segments for reference only. "
                           + "You can edit them here, but the changes are not read back on "
-                          + "re-import — only the target text is.", italic: true)));
+                          + "re-import – only the target text is.", italic: true)));
             }
         }
 

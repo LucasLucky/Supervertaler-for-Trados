@@ -267,7 +267,7 @@ public sealed class BridgeClient
         {
             throw new BridgeUnavailableException(IsMemoQ
                 ? "Supervertaler bridge handshake file not found. Start memoQ, open a project, and click " +
-                  "into a segment with Supervertaler selected as the MT engine — that starts the bridge. " +
+                  "into a segment with Supervertaler selected as the MT engine – that starts the bridge. " +
                   "Make sure Supervertaler for memoQ is installed (Resource console > MT settings)."
                 : "Supervertaler bridge handshake file not found. Start Trados Studio, open a project " +
                   "in the editor, and make sure the Supervertaler for Trados plugin is installed with " +

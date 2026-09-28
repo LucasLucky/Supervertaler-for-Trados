@@ -701,7 +701,7 @@ namespace Supervertaler.Trados.Controls
                 "Batch Proofread works segment-by-segment without TM reference pairs.");
             Span(root, ref row, _chkIncludeTmMatches);
 
-            _chkDemoMode = Check("Incognito mode — anonymise project names, paths, and personal data in AI responses");
+            _chkDemoMode = Check("Incognito mode – anonymise project names, paths, and personal data in AI responses");
             _chkDemoMode.Checked = false;
             var demoTip = new ToolTip { AutoPopDelay = 10000, InitialDelay = 300 };
             demoTip.SetToolTip(_chkDemoMode,

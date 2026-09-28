@@ -3385,7 +3385,7 @@ namespace Supervertaler.Trados
                 var confirmResult = MessageBox.Show(
                     $"Delete the term \u201c{e.Entry.SourceTerm} \u2192 {e.Entry.TargetTerm}\u201d?\n\n" +
                     "This cannot be undone.",
-                    "TermLens \u2014 Delete Term",
+                    "TermLens \u2013 Delete Term",
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Warning,
                     MessageBoxDefaultButton.Button2);
@@ -3406,7 +3406,7 @@ namespace Supervertaler.Trados
                     MessageBox.Show(
                         $"Failed to delete term: {ex.Message}\n\n" +
                         "The database may be locked by another application.",
-                        "TermLens \u2014 Delete Term",
+                        "TermLens \u2013 Delete Term",
                         MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             });
@@ -3457,7 +3457,7 @@ namespace Supervertaler.Trados
                     MessageBox.Show(
                         $"Failed to toggle non-translatable: {ex.Message}\n\n" +
                         "The database may be locked by another application.",
-                        "TermLens \u2014 Non-Translatable",
+                        "TermLens \u2013 Non-Translatable",
                         MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             });

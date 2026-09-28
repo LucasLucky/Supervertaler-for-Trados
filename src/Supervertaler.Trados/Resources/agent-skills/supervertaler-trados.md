@@ -35,8 +35,8 @@ compare or audit a project's content. The tools below already do that work
 against the live document, the real termbase and Studio's own rules, and your
 own reading does the rest. Writing code here feels productive and is not: on a
 measured run it produced 666 findings of which 6 of the 7 survivors were wrong,
-while the defects that mattered — a claim inconsistent with its sibling, a
-sentence contradicting the one above it — were still sitting in the text
+while the defects that mattered – a claim inconsistent with its sibling, a
+sentence contradicting the one above it – were still sitting in the text
 unread. **Call the tools, then read.**
 
 ## Choosing a tool
@@ -60,7 +60,7 @@ the user which project they mean, then `select_trados_instance`.
 ## Proofreading and QA
 
 **This is a five-step procedure. Follow it in order. Do not improvise a
-different one, and do not skip step 3 — it is where nearly all the value is.**
+different one, and do not skip step 3 – it is where nearly all the value is.**
 
 1. Load the decisions
 2. Run the checking tools
@@ -72,7 +72,7 @@ different one, and do not skip step 3 — it is where nearly all the value is.**
 
 Before reporting anything, call `get_supermemory_context` and consult the
 project termbase (`lookup_term`, `check_terminology`). The translator has
-already settled many questions, with the reasoning written down — a deliberate
+already settled many questions, with the reasoning written down – a deliberate
 exception to a term, a gloss dropped on purpose, a rendering chosen against the
 obvious one.
 
@@ -83,7 +83,7 @@ pair does not: one entry on a real project names a specific segment number and
 says outright that a terminology flag there is a false positive. An agent that
 read only the term pair raised exactly that flag.
 
-If a recorded decision looks genuinely wrong, say so once, citing the note —
+If a recorded decision looks genuinely wrong, say so once, citing the note –
 do not present it as a fresh defect.
 
 ### 2. Run the checking tools
@@ -106,7 +106,7 @@ and then mention it afterwards.
 These are termbase-aware and Trados-aware. Hand-rolled regex is not, and it
 produces noise at a rate that buries anything real. A measured run on a
 675-segment patent: a script produced 666 raw findings, filtered itself to 7,
-and 6 of those 7 were wrong — including two "termbase violations" where the
+and 6 of those 7 were wrong – including two "termbase violations" where the
 target followed the termbase correctly and the script had matched a substring
 of a different, also-correct term. `check_terminology` would have raised none
 of them, because it compares against the actual termbase entries.
@@ -128,7 +128,7 @@ Pattern matching cannot reach any of the following. Reading finds all of them:
   is a substantive drafting slip, and it is invisible to every check.
 - **A claim that does not match its sibling claim**, or the description
   sentence that supports it. Claim sets must be read as a set.
-- **A sentence that contradicts the one before it** — a step that heats a
+- **A sentence that contradicts the one before it** – a step that heats a
   liquid so it can be sprayed, followed by a sentence saying this makes it more
   viscous.
 - **Arithmetic.** Figures quoted in the prose against the table they come from;
@@ -136,7 +136,7 @@ Pattern matching cannot reach any of the following. Reading finds all of them:
 - **Cross-references.** "according to claim N", "steps a to f", figure numbers.
 - **A term that drifts across a document**, or a formula rendered two ways in
   otherwise identical positions.
-- **Register and idiom** — whether the English reads as English.
+- **Register and idiom** – whether the English reads as English.
 
 You cannot do this by sampling. Read all of it.
 
@@ -152,10 +152,10 @@ after a second look, and anything a recorded decision already settles.
 
 Report findings by the segment `number` the user sees in Studio, quote the
 text, and say what is wrong in one line. Separate what is genuinely wrong from
-what is merely worth a look. Say plainly if you found nothing — that is a
+what is merely worth a look. Say plainly if you found nothing – that is a
 useful result, not a failure.
 
-If asked not to change anything, change nothing — including confirmation
+If asked not to change anything, change nothing – including confirmation
 statuses, and including comments.
 
 ## Reading is free; writing is not

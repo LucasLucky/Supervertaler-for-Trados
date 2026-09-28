@@ -402,7 +402,7 @@ namespace Supervertaler.Trados.Controls
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Font = bodyFont,
             };
-            _cmbPrompt.Items.Add("(None \u2014 default)");
+            _cmbPrompt.Items.Add("(None \u2013 default)");
             _cmbPrompt.SelectedIndex = 0;
             Controls.Add(_lblPromptLabel);
             Controls.Add(_cmbPrompt);
@@ -476,7 +476,7 @@ namespace Supervertaler.Trados.Controls
             // ─── Segment count ──────────────────────────────────
             _lblSegmentCount = new Label
             {
-                Text = "Segments: \u2014",
+                Text = "Segments: \u2013",
                 Location = new Point(leftMargin, y + Px(1)),
                 AutoSize = true,
                 Font = bodyFont,
@@ -1089,7 +1089,7 @@ namespace Supervertaler.Trados.Controls
         {
             _activePromptPath = activePromptPath;
             _cmbPrompt.Items.Clear();
-            _cmbPrompt.Items.Add("(None \u2014 default)");
+            _cmbPrompt.Items.Add("(None \u2013 default)");
             _promptList.Clear();
 
             int selectedIdx = 0;
@@ -1291,7 +1291,7 @@ namespace Supervertaler.Trados.Controls
 
             var status = cancelled ? "Cancelled" : "Complete";
             AppendLog(
-                $"\u2014 {status}: {translated} translated, {failed} failed " +
+                $"\u2013 {status}: {translated} translated, {failed} failed " +
                 $"({elapsed.TotalSeconds:F1}s)",
                 false);
         }
@@ -1322,7 +1322,7 @@ namespace Supervertaler.Trados.Controls
             var status = cancelled ? "Cancelled" : "Complete";
             var issueMarker = issues > 0 ? "\u26A0" : "\u2713";
             AppendLog(
-                $"\u2014 {status}: {issueMarker} {issues} issue{(issues != 1 ? "s" : "")} found, " +
+                $"\u2013 {status}: {issueMarker} {issues} issue{(issues != 1 ? "s" : "")} found, " +
                 $"\u2713 {ok} OK ({elapsed.TotalSeconds:F1}s)",
                 false);
         }
@@ -1378,7 +1378,7 @@ namespace Supervertaler.Trados.Controls
         {
             _progressBar.Value = 0;
             _lblProgress.Text = "";
-            _lblSegmentCount.Text = "Segments: \u2014";
+            _lblSegmentCount.Text = "Segments: \u2013";
             SetRunning(false);
         }
 

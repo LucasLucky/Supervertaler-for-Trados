@@ -213,7 +213,7 @@ namespace Supervertaler.Trados.Core
             catch (Exception ex)
             {
                 DiagnosticLog.Log("WebSearch", $"Web search failed: {ex}");
-                _control.SetStatus("Web search failed — see the diagnostic log.");
+                _control.SetStatus("Web search failed – see the diagnostic log.");
             }
         }
 
@@ -258,7 +258,7 @@ namespace Supervertaler.Trados.Core
                         try { form.Hide(); } catch { }
                         WebSearchLauncher.OpenAll(targets);
                         _control.SetStatus(
-                            $"Embedded view unavailable — opened {targets.Count} resource(s) in your browser.");
+                            $"Embedded view unavailable – opened {targets.Count} resource(s) in your browser.");
                         return;
                     }
 
@@ -357,7 +357,7 @@ namespace Supervertaler.Trados.Core
                     var tmNote = tms.Count > 0 ? $", {tms.Count} TM(s)" : "";
                     var tbNote = termbaseLabels.Count > 0 ? $", {termbaseLabels.Count} termbase(s)" : "";
                     _control.SetStatus(
-                        $"Project: {Path.GetFileName(projectRoot)} — {files.Count} file(s){tmNote}{tbNote}");
+                        $"Project: {Path.GetFileName(projectRoot)} – {files.Count} file(s){tmNote}{tbNote}");
                 });
             }
             catch { /* discovery failure must not crash the plugin */ }
@@ -632,10 +632,10 @@ namespace Supervertaler.Trados.Core
             if (termbaseCount > 0) parts.Add($"{tbHits} in {termbaseCount} termbase(s)");
 
             if (parts.Count == 0)
-                return $"{results.Count} result(s) — {ms} ms";
+                return $"{results.Count} result(s) – {ms} ms";
             if (parts.Count == 1)
-                return $"{parts[0]} — {ms} ms";
-            return $"{results.Count} result(s) — " + string.Join(", ", parts) + $" — {ms} ms";
+                return $"{parts[0]} – {ms} ms";
+            return $"{results.Count} result(s) – " + string.Join(", ", parts) + $" – {ms} ms";
         }
 
         private void OnStopRequested(object sender, EventArgs e)
@@ -665,8 +665,8 @@ namespace Supervertaler.Trados.Core
                     || result.Kind == ResultKind.TermbaseEntry)
                 {
                     _control.SetStatus(result.Kind == ResultKind.TermbaseEntry
-                        ? "This is a termbase entry — use the preview pane below to copy the term."
-                        : "This is a translation-memory hit — use the preview pane below to copy the text.");
+                        ? "This is a termbase entry – use the preview pane below to copy the term."
+                        : "This is a translation-memory hit – use the preview pane below to copy the text.");
                     return;
                 }
 
@@ -726,8 +726,8 @@ namespace Supervertaler.Trados.Core
             {
                 SafeInvoke(() => _control.SetStatus(
                     e.SelectedResult.Kind == ResultKind.TermbaseEntry
-                        ? "Replace doesn't apply to termbase entries — select a project-file row."
-                        : "Replace doesn't apply to translation-memory results — select a project-file row."));
+                        ? "Replace doesn't apply to termbase entries – select a project-file row."
+                        : "Replace doesn't apply to translation-memory results – select a project-file row."));
                 return;
             }
 
@@ -827,7 +827,7 @@ namespace Supervertaler.Trados.Core
                 msg += "All changes go through the Trados API and can be undone with Ctrl+Z.";
             }
 
-            var dialogResult = MessageBox.Show(msg, "SuperSearch — Replace All",
+            var dialogResult = MessageBox.Show(msg, "SuperSearch – Replace All",
                 MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
             if (dialogResult != DialogResult.OK) return;
 
@@ -837,7 +837,7 @@ namespace Supervertaler.Trados.Core
                 var confirm = MessageBox.Show(
                     "Are you sure? Changes to files on disk cannot be undone.\n\n" +
                     "Make sure you have saved your project or have a backup.",
-                    "SuperSearch — Final Confirmation",
+                    "SuperSearch – Final Confirmation",
                     MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation,
                     MessageBoxDefaultButton.Button2); // default to "No"
                 if (confirm != DialogResult.Yes) return;
@@ -907,7 +907,7 @@ namespace Supervertaler.Trados.Core
                 if (skippedTagSpan > 0) statusMsg += $", skipped {skippedTagSpan} (match spans inline tags)";
                 if (errorCount > 0) statusMsg += $" ({errorCount} error(s))";
                 if (fileGroups.Any(g => !string.Equals(g.Key, activeFilePath, StringComparison.OrdinalIgnoreCase)))
-                    statusMsg += ". Non-active files were modified on disk — reopen to see changes.";
+                    statusMsg += ". Non-active files were modified on disk – reopen to see changes.";
                 _control.SetStatus(statusMsg);
             });
         }

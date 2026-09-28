@@ -86,7 +86,7 @@ namespace Supervertaler.Trados
                 MessageBox.Show(
                     $"No prompt assigned to Ctrl+Alt+{keyDigit}.\n\n" +
                     "You can assign shortcuts in Settings \u2192 Prompts.",
-                    "Supervertaler \u2014 QuickLauncher",
+                    "Supervertaler \u2013 QuickLauncher",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
@@ -180,7 +180,7 @@ namespace Supervertaler.Trados
                 foreach (var line in projectText.Split('\n'))
                     if (line.TrimStart().StartsWith("[")) segCount++;
 
-                var placeholder = $"[source document \u2014 {segCount} segment{(segCount == 1 ? "" : "s")}]";
+                var placeholder = $"[source document \u2013 {segCount} segment{(segCount == 1 ? "" : "s")}]";
                 displayExpanded = PromptLibrary.ApplyVariables(
                     content,
                     sourceLang, targetLang,

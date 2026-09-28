@@ -81,7 +81,7 @@ namespace Supervertaler.Trados.Controls
             _cancel.Click += (s, e) =>
             {
                 _cancel.Enabled = false;
-                _status.Text = "Cancelling — finishing the current segment…";
+                _status.Text = "Cancelling – finishing the current segment…";
                 CancelRequested?.Invoke(this, EventArgs.Empty);
             };
 

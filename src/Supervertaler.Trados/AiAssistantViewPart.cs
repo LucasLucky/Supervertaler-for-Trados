@@ -2117,7 +2117,7 @@ namespace Supervertaler.Trados
                                 "needs to save the document to persist them. Tell the user exactly what was changed.";
                 if (wroteBackslashEscape)
                     response.Note += " WARNING: at least one target contained a literal \\uXXXX escape, which was " +
-                        "written to the segment exactly as sent — nothing here decodes backslash escapes. To write " +
+                        "written to the segment exactly as sent – nothing here decodes backslash escapes. To write " +
                         "a non-breaking space, set decodeEntities=true and use &nbsp; instead.";
                 if (wroteUndecodedEntity)
                     response.Note += " WARNING: at least one target contained &nbsp; but decodeEntities was not set, " +
@@ -2130,7 +2130,7 @@ namespace Supervertaler.Trados
                         "the revision differs.";
                 if (tagMismatches > 0)
                     response.Note += $" WARNING: {tagMismatches} segment(s) were written with inline tags whose " +
-                        "underlying tag ids do not match the source — see the per-item 'warning' field. Studio's Tag " +
+                        "underlying tag ids do not match the source – see the per-item 'warning' field. Studio's Tag " +
                         "Verifier will flag these. Usually the target text used a <tN> number the source does not " +
                         "have, or repeated the same <tN> twice; re-send that segment using exactly the tag markers " +
                         "shown in the segment's SOURCE field.";
@@ -2480,7 +2480,7 @@ namespace Supervertaler.Trados
             if (missing.Count > 0)
                 parts.Add("source tag id(s) missing from the target: " + string.Join(", ", missing));
 
-            return "tag-id mismatch — " + string.Join("; ", parts);
+            return "tag-id mismatch – " + string.Join("; ", parts);
         }
 
         /// <summary>Depth-first list of the underlying Trados tag ids in a segment,
@@ -11264,7 +11264,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                                   + "images but nowhere in the text:** " + string.Join(", ", drawingsOnly)
                                   + ". That is worth raising with the client before filing."
                                 : "\n\nEvery sign read in the images also appears in the text.")
-                            + "\n\n*This file is read into every prompt from now on. Read it first \u2014 a "
+                            + "\n\n*This file is read into every prompt from now on. Read it first \u2013 a "
                             + "wrong caption would be invisible and everywhere.*");
                     });
                 }
@@ -11663,7 +11663,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     + (withImages.Count > 1
                         ? " in `" + Path.GetFileName(target) + "`" : "")
                     + (set.Method == Supervertaler.Core.LabelingMethod.Refused
-                        ? " \u2014 named by position, not by figure: the labels could not be checked"
+                        ? " \u2013 named by position, not by figure: the labels could not be checked"
                         : ""));
             }
 
@@ -11778,7 +11778,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 + "). It is read into every prompt.");
 
             ShowSuperMemoryMessage(
-                "Wrote **figures.md** to memory bank **" + bankName + "** \u2014 "
+                "Wrote **figures.md** to memory bank **" + bankName + "** \u2013 "
                 + wrote + " figure(s).\n\nUnlike a chat save, this sits at the bank root, "
                 + "so it is read into every prompt.");
         }
@@ -13006,7 +13006,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             if (report == null)
             {
                 MessageBox.Show("There is no proofreading report to save. Run the AI Proofreader first.",
-                    "Supervertaler \u2014 Save report", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    "Supervertaler \u2013 Save report", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             try
@@ -13035,7 +13035,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             catch (Exception ex)
             {
                 MessageBox.Show("The report could not be saved:\n\n" + ex.Message,
-                    "Supervertaler \u2014 Save report", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    "Supervertaler \u2013 Save report", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
@@ -14186,7 +14186,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             }
 
             if (totalReplacements == 0)
-                return "No matches found \u2014 target unchanged.";
+                return "No matches found \u2013 target unchanged.";
 
             // Apply replacements through ProcessContentWithDocument so the
             // Trados editor commits the changes (direct IText property writes
@@ -14254,7 +14254,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         /// </summary>
         public static void ShowTransformResult(string transformName, string result)
         {
-            MessageBox.Show(result, "Supervertaler \u2014 " + transformName,
+            MessageBox.Show(result, "Supervertaler \u2013 " + transformName,
                 MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
@@ -14297,7 +14297,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     {
                         MessageBox.Show(
                             "AI settings not configured.\n\nOpen Settings \u2192 AI Settings to configure a provider.",
-                            "Supervertaler \u2014 AI Translate",
+                            "Supervertaler \u2013 AI Translate",
                             MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return;
                     }
@@ -14319,7 +14319,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         if (profile == null)
                         {
                             MessageBox.Show("No custom OpenAI profile configured.",
-                                "Supervertaler \u2014 AI Translate",
+                                "Supervertaler \u2013 AI Translate",
                                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
                             return;
                         }
@@ -14336,7 +14336,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     {
                         MessageBox.Show(
                             $"No API key configured for {provider}.\n\nOpen Settings \u2192 AI Settings to add one.",
-                            "Supervertaler \u2014 AI Translate",
+                            "Supervertaler \u2013 AI Translate",
                             MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return;
                     }
@@ -14346,7 +14346,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     if (string.IsNullOrEmpty(sourceLang) || string.IsNullOrEmpty(targetLang))
                     {
                         MessageBox.Show("Cannot determine source/target language.",
-                            "Supervertaler \u2014 AI Translate",
+                            "Supervertaler \u2013 AI Translate",
                             MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return;
                     }
@@ -14363,7 +14363,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     if (string.IsNullOrWhiteSpace(SegmentTagHandler.StripTagPlaceholders(sourceText)))
                     {
                         MessageBox.Show("Active segment has no source text.",
-                            "Supervertaler \u2014 AI Translate",
+                            "Supervertaler \u2013 AI Translate",
                             MessageBoxButtons.OK, MessageBoxIcon.Information);
                         return;
                     }
@@ -16443,7 +16443,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 var ctrl = _control.Value.ImportExportControl;
                 if (_reimportInProgress)
                 {
-                    ctrl.AppendLog("A re-import is already running — please wait for it to finish.", true);
+                    ctrl.AppendLog("A re-import is already running – please wait for it to finish.", true);
                     return;
                 }
                 if (_activeDocument == null)
@@ -16479,7 +16479,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     // user re-import files that were generated before
                     // manifests existed or whose sidecars got deleted.
                     ctrl.AppendLog(
-                        "No sidecar manifest found — falling back to current-document mapping. " +
+                        "No sidecar manifest found – falling back to current-document mapping. " +
                         "Source-tamper detection will be disabled for this import.", true);
                     manifest = BuildManifestFromCurrentDocument();
                 }
@@ -16539,8 +16539,8 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 }
                 var tagLine = tagMismatch > 0
                     ? (strict
-                        ? $"  {tagMismatch} tag-mismatch (will be SKIPPED — would break Trados QA)\n"
-                        : $"  {tagMismatch} tag-mismatch (will be applied — strict check is OFF)\n")
+                        ? $"  {tagMismatch} tag-mismatch (will be SKIPPED – would break Trados QA)\n"
+                        : $"  {tagMismatch} tag-mismatch (will be applied – strict check is OFF)\n")
                     : "";
                 var msg = $"Read {result.TotalImported} segments from the file.\n\n" +
                           $"  {result.ChangedCount} change(s) to apply\n" +
@@ -16598,7 +16598,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                             if (d.Kind == Core.Export.ImportChangeKind.TagMismatch && strict)
                             {
                                 ctrl.AppendLog(
-                                    $"Segment {d.Number}: skipped — {d.Detail}. " +
+                                    $"Segment {d.Number}: skipped – {d.Detail}. " +
                                     "Restore the tag in the bilingual file, edit the segment " +
                                     "directly in Trados, or turn off strict tag-integrity check.",
                                     true);
@@ -16610,7 +16610,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         if (d.Kind == Core.Export.ImportChangeKind.TagMismatch && !strict)
                         {
                             ctrl.AppendLog(
-                                $"Segment {d.Number}: applying despite tag mismatch — {d.Detail}. " +
+                                $"Segment {d.Number}: applying despite tag mismatch – {d.Detail}. " +
                                 "Strict tag-integrity check is OFF; verify Trados QA after import.",
                                 true);
                         }
@@ -16708,7 +16708,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         }
                         catch (Exception ex)
                         {
-                            ctrl.AppendLog($"Segment {d.Number}: write failed — {ex.Message}", true);
+                            ctrl.AppendLog($"Segment {d.Number}: write failed – {ex.Message}", true);
                             failed++;
                         }
 
@@ -16760,7 +16760,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         "The remaining changes were NOT applied. To finish them, either:\n" +
                         "  •  re-run this same re-import in Trados Studio 2026 (64-bit), or\n" +
                         "  •  open fewer files at once (or one file at a time) and re-import again.\n\n" +
-                        "Re-importing is safe to repeat — already-applied segments simply show as unchanged.",
+                        "Re-importing is safe to repeat – already-applied segments simply show as unchanged.",
                         "Re-import stopped (memory limit)",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }

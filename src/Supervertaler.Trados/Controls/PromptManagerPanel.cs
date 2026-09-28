@@ -757,7 +757,7 @@ namespace Supervertaler.Trados.Controls
                 Height = 26,
                 Font = new Font("Segoe UI", 7.5f),
                 ForeColor = Color.FromArgb(140, 140, 140),
-                Text = "Nothing reads this folder yet \u2014 the pass that turns drawings into "
+                Text = "Nothing reads this folder yet \u2013 the pass that turns drawings into "
                      + "figures.md is not built. A figures.md you put in the bank yourself IS "
                      + "read into every prompt."
             };
@@ -1429,7 +1429,7 @@ namespace Supervertaler.Trados.Controls
 
             if (string.IsNullOrEmpty(projectPath))
             {
-                _lblImagesLabel.Text = "Reference images \u2014 no Trados project is open";
+                _lblImagesLabel.Text = "Reference images \u2013 no Trados project is open";
                 _txtImagesFolder.Text =
                     "The drawings folder is remembered per project, so open the project first.";
                 _btnImagesBrowse.Enabled = false;
@@ -1456,7 +1456,7 @@ namespace Supervertaler.Trados.Controls
             }
             else if (!string.IsNullOrEmpty(folder))
             {
-                _txtImagesFolder.Text = folder + "   \u2014 this folder is missing";
+                _txtImagesFolder.Text = folder + "   \u2013 this folder is missing";
                 _btnImagesClear.Enabled = true;
             }
             else

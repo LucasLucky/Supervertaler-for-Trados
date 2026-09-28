@@ -397,13 +397,13 @@ namespace Supervertaler.Trados.Controls
             OnControlResize(this, EventArgs.Empty);
 
             // Update footer
-            _lblFooter.Text = $"Last run: {report.Timestamp:HH:mm:ss} \u2014 {report.Duration.TotalSeconds:F1}s";
+            _lblFooter.Text = $"Last run: {report.Timestamp:HH:mm:ss} \u2013 {report.Duration.TotalSeconds:F1}s";
             _footerTip.SetToolTip(_lblFooter, "");
             if (_btnSave != null) _btnSave.Enabled = true;   // #105
 
             if (_issueCount == 0)
             {
-                _lblEmpty.Text = "No issues found \u2014 all segments look good!";
+                _lblEmpty.Text = "No issues found \u2013 all segments look good!";
                 _lblEmpty.Visible = true;
                 return;
             }
@@ -413,7 +413,7 @@ namespace Supervertaler.Trados.Controls
             {
                 _checkedCount = _issueCount;
                 UpdateIssueCountLabel();
-                _lblEmpty.Text = "All issues addressed \u2014 well done!";
+                _lblEmpty.Text = "All issues addressed \u2013 well done!";
                 _lblEmpty.Visible = true;
                 return;
             }
@@ -567,7 +567,7 @@ namespace Supervertaler.Trados.Controls
                     // Show empty state if all issues addressed
                     if (_checkedCount >= _issueCount)
                     {
-                        _lblEmpty.Text = "All issues addressed \u2014 well done!";
+                        _lblEmpty.Text = "All issues addressed \u2013 well done!";
                         _lblEmpty.Visible = true;
                     }
                 };
@@ -640,7 +640,7 @@ namespace Supervertaler.Trados.Controls
         public void ShowSavedPath(string path)
         {
             if (string.IsNullOrEmpty(path) || _lblFooter == null) return;
-            _lblFooter.Text += "  \u2014  saved as " + System.IO.Path.GetFileName(path);
+            _lblFooter.Text += "  \u2013  saved as " + System.IO.Path.GetFileName(path);
             _footerTip.SetToolTip(_lblFooter, path);
         }
 

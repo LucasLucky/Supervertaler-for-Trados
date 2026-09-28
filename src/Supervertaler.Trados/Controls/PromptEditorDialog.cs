@@ -187,7 +187,7 @@ namespace Supervertaler.Trados.Controls
             _varMenu = new ContextMenuStrip { Font = new Font("Segoe UI", 9f) };
             void AddVar(string variable, string description)
             {
-                var item = new ToolStripMenuItem($"{variable}  —  {description}");
+                var item = new ToolStripMenuItem($"{variable}  –  {description}");
                 item.Click += (s, e) => InsertVariable(variable);
                 _varMenu.Items.Add(item);
             }

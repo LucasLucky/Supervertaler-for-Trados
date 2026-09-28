@@ -448,7 +448,7 @@ namespace Supervertaler.Trados.Controls
             tt.SetToolTip(_btnStop, "Stop the current search");
             tt.SetToolTip(_chkShowReplace, "Show the find & replace bar");
             tt.SetToolTip(_btnHelp, "Open SuperSearch help");
-            tt.SetToolTip(_txtReplace, "Replacement text — applied to target text only");
+            tt.SetToolTip(_txtReplace, "Replacement text – applied to target text only");
             tt.SetToolTip(_btnReplace, "Replace the match in the selected result (active file only)");
             tt.SetToolTip(_btnReplaceAll, "Replace all target matches across all files");
 
@@ -861,7 +861,7 @@ namespace Supervertaler.Trados.Controls
 
             using (var dlg = new Form())
             {
-                dlg.Text = "SuperSearch \u2014 Select Files";
+                dlg.Text = "SuperSearch \u2013 Select Files";
                 dlg.Size = new Size(600, 450);
                 dlg.MinimumSize = new Size(400, 250);
                 dlg.StartPosition = FormStartPosition.CenterParent;
@@ -1018,7 +1018,7 @@ namespace Supervertaler.Trados.Controls
 
             using (var dlg = new Form())
             {
-                dlg.Text = "SuperSearch — Select Termbases";
+                dlg.Text = "SuperSearch – Select Termbases";
                 dlg.Size = new Size(600, 450);
                 dlg.MinimumSize = new Size(400, 250);
                 dlg.StartPosition = FormStartPosition.CenterParent;
@@ -1097,7 +1097,7 @@ namespace Supervertaler.Trados.Controls
 
             using (var dlg = new Form())
             {
-                dlg.Text = "SuperSearch — Select Translation Memories";
+                dlg.Text = "SuperSearch – Select Translation Memories";
                 dlg.Size = new Size(600, 450);
                 dlg.MinimumSize = new Size(400, 250);
                 dlg.StartPosition = FormStartPosition.CenterParent;
@@ -1227,7 +1227,7 @@ namespace Supervertaler.Trados.Controls
 
             using (var dlg = new Form())
             {
-                dlg.Text = "SuperSearch — Select Web Resources";
+                dlg.Text = "SuperSearch – Select Web Resources";
                 dlg.Size = new Size(600, 560);
                 dlg.MinimumSize = new Size(400, 300);
                 dlg.StartPosition = FormStartPosition.CenterParent;
@@ -1937,7 +1937,7 @@ namespace Supervertaler.Trados.Controls
             var r = SelectedResult();
             if (!CanEditTerm(r, out var why))
             {
-                MessageBox.Show(FindForm(), why, "Supervertaler \u2014 Edit term",
+                MessageBox.Show(FindForm(), why, "Supervertaler \u2013 Edit term",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }

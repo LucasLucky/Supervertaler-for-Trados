@@ -306,7 +306,7 @@ namespace Supervertaler.Trados.Controls
             Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
             Text = IsEditMode ? $"Edit term entry (ID {_termId})" : "Add term entry";
             if (termbase != null)
-                Text += $" \u2014 {termbase.Name}";
+                Text += $" \u2013 {termbase.Name}";
 
             Font = new Font("Segoe UI", 9f);
             FormBorderStyle = FormBorderStyle.Sizable;
@@ -1070,7 +1070,7 @@ namespace Supervertaler.Trados.Controls
                 _lstTargetSynonyms.Items.Add(FormatSynonymDisplay(syn));
 
             // Update title bar
-            Text = $"Edit term entry (ID {ed.Entry.Id}) \u2014 {ed.Termbase?.Name ?? "Unknown"}";
+            Text = $"Edit term entry (ID {ed.Entry.Id}) \u2013 {ed.Termbase?.Name ?? "Unknown"}";
         }
 
         private void LoadSynonymsForEntry(EntryData ed)
@@ -1459,7 +1459,7 @@ namespace Supervertaler.Trados.Controls
             var result = MessageBox.Show(
                 $"Delete the term \u201c{_txtSource.Text.Trim()} \u2192 {_txtTarget.Text.Trim()}\u201d" +
                 " and all its synonyms?\n\nThis cannot be undone.",
-                "TermLens \u2014 Delete Term",
+                "TermLens \u2013 Delete Term",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Warning,
                 MessageBoxDefaultButton.Button2);

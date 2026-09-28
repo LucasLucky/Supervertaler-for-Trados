@@ -705,9 +705,9 @@ namespace Supervertaler.Trados.Controls
 
             var lines = new List<PopupLine>();
             if (_isForbidden)
-                lines.Add(new PopupLine("\ud83d\udeab Forbidden \u2014 do not use", PopupLineType.Tag));
+                lines.Add(new PopupLine("\ud83d\udeab Forbidden \u2013 do not use", PopupLineType.Tag));
             if (_isMultiTerm)
-                lines.Add(new PopupLine("[MultiTerm \u2014 read-only]", PopupLineType.Tag));
+                lines.Add(new PopupLine("[MultiTerm \u2013 read-only]", PopupLineType.Tag));
             if (_isNonTranslatable)
                 lines.Add(new PopupLine("[Non-translatable]", PopupLineType.Tag));
             bool isFirstEntry = true;

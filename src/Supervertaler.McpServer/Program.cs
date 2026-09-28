@@ -256,7 +256,7 @@ static CallToolResult WarnedResult(string warning, string text) => new()
 static string AmbiguousReadWarning(BridgeSelection sel) =>
     $"⚠ Multiple Trados instances are live. This result is from {sel.Chosen.Label}. "
     + string.Join("; ", sel.Others.Select(o => o.Label)) + " also running.\n"
-    + "Tell the user which instance this describes. Editing is refused until one is chosen — "
+    + "Tell the user which instance this describes. Editing is refused until one is chosen – "
     + "ask which project they mean, then call select_trados_instance.";
 
 static string RefuseAmbiguousWrite(string toolName, BridgeSelection sel)
@@ -277,7 +277,7 @@ static string RefuseAmbiguousWrite(string toolName, BridgeSelection sel)
         error = $"Refusing to run '{toolName}': {sel.Candidates.Count} Trados Studio instances are running "
               + "and nothing says which one to write to. Writing to the wrong one would edit the wrong "
               + "project's document. Ask the user which project they mean, then call "
-              + "select_trados_instance with \"2024\", \"2026\", or part of the project name — and run "
+              + "select_trados_instance with \"2024\", \"2026\", or part of the project name – and run "
               + "this tool again. Closing the other Studio works too.",
         instances,
         note = "Read-only tools still work and report which instance answered.",

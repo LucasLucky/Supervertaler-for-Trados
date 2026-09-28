@@ -66,7 +66,7 @@ namespace Supervertaler.Trados.Core.Export
             sb.Append("  HOW TO EDIT THIS FILE\n");
             sb.Append("  - Do not change the [SEGMENT N] markers or the ").Append(srcCode).Append(": source lines.\n");
             sb.Append("    (A [newline] in a ").Append(srcCode).Append(": source marks a break in the original,\n");
-            sb.Append("    read-only source — e.g. a two-line subtitle.)\n");
+            sb.Append("    read-only source – e.g. a two-line subtitle.)\n");
             sb.Append("  - Edit the ").Append(tgtCode).Append(": target text freely, but keep it on ONE line;\n");
             sb.Append("    write the literal token [newline] where a line break is needed.\n");
             sb.Append("  - Comment: lines show Trados segment comments for reference only;\n");

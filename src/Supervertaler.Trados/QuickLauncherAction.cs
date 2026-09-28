@@ -66,7 +66,7 @@ namespace Supervertaler.Trados
                     "No QuickLauncher prompts are configured.\n\n" +
                     "Set category: QuickLauncher in a prompt file's YAML frontmatter, " +
                     "or place the file in a folder named 'QuickLauncher' inside your prompt library.",
-                    "Supervertaler \u2014 QuickLauncher",
+                    "Supervertaler \u2013 QuickLauncher",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
@@ -530,7 +530,7 @@ namespace Supervertaler.Trados
                 foreach (var line in projectText.Split('\n'))
                     if (line.TrimStart().StartsWith("[")) segCount++;
 
-                var placeholder = "[source document — " + segCount + " segment" + (segCount == 1 ? "" : "s") + "]";
+                var placeholder = "[source document – " + segCount + " segment" + (segCount == 1 ? "" : "s") + "]";
                 displayExpanded = PromptLibrary.ApplyVariables(
                     content,
                     sourceLang, targetLang,
@@ -583,7 +583,7 @@ namespace Supervertaler.Trados
             MessageBox.Show(
                 "Could not copy the prompt to the clipboard.\n\n" +
                 (lastErr?.Message ?? "Unknown error"),
-                "Supervertaler — QuickLauncher",
+                "Supervertaler – QuickLauncher",
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 

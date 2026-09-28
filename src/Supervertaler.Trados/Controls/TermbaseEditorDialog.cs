@@ -64,7 +64,7 @@ namespace Supervertaler.Trados.Controls
             // with their own UiScale-driven layout, set AutoScaleMode = None
             // instead and let UiScale own scaling.
             AutoScaleMode = AutoScaleMode.Dpi;
-            Text = $"Termbase Editor \u2014 {_termbase.Name} ({LanguageUtils.ShortenLanguageName(_termbase.SourceLang)} \u2192 {LanguageUtils.ShortenLanguageName(_termbase.TargetLang)})";
+            Text = $"Termbase Editor \u2013 {_termbase.Name} ({LanguageUtils.ShortenLanguageName(_termbase.SourceLang)} \u2192 {LanguageUtils.ShortenLanguageName(_termbase.TargetLang)})";
             Font = new Font("Segoe UI", 9f);
             FormBorderStyle = FormBorderStyle.Sizable;
             MaximizeBox = false;
@@ -782,7 +782,7 @@ namespace Supervertaler.Trados.Controls
                 : $"Delete {toDelete.Count} terms?\n\nThis cannot be undone.";
 
             var result = MessageBox.Show(msg,
-                "TermLens \u2014 Delete Terms",
+                "TermLens \u2013 Delete Terms",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Warning,
                 MessageBoxDefaultButton.Button2);
@@ -1035,7 +1035,7 @@ namespace Supervertaler.Trados.Controls
 
             var confirm = MessageBox.Show(
                 message,
-                "TermLens \u2014 Reverse source/target",
+                "TermLens \u2013 Reverse source/target",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Warning,
                 MessageBoxDefaultButton.Button2);
@@ -1119,7 +1119,7 @@ namespace Supervertaler.Trados.Controls
 
             var result = MessageBox.Show(
                 $"Delete the term \u201c{source} \u2192 {target}\u201d?\n\nThis cannot be undone.",
-                "TermLens \u2014 Delete Term",
+                "TermLens \u2013 Delete Term",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Warning,
                 MessageBoxDefaultButton.Button2);
@@ -1185,7 +1185,7 @@ namespace Supervertaler.Trados.Controls
                     MessageBox.Show(
                         "All selected entries must have the same source term to merge.\n\n" +
                         $"Found: \u201c{firstSource}\u201d and \u201c{item.source}\u201d",
-                        "TermLens \u2014 Merge",
+                        "TermLens \u2013 Merge",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
@@ -1201,7 +1201,7 @@ namespace Supervertaler.Trados.Controls
                 $"The first selected entry\u2019s target term will remain primary.\n" +
                 $"Other target terms ({targetsDisplay}) will become synonyms.\n\n" +
                 "This cannot be undone.",
-                "TermLens \u2014 Merge Entries",
+                "TermLens \u2013 Merge Entries",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question,
                 MessageBoxDefaultButton.Button2);

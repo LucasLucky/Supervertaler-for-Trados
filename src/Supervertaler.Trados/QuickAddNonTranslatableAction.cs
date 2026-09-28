@@ -55,7 +55,7 @@ namespace Supervertaler.Trados
                         "No write termbase is configured.\n\n" +
                         "Open TermLens settings (gear icon) and check the \u201cWrite\u201d column " +
                         "for the termbases where new terms should be added.",
-                        "TermLens \u2014 Non-Translatable",
+                        "TermLens \u2013 Non-Translatable",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
@@ -65,7 +65,7 @@ namespace Supervertaler.Trados
                 {
                     MessageBox.Show(
                         "Database file not found. Please check the TermLens settings.",
-                        "TermLens \u2014 Non-Translatable",
+                        "TermLens \u2013 Non-Translatable",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
@@ -133,7 +133,7 @@ namespace Supervertaler.Trados
                 var fromSource = !string.IsNullOrWhiteSpace(srcSelRaw);
                 sourceText = TermSaveGuard.Confirm(fromSource ? srcSelRaw : tgtSelRaw, sourceText,
                     fromSource ? doc.ActiveSegmentPair?.Source : doc.ActiveSegmentPair?.Target,
-                    fromSource ? fullSource : fullTarget, "TermLens \u2014 Non-Translatable");
+                    fromSource ? fullSource : fullTarget, "TermLens \u2013 Non-Translatable");
                 if (sourceText == null) return;
 
                 if (string.IsNullOrWhiteSpace(sourceText))
@@ -141,7 +141,7 @@ namespace Supervertaler.Trados
                     MessageBox.Show(
                         "No text found.\n\n" +
                         "Select the text in the source or target column that should be marked as non-translatable.",
-                        "TermLens \u2014 Non-Translatable",
+                        "TermLens \u2013 Non-Translatable",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
@@ -165,7 +165,7 @@ namespace Supervertaler.Trados
                     MessageBox.Show(
                         "The configured write termbases were not found in the database.\n" +
                         "Please check the TermLens settings.",
-                        "TermLens \u2014 Non-Translatable",
+                        "TermLens \u2013 Non-Translatable",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
@@ -211,7 +211,7 @@ namespace Supervertaler.Trados
                     {
                         MessageBox.Show(
                             "This term already exists in the termbase.",
-                            "TermLens \u2014 Non-Translatable",
+                            "TermLens \u2013 Non-Translatable",
                             MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
                 }
@@ -220,7 +220,7 @@ namespace Supervertaler.Trados
                     MessageBox.Show(
                         $"Failed to add non-translatable term: {ex.Message}\n\n" +
                         "The database may be locked by another application.",
-                        "TermLens \u2014 Non-Translatable",
+                        "TermLens \u2013 Non-Translatable",
                         MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }

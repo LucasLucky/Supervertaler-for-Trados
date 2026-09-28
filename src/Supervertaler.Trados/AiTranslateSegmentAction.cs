@@ -23,7 +23,7 @@ namespace Supervertaler.Trados
     /// </summary>
     [Action("Supervertaler_AiTranslateSegment", typeof(EditorController),
         Name = "Translate active segment (deprecated – do not use)",
-        Description = "Deprecated duplicate of 'Translate active segment'. Kept registered to avoid a Studio startup crash; don't assign it a shortcut — use the non-deprecated action instead.")]
+        Description = "Deprecated duplicate of 'Translate active segment'. Kept registered to avoid a Studio startup crash; don't assign it a shortcut – use the non-deprecated action instead.")]
     public class AiTranslateSegmentAction : AbstractAction
     {
         protected override void Execute()

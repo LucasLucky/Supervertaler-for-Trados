@@ -453,7 +453,7 @@ namespace Supervertaler.Trados.Settings
                     if (System.IO.File.Exists(Core.DiagnosticLog.LogFilePath))
                         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Core.DiagnosticLog.LogFilePath) { UseShellExecute = true });
                     else
-                        MessageBox.Show("No log file yet — enable logging, reproduce the issue, then check again.",
+                        MessageBox.Show("No log file yet – enable logging, reproduce the issue, then check again.",
                             "Diagnostic log", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
                 catch { }
@@ -840,10 +840,10 @@ namespace Supervertaler.Trados.Settings
             tips.SetToolTip(_btnOpenTermbase, "Open the selected termbase in the built-in termbase editor.");
             tips.SetToolTip(_btnExport,
                 "Export all terms from the selected termbase. Pick the format in the save dialog:\n\n" +
-                "  .tsv   — tab-separated; the one that re-imports here unchanged.\n" +
-                "  .xml   — MultiTerm XML; convert to a Trados termbase with Glossary\n" +
+                "  .tsv   – tab-separated; the one that re-imports here unchanged.\n" +
+                "  .xml   – MultiTerm XML; convert to a Trados termbase with Glossary\n" +
                 "           Converter, or import it in MultiTerm.\n" +
-                "  .tbx   — the ISO standard; MultiTerm and most other CAT tools read it.\n\n" +
+                "  .tbx   – the ISO standard; MultiTerm and most other CAT tools read it.\n\n" +
                 "Supervertaler cannot write .sdltb or .ttb directly, so the last two need\n" +
                 "one conversion step outside the plugin.");
             tips.SetToolTip(_btnImport,
@@ -1116,7 +1116,7 @@ namespace Supervertaler.Trados.Settings
                 "choice for this termbase and won't ask again until you untick the box.";
 
             var result = MessageBox.Show(this, msg,
-                "Supervertaler — Termbase language pair doesn't match project",
+                "Supervertaler – Termbase language pair doesn't match project",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
 
             if (result != DialogResult.Yes) return false;
@@ -1321,7 +1321,7 @@ namespace Supervertaler.Trados.Settings
                     foreach (var tb in termbases) total += tb.TermCount;
 
                     _lblTermbaseInfo.Text = termbases.Count == 1
-                        ? $"\u2713  {termbases[0].Name}  \u2014  {total:N0} terms  ({LanguageUtils.ShortenLanguageName(termbases[0].SourceLang)} \u2192 {LanguageUtils.ShortenLanguageName(termbases[0].TargetLang)})"
+                        ? $"\u2713  {termbases[0].Name}  \u2013  {total:N0} terms  ({LanguageUtils.ShortenLanguageName(termbases[0].SourceLang)} \u2192 {LanguageUtils.ShortenLanguageName(termbases[0].TargetLang)})"
                         : $"\u2713  {termbases.Count} termbases, {total:N0} terms total";
 
                     _lblTermbaseInfo.ForeColor = Color.FromArgb(30, 130, 60);
@@ -1576,7 +1576,7 @@ namespace Supervertaler.Trados.Settings
 
             var result = MessageBox.Show(
                 $"Delete termbase \"{selected.Name}\" and all its {selected.TermCount:N0} terms?\n\nThis cannot be undone.",
-                "TermLens \u2014 Delete Termbase",
+                "TermLens \u2013 Delete Termbase",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
 
             if (result == DialogResult.Yes)
@@ -1830,8 +1830,8 @@ namespace Supervertaler.Trados.Settings
                 // Filter order defines FilterIndex below (1-based).
                 dlg.Filter =
                     "Tab-separated, re-importable here (*.tsv)|*.tsv|" +
-                    "MultiTerm XML — for Trados (*.xml)|*.xml|" +
-                    "TBX — for any CAT tool (*.tbx)|*.tbx";
+                    "MultiTerm XML – for Trados (*.xml)|*.xml|" +
+                    "TBX – for any CAT tool (*.tbx)|*.tbx";
                 dlg.FileName = $"{selected.Name}.tsv";
 
                 if (dlg.ShowDialog(this) != DialogResult.OK) return;

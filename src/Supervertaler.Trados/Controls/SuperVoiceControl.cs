@@ -208,7 +208,7 @@ namespace Supervertaler.Trados.Controls
             // Saying so here is the difference between "gated" and "broken".
             if (dictating)
             {
-                _lblState.Text = "Dictating — say \"stop now\" to take over";
+                _lblState.Text = "Dictating – say \"stop now\" to take over";
                 _lblState.ForeColor = Amber;
                 _btnMic.ForeColor = Amber;
             }

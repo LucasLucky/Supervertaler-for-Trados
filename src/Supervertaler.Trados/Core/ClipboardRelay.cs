@@ -58,7 +58,7 @@ namespace Supervertaler.Trados.Core
             sb.Append("Translate the following segments from ").Append(sourceLang)
               .Append(" into ").Append(targetLang).AppendLine(".");
             sb.AppendLine();
-            sb.AppendLine("OUTPUT FORMAT — follow EXACTLY; this is critical:");
+            sb.AppendLine("OUTPUT FORMAT – follow EXACTLY; this is critical:");
             sb.AppendLine("- Reproduce every block in the SAME structure shown below, in the SAME order.");
             sb.AppendLine("- Keep the literal \"Segment <n>\" header line for EVERY segment, with the SAME "
                 + "number. Do NOT renumber, merge, split, omit, or reorder segments.");

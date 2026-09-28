@@ -125,7 +125,7 @@ namespace Supervertaler.Trados
                     MessageBox.Show(
                         "Both the source term and the target term are required for a structured article.\n\n" +
                         "If you want to save a free-form note instead, tick the \"Save as raw note\" checkbox.",
-                        "Supervertaler \u2014 SuperMemory",
+                        "Supervertaler \u2013 SuperMemory",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
@@ -135,8 +135,8 @@ namespace Supervertaler.Trados
                     string.IsNullOrEmpty(dlg.Notes))
                 {
                     MessageBox.Show(
-                        "Please enter at least something \u2014 a term, a translation, or a note.",
-                        "Supervertaler \u2014 SuperMemory",
+                        "Please enter at least something \u2013 a term, a translation, or a note.",
+                        "Supervertaler \u2013 SuperMemory",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
@@ -212,7 +212,7 @@ namespace Supervertaler.Trados
 
                 MessageBox.Show(
                     msg.ToString().TrimEnd(),
-                    "Supervertaler \u2014 SuperMemory",
+                    "Supervertaler \u2013 SuperMemory",
                     MessageBoxButtons.OK,
                     mdWritten ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
             }

@@ -114,7 +114,7 @@ namespace Supervertaler.Trados.Controls
                 if (_environment == null) return false;
             }
 
-            Text = $"SuperSearch — {query}";
+            Text = $"SuperSearch – {query}";
 
             var ids = targets.Select(t => t.Resource.Id).ToList();
             if (!ids.SequenceEqual(_layoutIds, StringComparer.OrdinalIgnoreCase))

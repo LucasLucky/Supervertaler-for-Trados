@@ -62,10 +62,10 @@ namespace Supervertaler.Trados.Controls
             {
                 Text = "Supervertaler for Trados sends one anonymous ping at startup so I " +
                        "can see how many people use the plugin. No personal data, no " +
-                       "translation content, no termbase info — just plugin version, OS, " +
+                       "translation content, no termbase info – just plugin version, OS, " +
                        "Trados version, and system locale.\n\n" +
                        "If you'd rather not, switch it off below or any time in Settings.\n\n" +
-                       "— Michael",
+                       "– Michael",
                 Location = new Point(20, 46),
                 Size = new Size(420, 130),
                 ForeColor = Color.FromArgb(50, 50, 50)

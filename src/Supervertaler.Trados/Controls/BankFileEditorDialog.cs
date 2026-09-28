@@ -61,8 +61,8 @@ namespace Supervertaler.Trados.Controls
             var header = new Label
             {
                 Text = readIntoPrompts
-                    ? "Memory bank \"" + bankName + "\" — read into the AI's context."
-                    : "Memory bank \"" + bankName + "\", reference folder — never read into a prompt.",
+                    ? "Memory bank \"" + bankName + "\" – read into the AI's context."
+                    : "Memory bank \"" + bankName + "\", reference folder – never read into a prompt.",
                 Dock = DockStyle.Top,
                 Height = 26,
                 Padding = new Padding(12, 6, 12, 0),
@@ -177,7 +177,7 @@ namespace Supervertaler.Trados.Controls
                         + "That would be Obsidian or another editor, or the Supervertaler "
                         + "assistant. Saving now replaces what they wrote with the text in "
                         + "this window.\n\n"
-                        + "Choose No to go back \u2014 your text stays in the editor, so you can "
+                        + "Choose No to go back \u2013 your text stays in the editor, so you can "
                         + "copy it somewhere safe and compare before deciding.\n\n"
                         + "Save anyway?",
                         "File changed on disk",

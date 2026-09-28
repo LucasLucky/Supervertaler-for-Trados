@@ -21,7 +21,7 @@ namespace Supervertaler.Trados.Controls
     internal sealed class TsvColumnMappingDialog : Form
     {
         // Field keys as ImportTsv reads them, and the labels the user sees.
-        private const string IgnoreLabel = "— ignore —";
+        private const string IgnoreLabel = "– ignore –";
         private static readonly (string Key, string Label)[] FieldList =
         {
             ("source",     "Source term"),

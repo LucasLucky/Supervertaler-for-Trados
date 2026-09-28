@@ -35,7 +35,7 @@ namespace Supervertaler.Trados.Core
         /// <summary>Number of calls whose tokens came from the provider (not estimated).</summary>
         public int ActualCalls { get; set; }
         /// <summary>Share of calls in this group backed by provider-reported usage.</summary>
-        public string ActualShare => Calls > 0 ? (100 * ActualCalls / Calls) + "%" : "—";
+        public string ActualShare => Calls > 0 ? (100 * ActualCalls / Calls) + "%" : "–";
     }
 
     /// <summary>Reads UsageRecords back from the JSONL ledger files.</summary>
