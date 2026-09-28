@@ -77,7 +77,7 @@ namespace Supervertaler.Trados.Core
             return result;
         }
 
-        private static UsageRecord Deserialize(string line)
+        internal static UsageRecord Deserialize(string line)
         {
             try
             {

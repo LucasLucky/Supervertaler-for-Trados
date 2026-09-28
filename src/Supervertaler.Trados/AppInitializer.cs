@@ -91,6 +91,9 @@ namespace Supervertaler.Trados
             // pane. The pane's own handler only updates the Reports-tab UI now, so
             // usage logging works even if the pane is never opened this session.
             try { UsageLogger.EnsureSubscribed(); } catch { }
+            // The running cost in the Reports tab (item 7, 198). After the usage
+            // logger, so a call is in the log before the tab is told about it.
+            try { SessionCost.EnsureSubscribed(); } catch { }
             // #98: the prompt/response log on disk, same global-subscriber shape.
             try { PromptFileLogger.EnsureSubscribed(); } catch { }
 

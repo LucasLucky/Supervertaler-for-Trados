@@ -37,6 +37,7 @@ namespace Supervertaler.Trados.Controls
         private Label _lblIssueCount;
         private Button _btnClear;
         private Button _btnSave;      // #105: enabled only while a proofreading report is showing
+        private Label _lblRunningCost; // item 7 (198): this session's and today's AI cost
         private readonly ToolTip _footerTip = new ToolTip();
 
         // Results area
@@ -89,6 +90,34 @@ namespace Supervertaler.Trados.Controls
         public ReportsControl()
         {
             BuildUI();
+
+            // The running cost: after every AI call, and whenever the tab comes into
+            // view (the other Studio version writes the same usage log). Unsubscribed
+            // in Dispose: SessionCost is static and would otherwise hold this control.
+            SessionCost.Changed += OnRunningCostChanged;
+            HandleCreated += (s, e) => RefreshRunningCost();
+            VisibleChanged += (s, e) => { if (Visible) RefreshRunningCost(); };
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) SessionCost.Changed -= OnRunningCostChanged;
+            base.Dispose(disposing);
+        }
+
+        /// <summary>Raised on the thread that made the AI call; the label is updated on the UI thread.</summary>
+        private void OnRunningCostChanged(object sender, EventArgs e)
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            try { BeginInvoke((Action)RefreshRunningCost); }
+            catch { /* the control is going away */ }
+        }
+
+        private void RefreshRunningCost()
+        {
+            if (IsDisposed || _lblRunningCost == null) return;
+            try { _lblRunningCost.Text = SessionCost.Format(SessionCost.Read()); }
+            catch { /* a cost display must never break the tab */ }
         }
 
         private void BuildUI()
@@ -166,6 +195,29 @@ namespace Supervertaler.Trados.Controls
             };
             Controls.Add(_lblIssueCount);
             y += 28;
+
+            // ─── Running cost (item 7, 198): its own row, the header row is full ───
+            _lblRunningCost = new Label
+            {
+                Text = "",
+                Font = new Font("Segoe UI", 8f),
+                ForeColor = Color.FromArgb(110, 110, 110),
+                Location = new Point(HeaderLeft, y),
+                AutoSize = true
+            };
+            var costLineTip = new ToolTip { AutoPopDelay = 20000, InitialDelay = 300 };
+            costLineTip.SetToolTip(_lblRunningCost,
+                "What your AI calls from Trados have cost: Batch Translate and Proofread,\r\n" +
+                "Translate active segment, the AI Assistant chat, QuickLauncher, AutoPrompt\r\n" +
+                "and the memory bank selection. Counted whether or not prompt logging is on.\r\n\r\n" +
+                "This session: since Studio started. Today: from the usage log, so it also\r\n" +
+                "includes earlier sessions today and the other Studio version. It needs the\r\n" +
+                "usage log, which is on unless you have switched it off in AI Settings.\r\n\r\n" +
+                "Figures use the token counts your provider reports where it reports them.\r\n" +
+                "\"Up to\" means a model without a price was used: its calls are counted at\r\n" +
+                "the most they can have cost. Supervertaler for memoQ keeps its own log.");
+            Controls.Add(_lblRunningCost);
+            y += 20;
 
             // ─── Footer (anchored to bottom) ─────────────────────
             // Two-part bar: status text on the left ("Last run: ..." for proofreading
@@ -292,7 +344,13 @@ namespace Supervertaler.Trados.Controls
                 Math.Max(_lblHeader.Right + HeaderSpacing, labelLeft),
                 _btnClear.Top + Math.Max(0, (_btnClear.Height - _lblIssueCount.Height) / 2));
 
-            var resultsTop = Math.Max(_lblHeader.Bottom, _btnClear.Bottom) + HeaderSpacing;
+            var headerBottom = Math.Max(_lblHeader.Bottom, _btnClear.Bottom);
+            var resultsTop = headerBottom + HeaderSpacing;
+            if (_lblRunningCost != null)
+            {
+                _lblRunningCost.Location = new Point(HeaderLeft, headerBottom + 4);
+                resultsTop = _lblRunningCost.Bottom + HeaderSpacing;
+            }
             _resultsPanel.Location = new Point(0, resultsTop);
             _resultsPanel.Width = clientWidth;
             _resultsPanel.Height = Math.Max(40, _footerPanel.Top - _resultsPanel.Top);
