@@ -891,11 +891,12 @@ namespace Supervertaler.Trados.Core
     [DataContract]
     public class BridgeSuperMemoryQuery
     {
-        /// <summary>Free text to bias retrieval towards, e.g. the term being
-        /// asked about. Optional – without it the bank is loaded on project,
-        /// domain and language pair alone, exactly as a translation would.</summary>
+        /// <summary>Free text about what the caller is working on. Accepted
+        /// but not used for selection: LoadContext loads the bank whole,
+        /// within the token budget.</summary>
         [DataMember(Name = "query", EmitDefaultValue = false)] public string Query { get; set; }
-        /// <summary>Overrides the domain auto-detected from the open document.</summary>
+        /// <summary>A label, echoed back in the response. The bank is not
+        /// filtered by domain, and nothing is detected when it is omitted.</summary>
         [DataMember(Name = "domain", EmitDefaultValue = false)] public string Domain { get; set; }
         /// <summary>Names the client explicitly when the project name does not
         /// give it away. Matched loosely against 01_CLIENTS article names.</summary>

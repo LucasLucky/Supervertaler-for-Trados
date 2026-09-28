@@ -12,7 +12,7 @@
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Authors>Michael Beijer</Authors>
     <Company>Supervertaler</Company>
-    <Description>Supervertaler for Trados — terminology and AI translation for Trados Studio</Description>
+    <Description>Supervertaler for Trados – terminology and AI translation for Trados Studio</Description>
     <Copyright>Copyright (c) 2026 Michael Beijer</Copyright>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>

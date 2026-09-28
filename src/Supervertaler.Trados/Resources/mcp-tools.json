@@ -1279,7 +1279,7 @@
         "type": "object",
         "properties": {
           "query": {
-            "description": "Optional free text to bias retrieval towards, e.g. the term or segment you are asking about. Without it the bank is selected on project, domain and language pair alone.",
+            "description": "Optional free text about what you are working on. It does not change what is returned: the whole active bank is loaded, up to tokenBudget. To find a particular note, use search_supermemory.",
             "type": [
               "string",
               "null"
@@ -1287,7 +1287,7 @@
             "default": null
           },
           "domain": {
-            "description": "Optional domain override, e.g. 'legal' or 'medical'. Omit to use the domain auto-detected from the open document.",
+            "description": "Optional label, e.g. 'legal' or 'medical', echoed back in the response's 'domain' field. The bank is not filtered by domain, and none is detected when this is omitted.",
             "type": [
               "string",
               "null"
@@ -1311,7 +1311,7 @@
             "default": null
           },
           "bank": {
-            "description": "Read a specific memory bank instead of the active one, by folder name (see list_supermemory_banks). Omit to read the active bank. An unknown name is an ERROR, not a fall back to the active bank \u2014 the response always carries a 'bank' field, so a silent substitution is indistinguishable from success and injects another project's terminology. The 'bank' in the response is always the bank actually read.",
+            "description": "Read a specific memory bank instead of the active one, by folder name (see list_supermemory_banks). Omit to read the active bank. An unknown name is an ERROR, not a fall back to the active bank \u2013 the response always carries a 'bank' field, so a silent substitution is indistinguishable from success and injects another project's terminology. The 'bank' in the response is always the bank actually read.",
             "type": "string"
           }
         }

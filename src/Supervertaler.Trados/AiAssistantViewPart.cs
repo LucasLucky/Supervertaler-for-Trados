@@ -708,10 +708,9 @@ namespace Supervertaler.Trados
             var fileName = GetFileName();
 
             // 3. Build system prompt with full context
-            // Load SuperMemory KB context (if vault exists). Pass the user's
-            // message so a term they ask about is force-included even when the
-            // document's domain/language wouldn't otherwise rank that note.
-            var kbPromptSection = LoadKbContextForPrompt(projectName, sourceLang, targetLang, messageText);
+            // Load SuperMemory KB context (if vault exists): the whole bank
+            // within the budget, the same on every message.
+            var kbPromptSection = LoadKbContextForPrompt(projectName, sourceLang, targetLang);
 
             var chatCtx = new ChatContext
             {
@@ -8108,9 +8107,15 @@ namespace Supervertaler.Trados
         /// <paramref name="forTranslation"/> (it writes a translation prompt, so
         /// assistant-only notes stay out). Translating a document goes through
         /// <see cref="KbContextForTranslation"/> instead.
+        ///
+        /// <para>No domain and no query: LoadContext loads the bank whole and
+        /// only labels its result with them. The chat used to detect the
+        /// document's domain here - a second walk of every segment plus a
+        /// keyword analysis, on the UI thread, on every message - for a label
+        /// no prompt read (item 10 after 197).</para>
         /// </summary>
         private string LoadKbContextForPrompt(string projectName, string sourceLang, string targetLang,
-            string queryText = null, bool forTranslation = false)
+            bool forTranslation = false)
         {
             try
             {
@@ -8122,8 +8127,8 @@ namespace Supervertaler.Trados
                 if (reader == null || !reader.VaultExists) return null;
 
                 var ctx = reader.LoadContext(
-                    projectName, DetectDocumentDomain(), sourceLang, targetLang,
-                    tokenBudget: 24000, queryText: queryText, forTranslation: forTranslation);
+                    projectName, null, sourceLang, targetLang,
+                    tokenBudget: 24000, forTranslation: forTranslation);
 
                 if (ctx == null) return null;
 
@@ -8316,28 +8321,6 @@ namespace Supervertaler.Trados
             return result?.Block;
         }
 
-        /// <summary>
-        /// Best-effort domain of the open document, used to pick the right
-        /// 03_DOMAINS article. Returns null when nothing is open or analysis
-        /// fails – the bank still loads, just without domain gating.
-        /// </summary>
-        private string DetectDocumentDomain()
-        {
-            try
-            {
-                if (_activeDocument == null) return null;
-
-                var docCtx = CollectDocumentContext();
-                if (docCtx.Item1 == null || docCtx.Item1.Count == 0) return null;
-
-                return DocumentAnalyzer.Analyze(docCtx.Item1)?.PrimaryDomain;
-            }
-            catch
-            {
-                return null; // domain detection is best-effort
-            }
-        }
-
         // ══════════════════════════════════════════════════════════════
         //  SuperMemory over the bridge (issues #51, #22)
         //
@@ -8354,7 +8337,8 @@ namespace Supervertaler.Trados
         /// </summary>
         private BridgeSuperMemoryContextResponse BridgeGetSuperMemoryContext(BridgeSuperMemoryQuery query)
         {
-            // Domain detection reads the open document, so this has to run on
+            // The project name and the document's languages are read from
+            // Studio, and the cached reader is UI-thread only, so this runs on
             // the UI thread like the other bridge snapshot builders.
             var ctrl = _control?.Value;
             if (ctrl != null && !ctrl.IsDisposed && ctrl.InvokeRequired)
@@ -8434,7 +8418,11 @@ namespace Supervertaler.Trados
             var budget = query != null && query.TokenBudget > 0
                 ? query.TokenBudget
                 : mcpDefaultTokenBudget;
-            var domain = !string.IsNullOrWhiteSpace(query?.Domain) ? query.Domain : DetectDocumentDomain();
+            // The caller's domain, if any, is only echoed back: the bank is
+            // loaded whole, not filtered by domain. It used to be detected
+            // from the open document when omitted - a walk of every segment,
+            // on the UI thread, for a label (item 10 after 197).
+            var domain = string.IsNullOrWhiteSpace(query?.Domain) ? null : query.Domain.Trim();
 
             var ctx = reader.LoadContext(
                 GetProjectName(),
@@ -8452,7 +8440,7 @@ namespace Supervertaler.Trados
                     Available = false,
                     Bank = bankName,
                     Domain = domain,
-                    Note = "The memory bank has no content matching this project, domain or language pair."
+                    Note = "The memory bank has no content to load."
                 };
             }
 
