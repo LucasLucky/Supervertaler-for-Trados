@@ -99,24 +99,18 @@ namespace Supervertaler.Trados.Core
             var sw = Stopwatch.StartNew();
             int tmsSearched = 0;
 
-            try
+            // This run's server sign-ins, one per host; gone with the run.
+            var connections = new ServerTmClient.Connections();
+            foreach (var entry in tmEntries)
             {
-                foreach (var entry in tmEntries)
+                ct.ThrowIfCancellationRequested();
+                foreach (var ld in OpenDirections(entry, connections))
                 {
-                    ct.ThrowIfCancellationRequested();
-                    foreach (var ld in OpenDirections(entry))
-                    {
-                        if (ld == null) continue;
-                        tmsSearched++;
-                        SearchOne(ld, DisplayNameOf(entry), keys, sourceCulture,
-                                  minScore, best, progress, ct);
-                    }
+                    if (ld == null) continue;
+                    tmsSearched++;
+                    SearchOne(ld, DisplayNameOf(entry), keys, sourceCulture,
+                              minScore, best, progress, ct);
                 }
-            }
-            finally
-            {
-                // The authenticated-server cache is per run, like the concordance path's.
-                try { ServerTmClient.ResetCache(); } catch { }
             }
 
             // Fan the per-distinct-text results back out to every segment.
@@ -148,7 +142,8 @@ namespace Supervertaler.Trados.Core
         /// an absolute <c>.sdltm</c> path or a GroupShare <c>sdltm.http(s)://</c>
         /// URI - as one or more language directions.
         /// </summary>
-        private static IEnumerable<ITranslationProviderLanguageDirection> OpenDirections(string entry)
+        private static IEnumerable<ITranslationProviderLanguageDirection> OpenDirections(
+            string entry, ServerTmClient.Connections connections)
         {
             if (string.IsNullOrEmpty(entry)) yield break;
 
@@ -157,7 +152,7 @@ namespace Supervertaler.Trados.Core
                 ServerTmClient.ServerTmRef sref;
                 if (!ServerTmClient.TryParseServerTmUri(entry, out sref)) yield break;
                 List<ITranslationMemoryLanguageDirection> lds;
-                try { lds = ServerTmClient.OpenLanguageDirections(sref).ToList(); }
+                try { lds = ServerTmClient.OpenLanguageDirections(sref, connections).ToList(); }
                 catch (Exception ex) { LogSkip(entry, ex); yield break; }
                 foreach (var ld in lds) yield return ld;
                 yield break;

@@ -60,10 +60,24 @@ namespace Supervertaler.Trados.Core
         // instantiated any provider this session.
         private static ITranslationProviderCredentialStore _credentialStore;
 
-        // One authenticated server object per host, reused across the TMs touched
-        // in a single SuperSearch run so we authenticate once.
-        private static readonly Dictionary<string, TranslationProviderServer> _serverCache =
-            new Dictionary<string, TranslationProviderServer>(StringComparer.OrdinalIgnoreCase);
+        /// <summary>
+        /// The server connections of ONE run - a SuperSearch, a batch's TM lookup, a
+        /// TM write, a TM comparison - so the run signs in once per host however
+        /// many of that host's TMs it opens. The run creates it, passes it down and
+        /// lets it go when it ends; nothing needs closing
+        /// (<see cref="TranslationProviderServer"/> holds nothing disposable).
+        ///
+        /// <para>Every run is sequential, so this is never shared between threads.
+        /// Until 18.20.198 it was one static Dictionary for all of them: SuperSearch,
+        /// Batch Translate's TM lookup and the MCP tools each run on a thread of their
+        /// own, so two could write it at once - which can corrupt a Dictionary - and
+        /// whichever finished first cleared the others' connections mid-run.</para>
+        /// </summary>
+        public sealed class Connections
+        {
+            internal readonly Dictionary<string, TranslationProviderServer> Servers =
+                new Dictionary<string, TranslationProviderServer>(StringComparer.OrdinalIgnoreCase);
+        }
 
         /// <summary>Called by the provider factory to hand us Studio's credential store.</summary>
         public static void CaptureCredentialStore(ITranslationProviderCredentialStore store)
@@ -122,19 +136,21 @@ namespace Supervertaler.Trados.Core
         }
 
         /// <summary>
-        /// Authenticates (or reuses) a server connection for the ref's host,
-        /// resolves the named TM, and yields its language directions ready for
-        /// <c>SearchText</c>. Never throws — yields nothing on any failure so a
-        /// mixed file+server search degrades gracefully.
+        /// Authenticates (or reuses, within <paramref name="connections"/>) a server
+        /// connection for the ref's host, resolves the named TM, and yields its
+        /// language directions ready for <c>SearchText</c>. Never throws — yields
+        /// nothing on any failure so a mixed file+server search degrades gracefully.
+        /// Null <paramref name="connections"/> means a run of one: a fresh sign-in.
         /// </summary>
-        public static IEnumerable<ITranslationMemoryLanguageDirection> OpenLanguageDirections(ServerTmRef sref)
+        public static IEnumerable<ITranslationMemoryLanguageDirection> OpenLanguageDirections(
+            ServerTmRef sref, Connections connections)
         {
             if (sref == null) yield break;
             DiagnosticLog.Log("ServerTM", "OpenLanguageDirections: host=" + sref.BaseUri.Host
                 + ", orgPath=" + sref.OrgPath + ", tmName=" + sref.TmName);
 
             TranslationProviderServer server;
-            try { server = GetOrCreateServer(sref.BaseUri); }
+            try { server = GetOrCreateServer(sref.BaseUri, connections ?? new Connections()); }
             catch (Exception ex) { DiagnosticLog.Log("ServerTM", "GetOrCreateServer threw: " + ex.Message); yield break; }
             if (server == null) { DiagnosticLog.Log("ServerTM", "No server connection (no credentials found) - skipping this TM."); yield break; }
 
@@ -174,13 +190,10 @@ namespace Supervertaler.Trados.Core
                 yield return ld;
         }
 
-        /// <summary>Clears the per-run server/auth cache. Call at the end of a SuperSearch run.</summary>
-        public static void ResetCache() => _serverCache.Clear();
-
-        private static TranslationProviderServer GetOrCreateServer(Uri baseUri)
+        private static TranslationProviderServer GetOrCreateServer(Uri baseUri, Connections connections)
         {
             var key = baseUri.Host;
-            if (_serverCache.TryGetValue(key, out var cached)) return cached;
+            if (connections.Servers.TryGetValue(key, out var cached)) return cached;
 
             var creds = ResolveCredentials(baseUri);
             if (creds == null) return null; // no credentials known -> caller skips this TM
@@ -193,7 +206,7 @@ namespace Supervertaler.Trados.Core
                 creds.UserName ?? string.Empty,
                 creds.Password ?? string.Empty);
 
-            _serverCache[key] = server;
+            connections.Servers[key] = server;
             return server;
         }
 

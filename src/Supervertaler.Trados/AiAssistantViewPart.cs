@@ -2934,6 +2934,8 @@ namespace Supervertaler.Trados
             var started = System.Diagnostics.Stopwatch.StartNew();
 
             var index = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            // This call's server sign-ins, one per host; gone with the call.
+            var connections = new Core.ServerTmClient.Connections();
             foreach (var entry in tmEntries)
             {
                 var remaining = budget - started.Elapsed;
@@ -2942,7 +2944,7 @@ namespace Supervertaler.Trados
                 int read;
                 bool complete;
                 string err;
-                var part = Core.TmComparer.BuildIndex(entry, 250000, remaining,
+                var part = Core.TmComparer.BuildIndex(entry, connections, 250000, remaining,
                     out read, out complete, out err);
                 response.TmUnitsRead += read;
                 if (!complete) response.TmPartiallyRead = true;

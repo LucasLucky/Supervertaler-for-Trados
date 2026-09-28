@@ -315,57 +315,51 @@ namespace Supervertaler.Trados.Core
             var calls = BuildCalls(plan.Units);
             var sw = Stopwatch.StartNew();
             int written = 0, failed = 0;
-            try
+            // This run's server sign-ins, one per host; gone with the run.
+            var connections = new ServerTmClient.Connections();
+            foreach (var tm in plan.Tms)
             {
-                foreach (var tm in plan.Tms)
+                ITranslationProviderLanguageDirection ld = null;
+                string openError = null;
+                try { ld = Open(tm, plan.SourceCulture, plan.TargetCulture, connections, out openError); }
+                catch (Exception ex) { openError = ex.Message; }
+
+                foreach (var call in calls)
                 {
-                    ITranslationProviderLanguageDirection ld = null;
-                    string openError = null;
-                    try { ld = Open(tm, plan.SourceCulture, plan.TargetCulture, out openError); }
-                    catch (Exception ex) { openError = ex.Message; }
-
-                    foreach (var call in calls)
+                    if (ld == null)
                     {
-                        if (ld == null)
-                        {
-                            foreach (var slot in call.Slots.Where(s => s.UnitIndex >= 0))
-                                outcomes[slot.UnitIndex].Add(new Outcome { Tm = tm.Name, Error = "could not open this TM: " + openError });
-                            failed += call.UnitCount;
-                            continue;
-                        }
+                        foreach (var slot in call.Slots.Where(s => s.UnitIndex >= 0))
+                            outcomes[slot.UnitIndex].Add(new Outcome { Tm = tm.Name, Error = "could not open this TM: " + openError });
+                        failed += call.UnitCount;
+                        continue;
+                    }
 
-                        ImportResult[] results;
-                        try
-                        {
-                            results = ld.AddOrUpdateTranslationUnitsMasked(
-                                call.Slots.Select(s => s.Tu).ToArray(),
-                                call.Slots.Select(s => s.Hash).ToArray(),
-                                NewSettings(plan.ProjectFields),
-                                call.Slots.Select(s => s.UnitIndex >= 0).ToArray());
-                        }
-                        catch (Exception ex)
-                        {
-                            foreach (var slot in call.Slots.Where(s => s.UnitIndex >= 0))
-                                outcomes[slot.UnitIndex].Add(new Outcome { Tm = tm.Name, Error = "the TM refused the write: " + ex.Message });
-                            failed += call.UnitCount;
-                            continue;
-                        }
+                    ImportResult[] results;
+                    try
+                    {
+                        results = ld.AddOrUpdateTranslationUnitsMasked(
+                            call.Slots.Select(s => s.Tu).ToArray(),
+                            call.Slots.Select(s => s.Hash).ToArray(),
+                            NewSettings(plan.ProjectFields),
+                            call.Slots.Select(s => s.UnitIndex >= 0).ToArray());
+                    }
+                    catch (Exception ex)
+                    {
+                        foreach (var slot in call.Slots.Where(s => s.UnitIndex >= 0))
+                            outcomes[slot.UnitIndex].Add(new Outcome { Tm = tm.Name, Error = "the TM refused the write: " + ex.Message });
+                        failed += call.UnitCount;
+                        continue;
+                    }
 
-                        for (int k = 0; k < call.Slots.Count; k++)
-                        {
-                            var slot = call.Slots[k];
-                            if (slot.UnitIndex < 0) continue;
-                            var o = Describe(tm.Name, results != null && k < results.Length ? results[k] : null);
-                            outcomes[slot.UnitIndex].Add(o);
-                            if (o.Error == null) written++; else failed++;
-                        }
+                    for (int k = 0; k < call.Slots.Count; k++)
+                    {
+                        var slot = call.Slots[k];
+                        if (slot.UnitIndex < 0) continue;
+                        var o = Describe(tm.Name, results != null && k < results.Length ? results[k] : null);
+                        outcomes[slot.UnitIndex].Add(o);
+                        if (o.Error == null) written++; else failed++;
                     }
                 }
-            }
-            finally
-            {
-                // The authenticated-server cache is per run, as in the search paths.
-                try { ServerTmClient.ResetCache(); } catch { }
             }
 
             sw.Stop();
@@ -471,7 +465,8 @@ namespace Supervertaler.Trados.Core
 
         /// <summary>Opens one TM's direction for the document's language pair.</summary>
         private static ITranslationProviderLanguageDirection Open(
-            TmRef tm, CultureInfo source, CultureInfo target, out string error)
+            TmRef tm, CultureInfo source, CultureInfo target,
+            ServerTmClient.Connections connections, out string error)
         {
             error = null;
             if (tm.FilePath != null)
@@ -485,7 +480,7 @@ namespace Supervertaler.Trados.Core
                 error = "unrecognised server TM address";
                 return null;
             }
-            var directions = ServerTmClient.OpenLanguageDirections(sref).ToList();
+            var directions = ServerTmClient.OpenLanguageDirections(sref, connections).ToList();
             if (directions.Count == 0)
             {
                 error = "the server TM could not be opened (not signed in to the server in Studio?)";

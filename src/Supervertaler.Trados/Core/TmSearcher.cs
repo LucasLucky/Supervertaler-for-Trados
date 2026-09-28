@@ -175,34 +175,30 @@ namespace Supervertaler.Trados.Core
                 modes.Add(SearchMode.TargetConcordanceSearch);
 
             int total = tmFiles.Count;
-            try
+
+            // This run's server sign-ins, one per host; gone with the run.
+            var connections = new ServerTmClient.Connections();
+
+            for (int i = 0; i < total; i++)
             {
-                for (int i = 0; i < total; i++)
+                ct.ThrowIfCancellationRequested();
+                progress?.Invoke(i, total);
+
+                var entry = tmFiles[i];
+
+                // Route each entry to the file or server branch.
+                if (ServerTmClient.IsServerTmUri(entry))
                 {
-                    ct.ThrowIfCancellationRequested();
-                    progress?.Invoke(i, total);
-
-                    var entry = tmFiles[i];
-
-                    // Route each entry to the file or server branch.
-                    if (ServerTmClient.IsServerTmUri(entry))
-                    {
-                        try { SearchServerTm(entry, query, scope, caseSensitive, useRegex, wholeWord, modes, results, ct); }
-                        catch (OperationCanceledException) { throw; }
-                        catch { /* skip a server TM that can't be opened / authenticated */ }
-                    }
-                    else
-                    {
-                        try { SearchFileTm(entry, query, scope, caseSensitive, useRegex, wholeWord, modes, results, ct); }
-                        catch (OperationCanceledException) { throw; }
-                        catch { /* skip a TM that can't be opened (locked, corrupt) */ }
-                    }
+                    try { SearchServerTm(entry, query, scope, caseSensitive, useRegex, wholeWord, modes, results, connections, ct); }
+                    catch (OperationCanceledException) { throw; }
+                    catch { /* skip a server TM that can't be opened / authenticated */ }
                 }
-            }
-            finally
-            {
-                // Drop the per-run authenticated-server cache.
-                ServerTmClient.ResetCache();
+                else
+                {
+                    try { SearchFileTm(entry, query, scope, caseSensitive, useRegex, wholeWord, modes, results, ct); }
+                    catch (OperationCanceledException) { throw; }
+                    catch { /* skip a TM that can't be opened (locked, corrupt) */ }
+                }
             }
 
             progress?.Invoke(total, total);
@@ -228,11 +224,12 @@ namespace Supervertaler.Trados.Core
         private static void SearchServerTm(
             string tmUri, string query, SearchScope scope,
             bool caseSensitive, bool useRegex, bool wholeWord,
-            List<SearchMode> modes, List<SearchResult> results, CancellationToken ct)
+            List<SearchMode> modes, List<SearchResult> results,
+            ServerTmClient.Connections connections, CancellationToken ct)
         {
             if (!ServerTmClient.TryParseServerTmUri(tmUri, out var sref)) return;
 
-            foreach (var ld in ServerTmClient.OpenLanguageDirections(sref))
+            foreach (var ld in ServerTmClient.OpenLanguageDirections(sref, connections))
             {
                 ct.ThrowIfCancellationRequested();
                 if (ld == null) continue;

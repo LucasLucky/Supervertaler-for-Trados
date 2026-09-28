@@ -72,7 +72,7 @@ namespace Supervertaler.Trados.Core
         /// past the caller's HTTP timeout.
         /// </summary>
         /// <returns>true when the whole TM was read; false when cut short.</returns>
-        public static bool Enumerate(string tmEntry, Action<TmPair> onPair,
+        public static bool Enumerate(string tmEntry, ServerTmClient.Connections connections, Action<TmPair> onPair,
             int maxUnits, TimeSpan deadline, out int unitsRead, out string error)
         {
             unitsRead = 0;
@@ -90,7 +90,7 @@ namespace Supervertaler.Trados.Core
                         error = "could not parse the GroupShare TM URI";
                         return false;
                     }
-                    foreach (var ld in ServerTmClient.OpenLanguageDirections(sref))
+                    foreach (var ld in ServerTmClient.OpenLanguageDirections(sref, connections))
                         if (ld != null) directions.Add(ld);
                 }
                 else
@@ -148,11 +148,11 @@ namespace Supervertaler.Trados.Core
         /// the stored targets keep their exact characters so the comparison
         /// itself stays faithful.
         /// </summary>
-        public static Dictionary<string, List<string>> BuildIndex(string tmEntry,
+        public static Dictionary<string, List<string>> BuildIndex(string tmEntry, ServerTmClient.Connections connections,
             int maxUnits, TimeSpan deadline, out int unitsRead, out bool complete, out string error)
         {
             var index = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-            complete = Enumerate(tmEntry, pair =>
+            complete = Enumerate(tmEntry, connections, pair =>
             {
                 var key = NormaliseWhitespace(pair.Source);
                 if (key.Length == 0) return;
