@@ -9734,12 +9734,12 @@ namespace Supervertaler.Trados
                         ctx.TrimToTokenBudget(TranslationBankContext.TokenBudget);
                         if (wholeTokens <= BankExtract.Threshold)
                         {
-                            sb.AppendLine("**~" + ctx.EstimatedTokens + " tokens** would be added to a translation prompt.");
+                            sb.AppendLine("**~" + ctx.EstimatedTokens.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) + " tokens** would be added to a translation prompt.");
                         }
                         else
                         {
-                            sb.AppendLine("**Up to ~" + ctx.EstimatedTokens + " tokens** would be added to a translation prompt. " +
-                                "The bank is over " + BankExtract.Threshold.ToString("N0") + " tokens, so each document " +
+                            sb.AppendLine("**Up to ~" + ctx.EstimatedTokens.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) + " tokens** would be added to a translation prompt. " +
+                                "The bank is over " + BankExtract.Threshold.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) + " tokens, so each document " +
                                 "gets only the part it needs, chosen the first time you translate it. What each " +
                                 "document got, and why, is written to `" + TranslationBankContext.ExtractsDir + "`.");
                         }
