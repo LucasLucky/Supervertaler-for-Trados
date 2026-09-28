@@ -186,20 +186,24 @@ def build_mcpb(version):
     one. The Connect dialog in the plugin points users at /releases/latest, so
     a release without the .mcpb would leave that button pointing at nothing.
     The extension gets semver "1.<shared tail>" (e.g. 18.20.94 -> 1.20.94) so
-    users can correlate it with the plugin build it shipped with."""
+    users can correlate it with the plugin build it shipped with.
+
+    The exe zip is required too, not optional. Supervertaler for memoQ's
+    installer and its ChatGPT setup download SupervertalerMcpServer.exe from
+    THIS repo's releases/latest (memoQ 0.1.0, 2026-09-28), as does the
+    plugin's own ChatGPT setup. A Trados release without the zip becomes
+    "latest" and breaks every new memoQ install, with nothing on the Trados
+    side to show it. Returns None unless both files were built."""
     tail = version.split(".", 1)[1] if "." in version else version
     result = subprocess.run(
         [sys.executable, os.path.join(BASE_DIR, "tools", "build_mcpb.py"),
          "--version", f"1.{tail}"],
         cwd=BASE_DIR)
     mcpb_path = os.path.join(DIST_DIR, MCPB_NAME)
-    if result.returncode != 0 or not os.path.exists(mcpb_path):
-        return None
-    paths = [mcpb_path]
     exe_zip = os.path.join(DIST_DIR, MCPB_EXE_ZIP)
-    if os.path.exists(exe_zip):
-        paths.append(exe_zip)
-    return paths
+    if result.returncode != 0 or not os.path.exists(mcpb_path) or not os.path.exists(exe_zip):
+        return None
+    return [mcpb_path, exe_zip]
 
 
 def make_zips():
@@ -278,11 +282,14 @@ def main():
     if mcpb:
         assets.extend(mcpb)
     elif "--no-mcpb" in args:
-        print("  WARNING: .mcpb build failed — releasing without it (--no-mcpb given)")
+        print("  WARNING: MCP asset build failed — releasing without them (--no-mcpb given). "
+              "This release becomes 'latest': the Connect dialog, both ChatGPT setups and the "
+              "memoQ installer will find no MCP server until a release that has them.")
     else:
-        print("ERROR: .mcpb build failed — the Connect dialog points users at the latest "
-              "release, so releases must carry it. Fix the build, or pass --no-mcpb to "
-              "release without it.")
+        print(f"ERROR: MCP asset build failed ({MCPB_NAME} and {MCPB_EXE_ZIP} are both required) — "
+              "the Connect dialog, the ChatGPT setups of both plugins and the memoQ installer "
+              "fetch them from the latest release, so releases must carry them. Fix the build, "
+              "or pass --no-mcpb to release without them.")
         sys.exit(1)
 
     tag = f"v{version}"
