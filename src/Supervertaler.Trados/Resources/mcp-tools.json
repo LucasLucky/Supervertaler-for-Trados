@@ -1295,7 +1295,7 @@
             "default": null
           },
           "client": {
-            "description": "Optional client name, e.g. 'GE HealthCare'. Use this when the response reports that no client profile was matched: the client is normally guessed from the Trados project name, which often does not contain it. Matched loosely, so a partial name works.",
+            "description": "No longer used, and answered with a note saying so. A memory bank is read as a whole, not divided by client: to read a different client's knowledge, pass that bank's name in 'bank' (see list_supermemory_banks).",
             "type": [
               "string",
               "null"

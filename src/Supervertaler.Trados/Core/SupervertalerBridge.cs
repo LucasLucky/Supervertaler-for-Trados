@@ -898,8 +898,9 @@ namespace Supervertaler.Trados.Core
         /// <summary>A label, echoed back in the response. The bank is not
         /// filtered by domain, and nothing is detected when it is omitted.</summary>
         [DataMember(Name = "domain", EmitDefaultValue = false)] public string Domain { get; set; }
-        /// <summary>Names the client explicitly when the project name does not
-        /// give it away. Matched loosely against 01_CLIENTS article names.</summary>
+        /// <summary>No longer used: a bank is read whole, not divided by
+        /// client. Still accepted, and answered with a note pointing to
+        /// 'bank'.</summary>
         [DataMember(Name = "client", EmitDefaultValue = false)] public string Client { get; set; }
         /// <summary>Reads a specific bank instead of the active one. Unknown
         /// names are an error rather than a silent fall back to the active bank:
@@ -917,7 +918,9 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "bank", Order = 1, EmitDefaultValue = false)] public string Bank { get; set; }
         [DataMember(Name = "client", Order = 2, EmitDefaultValue = false)] public string Client { get; set; }
         [DataMember(Name = "domain", Order = 3, EmitDefaultValue = false)] public string Domain { get; set; }
-        /// <summary>How the client profile was resolved: "manual", "project-name" or "none".</summary>
+        /// <summary>Always "bank": the brief loaded is the bank's own. The
+        /// earlier values ("manual", "project-name", "none") went with client
+        /// detection.</summary>
         [DataMember(Name = "detectionMethod", Order = 4, EmitDefaultValue = false)] public string DetectionMethod { get; set; }
         /// <summary>The formatted knowledge-base block, identical to what gets
         /// injected into the plugin's own system prompt.</summary>
