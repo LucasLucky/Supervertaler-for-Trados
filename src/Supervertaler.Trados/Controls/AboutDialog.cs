@@ -226,6 +226,8 @@ namespace Supervertaler.Trados.Controls
                 // opened by itself.
                 ("Alt+L",          "Show TermLens popup"),
                 ("Alt+P",          "Show TermPicker (list of matches)"),
+                ("Alt+S",          "SuperSearch the selection"),
+                ("Alt+W",          "Search the web for the selection"),
                 // Alt+Q, not Ctrl+Q: Studio's "View Internally Source" holds
                 // Ctrl+Q and wins, so QuickLauncher did nothing until the user
                 // cleared it. Moved in 20.184 — and listed here, because its

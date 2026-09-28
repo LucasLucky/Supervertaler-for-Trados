@@ -120,9 +120,10 @@ namespace Supervertaler.Trados.VoiceControl
         /// top+bottom / add-term split (20.127), 3 = zoom in/out (20.128),
         /// 4 = undo (20.191), 5 = select / delete that / dictate (20.191),
         /// 6 = select source (20.191), 7 = dictate split into start/stop (20.191),
-        /// 8 = select all (20.192).
+        /// 8 = select all (20.192), 9 = numbers / source numbers (#128),
+        /// 10 = press enter, 11 = super search / web search (20.198).
         /// </summary>
-        internal const int CurrentDefaultsVersion = 10;
+        internal const int CurrentDefaultsVersion = 11;
 
         public static string CommandsFilePath =>
             Path.Combine(UserDataPath.TradosSettingsDir, "voice_commands.json");
@@ -212,6 +213,11 @@ namespace Supervertaler.Trados.VoiceControl
                 // AI / search
                 new VoiceCommand { Phrase = "translate", Aliases = new List<string> { "translate segment" }, ActionType = "keystroke", Action = "alt+t", Description = "AI-translate the active segment", Category = "translation" },
                 new VoiceCommand { Phrase = "concordance", Aliases = new List<string> { "search memory" }, ActionType = "keystroke", Action = "f3", Description = "Concordance search on the selection", Category = "lookup" },
+                // Two words, not "supersearch": the model's lexicon has no such word,
+                // and a grammar word it lacks is dropped in silence (VoiceVocabulary).
+                // Said naturally, "SuperSearch" is heard as these two.
+                new VoiceCommand { Phrase = "super search", ActionType = "keystroke", Action = "alt+s", Description = "SuperSearch the selection across the project's files (Alt+S)", Category = "lookup" },
+                new VoiceCommand { Phrase = "web search", Aliases = new List<string> { "search the web" }, ActionType = "keystroke", Action = "alt+w", Description = "Open the selection in the enabled SuperSearch web resources (Alt+W)", Category = "lookup" },
 
                 // Editor font size. Studio's font-adaptation actions ship with NO
                 // default shortcut. One-time setup: File > Options > Keyboard
