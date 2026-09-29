@@ -38,11 +38,9 @@ namespace Supervertaler.Trados.Controls
         internal LegacyMemoryBankMigrationDialog()
         {
             Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
-            // Let WinForms scale this dialog by system DPI so it doesn't squish
-            // at >100% Windows display scaling. Cheap fallback; for surfaces
-            // with their own UiScale-driven layout, set AutoScaleMode = None
-            // instead and let UiScale own scaling.
-            AutoScaleMode = AutoScaleMode.Dpi;
+            // Scaled to the screen DPI by DialogScale.Apply at the end of the
+            // constructor: AutoScaleMode.Dpi, which this set before, scaled nothing.
+            AutoScaleMode = AutoScaleMode.None;
             InitializeComponent();
 
             _sourceValue.Text = UserDataPath.LegacySingleBankPath ?? "(none detected)";
@@ -141,7 +139,8 @@ namespace Supervertaler.Trados.Controls
                     "version. Give it a short name so it can join the new multi-bank layout. " +
                     "You can add more banks later from the Memory banks toolbar.",
                 Location  = new Point(16, 48),
-                Size      = new Size(544, 48),
+                // 56, not 48: three wrapped lines did not fit, at any scaling.
+                Size      = new Size(544, 56),
                 AutoSize  = false
             };
 
@@ -149,7 +148,7 @@ namespace Supervertaler.Trados.Controls
             {
                 Text      = "Found at:",
                 Font      = new Font("Segoe UI", 9f, FontStyle.Bold),
-                Location  = new Point(16, 106),
+                Location  = new Point(16, 114),
                 Size      = new Size(100, 20),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft
@@ -157,9 +156,12 @@ namespace Supervertaler.Trados.Controls
 
             _sourceValue = new Label
             {
-                Location  = new Point(120, 106),
+                Location  = new Point(120, 114),
                 Size      = new Size(440, 20),
                 AutoSize  = false,
+                // One line: a long path ends in "..." (the full path shows on
+                // hover) rather than wrapping into a line that is not there.
+                AutoEllipsis = true,
                 TextAlign = ContentAlignment.MiddleLeft,
                 ForeColor = Color.FromArgb(40, 40, 40)
             };
@@ -168,7 +170,7 @@ namespace Supervertaler.Trados.Controls
             {
                 Text      = "Will become:",
                 Font      = new Font("Segoe UI", 9f, FontStyle.Bold),
-                Location  = new Point(16, 130),
+                Location  = new Point(16, 138),
                 Size      = new Size(100, 20),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft
@@ -176,9 +178,10 @@ namespace Supervertaler.Trados.Controls
 
             _destValue = new Label
             {
-                Location  = new Point(120, 130),
+                Location  = new Point(120, 138),
                 Size      = new Size(440, 20),
                 AutoSize  = false,
+                AutoEllipsis = true,
                 TextAlign = ContentAlignment.MiddleLeft
             };
 
@@ -186,7 +189,7 @@ namespace Supervertaler.Trados.Controls
             {
                 Text      = "Name:",
                 Font      = new Font("Segoe UI", 9f, FontStyle.Bold),
-                Location  = new Point(16, 170),
+                Location  = new Point(16, 178),
                 Size      = new Size(100, 22),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft
@@ -194,7 +197,7 @@ namespace Supervertaler.Trados.Controls
 
             _nameBox = new TextBox
             {
-                Location = new Point(120, 168),
+                Location = new Point(120, 176),
                 Size     = new Size(440, 22),
                 Text     = "main"
             };
@@ -204,8 +207,8 @@ namespace Supervertaler.Trados.Controls
                 Text =
                     "Use lowercase letters, digits, hyphens or underscores only. " +
                     "Spaces are replaced with hyphens and any other characters are dropped.",
-                Location  = new Point(120, 196),
-                Size      = new Size(440, 32),
+                Location  = new Point(120, 204),
+                Size      = new Size(440, 38),
                 AutoSize  = false,
                 ForeColor = Color.FromArgb(100, 100, 100),
                 Font      = new Font("Segoe UI", 8.25f)
@@ -213,7 +216,7 @@ namespace Supervertaler.Trados.Controls
 
             _statusLabel = new Label
             {
-                Location  = new Point(120, 232),
+                Location  = new Point(120, 246),
                 Size      = new Size(440, 20),
                 AutoSize  = false,
                 Font      = new Font("Segoe UI", 8.25f, FontStyle.Italic)
@@ -222,7 +225,7 @@ namespace Supervertaler.Trados.Controls
             // Separator
             var separator = new Panel
             {
-                Location  = new Point(0, 266),
+                Location  = new Point(0, 280),
                 Size      = new Size(576, 1),
                 BackColor = Color.FromArgb(200, 200, 200)
             };
@@ -231,7 +234,7 @@ namespace Supervertaler.Trados.Controls
             {
                 Text         = "Migrate",
                 DialogResult = DialogResult.None, // handled manually
-                Location     = new Point(384, 278),
+                Location     = new Point(384, 292),
                 Size         = new Size(88, 26),
                 Enabled      = false
             };
@@ -242,12 +245,12 @@ namespace Supervertaler.Trados.Controls
             {
                 Text         = "Skip for now",
                 DialogResult = DialogResult.Cancel,
-                Location     = new Point(480, 278),
+                Location     = new Point(480, 292),
                 Size         = new Size(88, 26)
             };
             CancelButton = _cancelButton;
 
-            ClientSize = new Size(576, 318);
+            ClientSize = new Size(576, 332);
 
             Controls.AddRange(new Control[]
             {
@@ -259,6 +262,7 @@ namespace Supervertaler.Trados.Controls
                 _okButton, _cancelButton
             });
 
+            Supervertaler.Trados.Core.DialogScale.Apply(this);
             ResumeLayout(false);
         }
     }

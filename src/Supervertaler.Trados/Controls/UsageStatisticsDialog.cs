@@ -36,11 +36,9 @@ namespace Supervertaler.Trados.Controls
         public UsageStatisticsDialog()
         {
             Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
-            // Let WinForms scale this dialog by system DPI so it doesn't squish
-            // at >100% Windows display scaling. Cheap fallback; for surfaces
-            // with their own UiScale-driven layout, set AutoScaleMode = None
-            // instead and let UiScale own scaling.
-            AutoScaleMode = AutoScaleMode.Dpi;
+            // Scaled to the screen DPI by DialogScale.Apply at the end of the
+            // constructor: AutoScaleMode.Dpi, which this set before, scaled nothing.
+            AutoScaleMode = AutoScaleMode.None;
             SuspendLayout();
 
             Text = "Supervertaler for Trados";
@@ -145,6 +143,7 @@ namespace Supervertaler.Trados.Controls
                 ClientSize = new Size(ClientSize.Width, btnYes.Bottom + gap);
             };
 
+            Supervertaler.Trados.Core.DialogScale.Apply(this);
             ResumeLayout(false);
         }
     }

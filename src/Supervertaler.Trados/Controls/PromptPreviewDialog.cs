@@ -33,11 +33,9 @@ namespace Supervertaler.Trados.Controls
 
         private void BuildUI(string title, string contentLabel, string content)
         {
-            // Let WinForms scale this dialog by system DPI so it doesn't squish
-            // at >100% Windows display scaling. Cheap fallback; for surfaces
-            // with their own UiScale-driven layout, set AutoScaleMode = None
-            // instead and let UiScale own scaling.
-            AutoScaleMode = AutoScaleMode.Dpi;
+            // Scaled to the screen DPI by DialogScale.Apply at the end of the
+            // constructor: AutoScaleMode.Dpi, which this set before, scaled nothing.
+            AutoScaleMode = AutoScaleMode.None;
             Text = title ?? "Prompt preview";
             Size = new Size(900, 700);
             MinimumSize = new Size(500, 400);
@@ -133,6 +131,7 @@ namespace Supervertaler.Trados.Controls
             Controls.Add(_txt);
             Controls.Add(_lblHeader);
             Controls.Add(pnlButtons);
+            Supervertaler.Trados.Core.DialogScale.Apply(this);
 
             AcceptButton = _btnClose;
             CancelButton = _btnClose;

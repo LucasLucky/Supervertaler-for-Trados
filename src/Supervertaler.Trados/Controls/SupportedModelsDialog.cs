@@ -25,11 +25,9 @@ namespace Supervertaler.Trados.Controls
 
         private void BuildUI()
         {
-            // Let WinForms scale this dialog by system DPI so it doesn't squish
-            // at >100% Windows display scaling. Cheap fallback; for surfaces
-            // with their own UiScale-driven layout, set AutoScaleMode = None
-            // instead and let UiScale own scaling.
-            AutoScaleMode = AutoScaleMode.Dpi;
+            // Scaled to the screen DPI by DialogScale.Apply at the end of the
+            // constructor: AutoScaleMode.Dpi, which this set before, scaled nothing.
+            AutoScaleMode = AutoScaleMode.None;
             Text = "Supported Models";
             Size = new Size(560, 520);
             MinimumSize = new Size(400, 300);
@@ -85,6 +83,7 @@ namespace Supervertaler.Trados.Controls
 
             Controls.Add(_rtb);
             Controls.Add(pnlButtons);
+            Supervertaler.Trados.Core.DialogScale.Apply(this);
         }
 
         private void PopulateModels()

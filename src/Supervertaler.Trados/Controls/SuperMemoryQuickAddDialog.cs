@@ -106,11 +106,9 @@ namespace Supervertaler.Trados.Controls
             string activeBankName = null)
         {
             Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
-            // Let WinForms scale this dialog by system DPI so it doesn't squish
-            // at >100% Windows display scaling. Cheap fallback; for surfaces
-            // with their own UiScale-driven layout, set AutoScaleMode = None
-            // instead and let UiScale own scaling.
-            AutoScaleMode = AutoScaleMode.Dpi;
+            // Scaled to the screen DPI by DialogScale.Apply at the end of the
+            // constructor: AutoScaleMode.Dpi, which this set before, scaled nothing.
+            AutoScaleMode = AutoScaleMode.None;
             Text = "Quick Add to memory bank";
             Font = new Font("Segoe UI", 9f);
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -151,7 +149,7 @@ namespace Supervertaler.Trados.Controls
                 Location = new Point(18, y),
                 AutoSize = false,
                 Width = ClientSize.Width - 36,
-                Height = 16,
+                Height = 20,   // 16 cut the italic line's descenders off
                 ForeColor = Color.FromArgb(0, 90, 158),
                 Font = new Font("Segoe UI", 8.25f, FontStyle.Italic)
             };
@@ -339,6 +337,7 @@ namespace Supervertaler.Trados.Controls
             };
 
             UpdateDestinationLabel();
+            Supervertaler.Trados.Core.DialogScale.Apply(this);
         }
 
         /// <summary>

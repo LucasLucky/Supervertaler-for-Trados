@@ -48,7 +48,9 @@ namespace Supervertaler.Trados.Controls
             _filePath = filePath;
 
             Icon = Core.IconHelper.AppIcon;
-            AutoScaleMode = AutoScaleMode.Dpi;
+            // Scaled to the screen DPI by DialogScale.Apply at the end of the
+            // constructor: AutoScaleMode.Dpi, which this set before, scaled nothing.
+            AutoScaleMode = AutoScaleMode.None;
             Text = "Edit " + Path.GetFileName(filePath ?? "");
             FormBorderStyle = FormBorderStyle.Sizable;
             MinimizeBox = false;
@@ -107,11 +109,12 @@ namespace Supervertaler.Trados.Controls
 
             buttons.Controls.Add(btnSave);
             buttons.Controls.Add(btnCancel);
-            buttons.Resize += (s, e) =>
+            void PlaceButtons()
             {
-                btnCancel.Location = new Point(buttons.Width - btnCancel.Width - 12, 10);
-                btnSave.Location = new Point(btnCancel.Left - btnSave.Width - 8, 10);
-            };
+                btnCancel.Location = new Point(buttons.Width - btnCancel.Width - Core.DialogScale.Pixels(12), Core.DialogScale.Pixels(10));
+                btnSave.Location = new Point(btnCancel.Left - btnSave.Width - Core.DialogScale.Pixels(8), Core.DialogScale.Pixels(10));
+            }
+            buttons.Resize += (s, e) => PlaceButtons();
 
             // Fill first, then the docked edges, so the text box gets what is left.
             var pad = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12, 4, 12, 0), BackColor = Color.White };
@@ -120,6 +123,10 @@ namespace Supervertaler.Trados.Controls
             Controls.Add(pad);
             Controls.Add(buttons);
             Controls.Add(header);
+            Supervertaler.Trados.Core.DialogScale.Apply(this);
+            // Scale resizes the panel (placing the buttons) and THEN scales the
+            // buttons' positions again, pushing them off its right edge.
+            PlaceButtons();
 
             AcceptButton = null;      // Enter inserts a newline; this is a text editor
             CancelButton = btnCancel;

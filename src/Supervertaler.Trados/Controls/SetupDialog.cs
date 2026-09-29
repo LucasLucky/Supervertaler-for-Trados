@@ -27,13 +27,12 @@ namespace Supervertaler.Trados.Controls
         internal SetupDialog()
         {
             Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
-            // Let WinForms scale this dialog by system DPI so it doesn't squish
-            // at >100% Windows display scaling. Cheap fallback; for surfaces
-            // with their own UiScale-driven layout, set AutoScaleMode = None
-            // instead and let UiScale own scaling.
-            AutoScaleMode = AutoScaleMode.Dpi;
+            // Scaled to the screen DPI by DialogScale.Apply at the end of the
+            // constructor: AutoScaleMode.Dpi, which this set before, scaled nothing.
+            AutoScaleMode = AutoScaleMode.None;
             InitializeComponent();
             PopulateDefaults();
+            Supervertaler.Trados.Core.DialogScale.Apply(this);
         }
 
         // ── Defaults ─────────────────────────────────────────────────
@@ -212,7 +211,10 @@ namespace Supervertaler.Trados.Controls
             _noteLabel = new Label
             {
                 Location  = new Point(16, 146),
-                Size      = new Size(508, 40),
+                // Three lines and a half: the "existing folder detected" note
+                // wraps its second sentence, and at 40 high its last line was
+                // cut off at any display scaling.
+                Size      = new Size(508, 58),
                 AutoSize  = false
             };
 
@@ -222,7 +224,7 @@ namespace Supervertaler.Trados.Controls
 
             _parallelsWarningPanel = new Panel
             {
-                Location  = new Point(16, 194),
+                Location  = new Point(16, 212),
                 Size      = new Size(508, 56),
                 BackColor = Color.FromArgb(255, 248, 220),  // light yellow
                 Visible   = inParallels,
