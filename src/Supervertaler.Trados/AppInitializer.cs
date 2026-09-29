@@ -182,7 +182,7 @@ namespace Supervertaler.Trados
             if (UserDataPath.NeedsFirstRunSetup)
             {
                 using (var dlg = new SetupDialog())
-                    dlg.ShowDialog();
+                    ShowAtStartup(dlg);
                 // If the user cancelled, SetRoot was never called; Root falls back to
                 // ~/Supervertaler/ which is the correct default anyway.
             }
@@ -199,6 +199,54 @@ namespace Supervertaler.Trados
 
             // Initialize licensing - loads cached state, triggers background validation
             LicenseManager.Instance.InitializeAsync();
+        }
+
+        // ── Windows shown during Execute ─────────────────────────────
+
+        /// <summary>
+        /// Shows a modal from <see cref="Execute"/>, which runs while Studio's
+        /// splash says "Start extensions are being executed...". Studio's main
+        /// window does not exist yet, so the dialog has no owner, and our
+        /// dialogs set ShowInTaskbar = false: one that opens behind the splash
+        /// leaves Studio looking hung, with nothing on screen or in the taskbar
+        /// to click. A user reported exactly that hang right after installing,
+        /// which is when SetupDialog appears. So these are in the taskbar and
+        /// on top for as long as they are open. The later notices had the same
+        /// problem (issue #54, StartupNotices.ShowOwned), but their brief
+        /// TopMost flip is not enough here: a window that drops TopMost goes
+        /// back beneath a topmost splash.
+        /// </summary>
+        private static DialogResult ShowAtStartup(Form dlg)
+        {
+            dlg.ShowInTaskbar = true;
+            dlg.TopMost = true;
+            dlg.Shown += (s, e) => { try { dlg.Activate(); } catch { } };
+            return dlg.ShowDialog();
+        }
+
+        /// <summary>
+        /// A message box from <see cref="Execute"/>, kept above the splash the
+        /// same way (see <see cref="ShowAtStartup"/>): owned by an invisible
+        /// topmost window, since a window owned by a topmost one is topmost too.
+        /// The owner sits at the centre of the screen, fully transparent: a
+        /// message box is centred on its owner, so an owner parked off-screen
+        /// would take the message off-screen with it.
+        /// </summary>
+        private static void MessageAtStartup(string text, string caption, MessageBoxIcon icon)
+        {
+            using (var owner = new Form
+            {
+                TopMost = true,
+                ShowInTaskbar = false,
+                FormBorderStyle = FormBorderStyle.None,
+                StartPosition = FormStartPosition.CenterScreen,
+                Size = new System.Drawing.Size(1, 1),
+                Opacity = 0
+            })
+            {
+                owner.Show();
+                MessageBox.Show(owner, text, caption, MessageBoxButtons.OK, icon);
+            }
         }
 
         // ── Global crash handlers ────────────────────────────────────
@@ -422,7 +470,7 @@ namespace Supervertaler.Trados
 
                 using (var dlg = new LegacyMemoryBankMigrationDialog())
                 {
-                    if (dlg.ShowDialog() != DialogResult.OK)
+                    if (ShowAtStartup(dlg) != DialogResult.OK)
                         return; // User hit "Skip for now" - legacy folder stays put.
 
                     var chosen = dlg.ChosenBankName;
@@ -505,11 +553,11 @@ namespace Supervertaler.Trados
                     // Rename failed (rare) - still show the restart message
                 }
 
-                MessageBox.Show(
+                MessageAtStartup(
                     "Supervertaler for Trados has been updated to v" + packageVersion + ".\n\n" +
                     "Please close and restart Trados Studio to load the new version.",
                     "Supervertaler - Update Installed",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBoxIcon.Information);
 
                 return true;
             }
