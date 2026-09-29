@@ -59,11 +59,9 @@ namespace Supervertaler.Trados.Controls
 
         private void BuildUI()
         {
-            // Let WinForms scale this dialog by system DPI so it doesn't squish
-            // at >100% Windows display scaling. Cheap fallback; for surfaces
-            // with their own UiScale-driven layout, set AutoScaleMode = None
-            // instead and let UiScale own scaling.
-            AutoScaleMode = AutoScaleMode.Dpi;
+            // Scaled to the screen DPI by DialogScale.Apply at the end of
+            // BuildUI: AutoScaleMode.Dpi, which this set before, scaled nothing.
+            AutoScaleMode = AutoScaleMode.None;
             Text = $"Termbase Editor \u2013 {_termbase.Name} ({LanguageUtils.ShortenLanguageName(_termbase.SourceLang)} \u2192 {LanguageUtils.ShortenLanguageName(_termbase.TargetLang)})";
             Font = new Font("Segoe UI", 9f);
             FormBorderStyle = FormBorderStyle.Sizable;
@@ -77,9 +75,17 @@ namespace Supervertaler.Trados.Controls
             BackColor = Color.White;
 
             // === Toolbar area ===
+            // Width set to the window's before any button is placed in it. A
+            // new Panel is 200 wide until docking stretches it, and the buttons
+            // below are anchored to its right edge: placed against the window's
+            // 800 while the panel was still 200, they were carried 600 further
+            // right when it stretched - off the edge, from the day this editor
+            // was built. Bulk Add NT, Merge Selected, Delete Selected and Close
+            // were all invisible.
             var toolbarPanel = new Panel
             {
                 Dock = DockStyle.Top,
+                Width = ClientSize.Width,
                 Height = 36,
                 Padding = new Padding(8, 6, 8, 4),
                 BackColor = Color.White
@@ -170,18 +176,25 @@ namespace Supervertaler.Trados.Controls
             toolbarPanel.Controls.Add(_btnDelete);
 
             // Position buttons at right edge
-            _btnDelete.Location = new Point(ClientSize.Width - 16 - _btnDelete.Width, 7);
+            _btnDelete.Location = new Point(toolbarPanel.Width - 16 - _btnDelete.Width, 7);
             _btnMerge.Location = new Point(_btnDelete.Left - _btnMerge.Width - 4, 7);
             _btnBulkNt.Location = new Point(_btnMerge.Left - _btnBulkNt.Width - 4, 7);
 
+            // The whole gap between the NT only box and Bulk Add NT, text
+            // right-aligned: a long "1234 of 23456 terms" grows left into the
+            // empty space. It used to start a fixed 120 left of Bulk Add NT, but
+            // the search label, box and check box are placed by MEASURED widths,
+            // which grow with display scaling, and at 125% they ran into it.
             _lblTermCount = new Label
             {
-                AutoSize = true,
+                AutoSize = false,
+                TextAlign = ContentAlignment.MiddleRight,
                 ForeColor = Color.FromArgb(120, 120, 120),
                 Font = new Font("Segoe UI", 8f),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
-            _lblTermCount.Location = new Point(_btnBulkNt.Left - 120, 10);
+            _lblTermCount.Bounds = new Rectangle(_chkNtOnly.Right + 8, 7,
+                Math.Max(0, _btnBulkNt.Left - 8 - (_chkNtOnly.Right + 8)), 24);
             toolbarPanel.Controls.Add(_lblTermCount);
 
             // === DataGridView ===
@@ -267,6 +280,7 @@ namespace Supervertaler.Trados.Controls
             var bottomPanel = new Panel
             {
                 Dock = DockStyle.Bottom,
+                Width = ClientSize.Width,   // before Close is placed: see toolbarPanel
                 Height = 44,
                 Padding = new Padding(8, 4, 8, 4),
                 BackColor = Color.White
@@ -290,7 +304,7 @@ namespace Supervertaler.Trados.Controls
                 Anchor = AnchorStyles.Bottom | AnchorStyles.Right
             };
             _btnClose.Location = new Point(
-                ClientSize.Width - 16 - _btnClose.Width,
+                bottomPanel.Width - 16 - _btnClose.Width,
                 bottomPanel.Height - _btnClose.Height - 6);
             bottomPanel.Controls.Add(_btnClose);
 
@@ -300,6 +314,8 @@ namespace Supervertaler.Trados.Controls
             Controls.Add(_dgvTerms);
             Controls.Add(toolbarPanel);
             Controls.Add(bottomPanel);
+
+            Supervertaler.Trados.Core.DialogScale.Apply(this);
         }
 
         private void LoadTerms()
