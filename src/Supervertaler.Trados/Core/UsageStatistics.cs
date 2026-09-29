@@ -13,15 +13,22 @@ using Supervertaler.Trados.Settings;
 namespace Supervertaler.Trados.Core
 {
     /// <summary>
-    /// Minimal, opt-in anonymous usage statistics.
+    /// Minimal anonymous usage statistics: on by default, switched off by the
+    /// first-start notice's "Turn it off" or in Settings (see
+    /// UsageStatisticsDialog).
     ///
-    /// When the user opts in, a single lightweight ping is sent once per session
-    /// on plugin startup. The payload contains only:
+    /// While on, a single lightweight ping is sent once per session on plugin
+    /// startup. The payload (UsagePing) contains only:
     ///   - A random anonymous ID (UUID, generated locally, not tied to any account)
-    ///   - Plugin version
-    ///   - OS version
-    ///   - Trados Studio version
+    ///   - The product ("trados")
+    ///   - Plugin version, OS version, Trados Studio version
     ///   - System locale
+    ///   - The VM host, if any ("parallels" means a Mac), and the process architecture
+    ///   - Windows display scaling, Windows text size and the Supervertaler UI scale
+    ///
+    /// A field added here must also be added to the notice's text, the help
+    /// page (trados/settings/usage-statistics) and supervertaler.com/privacy -
+    /// until 18/19.20.198 all three left out the last two lines.
     ///
     /// No personal data, no translation content, no termbase info, no tracking.
     /// Silent failure – if the ping fails, nothing happens.
