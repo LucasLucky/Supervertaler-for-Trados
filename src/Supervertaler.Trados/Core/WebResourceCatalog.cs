@@ -52,7 +52,7 @@ namespace Supervertaler.Trados.Core
         private static readonly WebResource[] BuiltIns =
         {
             // ── Core set ────────────────────────────────────────────────────
-            R("superterm", "📚", "Beijerdictionary", "https://beijerdictionary.com/?q={query}&from={sl}&to={tl}", "iso2"),
+            R("superterm", "📚", "Beijer Dictionary", "https://beijerdictionary.com/?q={query}&from={sl}&to={tl}", "iso2"),
             R("iate", "🇪🇺", "IATE", "https://iate.europa.eu/search/byUrl?term={query}&sl={sl}&tl={tl}", "iso2"),
             R("linguee", "📗", "Linguee", "https://www.linguee.com/{sl_full}-{tl_full}/search?source=auto&query={query}", "full_lower"),
             R("proz", "💬", "ProZ.com (old)", "https://www.proz.com/search/?term={query}&from={sl}&to={tl}&results_per_page=25&es=1", "iso3"),
