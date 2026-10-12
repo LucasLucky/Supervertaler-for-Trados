@@ -57,6 +57,16 @@ namespace Supervertaler.Trados.Controls
         // ─── Status bar ──────────────────────────────────────────
         private Label _lblStatus;
 
+        // ─── Language labels ─────────────────────────────────────
+        // The open document's languages, named in the search-box labels, the
+        // column headers and the preview headers in place of "Source"/"Target".
+        // One pair governs all three, and the results on screen are always
+        // the ones searched in it: SetLanguages clears them when it changes.
+        private LanguageUtils.PairLabels _languages = LanguageUtils.LabelsForPair(null, null);
+        private ToolTip _searchTips;
+        /// <summary>Rows in some other language pair: their Status text, in amber.</summary>
+        private static readonly Color OffPairColor = Color.FromArgb(176, 96, 0);
+
         // ─── File selection state ────────────────────────────────
         private List<string> _allProjectFiles = new List<string>();
         private HashSet<string> _excludedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -366,7 +376,7 @@ namespace Supervertaler.Trados.Controls
             _btnWebGo = CreateButton("\U0001F310", bodyFont, 34, 26);
             var ttWebGo = new ToolTip();
             ttWebGo.SetToolTip(_btnWebGo,
-                "Search the web for the term in the Src box (Ctrl+Alt+L)");
+                "Search the web for the term in the search box (Alt+W)");
             _btnWebGo.Click += (s, e) => FireWebSearch();
             Core.ClickThrough.Attach(_btnWebGo, () => FireWebSearch());
             _searchPanel.Controls.Add(_btnWebGo);
@@ -442,8 +452,7 @@ namespace Supervertaler.Trados.Controls
             // ─── Tooltips for the search & replace bars ──────────────
             // (the Aa / .* / Word / Files controls set their own tooltips above)
             var tt = new ToolTip { AutoPopDelay = 10000 };
-            tt.SetToolTip(_txtSearch, "Source-text search term. Leave blank to match any source. Press Enter to search.");
-            tt.SetToolTip(_txtSearchTarget, "Target-text search term. Leave blank to match any target. Fill both boxes to find segments whose source AND target match. Press Enter to search.");
+            _searchTips = tt;   // the two box tooltips name the languages: see ApplyLanguageLabels
             tt.SetToolTip(_btnSearch, "Search the selected files/TMs");
             tt.SetToolTip(_btnStop, "Stop the current search");
             tt.SetToolTip(_chkShowReplace, "Show the find & replace bar");
@@ -696,10 +705,16 @@ namespace Supervertaler.Trados.Controls
             _searchPanel.SendToBack();    // very back → docks at top
             _grid.BringToFront();         // front → fills remaining space
 
+            ApplyLanguageLabels();        // "Source"/"Target" until a document is open
+
             ResumeLayout(false);
         }
 
         // ─── Dynamic Layout ──────────────────────────────────────
+
+        /// <summary>Below this a search box shows too little of a phrase, so the
+        /// box labels give up their language names for codes.</summary>
+        private const int MinComfortableBoxWidth = 120;
 
         private void LayoutSearchBar()
         {
@@ -734,13 +749,23 @@ namespace Supervertaler.Trados.Controls
             _btnStop.Location = new Point(_cboMode.Left - _btnStop.Width - 4, btnY);
             _btnSearch.Location = new Point(_btnStop.Left - _btnSearch.Width - 2, btnY);
 
-            // Two text boxes (Src: | Tgt:) split the remaining space on the left.
+            // Two text boxes (Dutch: | English:) split the remaining space on
+            // the left. The labels are the language names; where those would
+            // squeeze the boxes, they shrink to codes ("NL:" | "EN:").
             int areaLeft = 4;
             int areaRight = _btnSearch.Left - 6;
             int available = Math.Max(160, areaRight - areaLeft);
-            int boxesWidth = available
-                - (_lblSearchSource.Width + 3) - (_lblSearchTarget.Width + 3) - 8;
-            int eachBox = Math.Max(60, boxesWidth / 2);
+            Func<int> eachBoxWidth = () => Math.Max(60, (available
+                - (_lblSearchSource.Width + 3) - (_lblSearchTarget.Width + 3) - 8) / 2);
+
+            _lblSearchSource.Text = _languages.Source + ":";
+            _lblSearchTarget.Text = _languages.Target + ":";
+            if (eachBoxWidth() < MinComfortableBoxWidth)
+            {
+                _lblSearchSource.Text = _languages.SourceCode + ":";
+                _lblSearchTarget.Text = _languages.TargetCode + ":";
+            }
+            int eachBox = eachBoxWidth();
 
             _lblSearchSource.Location = new Point(areaLeft, lblY);
             _txtSearch.Location = new Point(_lblSearchSource.Right + 3, txtY);
@@ -1345,7 +1370,7 @@ namespace Supervertaler.Trados.Controls
 
             if (string.IsNullOrWhiteSpace(query))
             {
-                SetStatus("Type a term in the Src or Tgt box to search the web.");
+                SetStatus("Type a term in one of the search boxes to search the web.");
                 return;
             }
 
@@ -1368,6 +1393,89 @@ namespace Supervertaler.Trados.Controls
         }
 
         // ─── Public Methods ──────────────────────────────────────
+
+        /// <summary>The language pair the labels name, and the results face.</summary>
+        public LanguageUtils.PairLabels Languages => _languages;
+
+        /// <summary>
+        /// Names the open document's languages (culture names, null when no
+        /// document is open) in the box labels, column headers and preview.
+        /// Returns true when the pair changed, in which case any results on
+        /// screen have been cleared: they were turned to face the previous
+        /// document, and under the new headers they would be wrong. UI thread.
+        /// </summary>
+        public bool SetLanguages(string sourceLocale, string targetLocale)
+        {
+            if (string.Equals(_languages.SourceLocale, sourceLocale, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(_languages.TargetLocale, targetLocale, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            _languages = LanguageUtils.LabelsForPair(sourceLocale, targetLocale);
+            bool hadResults = _unfilteredResults != null && _unfilteredResults.Count > 0;
+            _unfilteredResults = null;
+            _grid.Rows.Clear();
+            UpdatePreview();
+            ApplyLanguageLabels();
+            if (hadResults)
+                SetStatus(_languages.Known
+                    ? $"Results cleared: the open document is {_languages.Source} → {_languages.Target}."
+                    : "Results cleared: no document is open.");
+            return true;
+        }
+
+        private void ApplyLanguageLabels()
+        {
+            var colSource = _grid.Columns["colSource"];
+            var colTarget = _grid.Columns["colTarget"];
+            colSource.HeaderText = _languages.Source;
+            colTarget.HeaderText = _languages.Target;
+            colSource.ToolTipText = _languages.Known
+                ? _languages.SourceFull + " – the language you translate from. Every row is shown this way round."
+                : null;
+            colTarget.ToolTipText = _languages.Known ? _languages.TargetFull : null;
+
+            UpdatePreviewLabels(null);
+
+            if (_languages.Known)
+            {
+                _searchTips.SetToolTip(_txtSearch,
+                    $"Search term in {_languages.Source}, the language you translate from. "
+                    + "Leave blank to match anything. Press Enter to search.");
+                _searchTips.SetToolTip(_txtSearchTarget,
+                    $"Search term in {_languages.Target}. Leave blank to match anything. "
+                    + $"Fill both boxes to find entries whose {_languages.Source} AND {_languages.Target} match. "
+                    + "Press Enter to search.");
+            }
+            else
+            {
+                _searchTips.SetToolTip(_txtSearch,
+                    "Source-text search term. Leave blank to match any source. Press Enter to search.");
+                _searchTips.SetToolTip(_txtSearchTarget,
+                    "Target-text search term. Leave blank to match any target. Fill both boxes to find "
+                    + "segments whose source AND target match. Press Enter to search.");
+            }
+
+            LayoutSearchBar();   // sets the box labels, in names or codes as the width allows
+        }
+
+        /// <summary>
+        /// The preview headers name the document's languages - or, for a row in
+        /// some other pair, the languages that row actually holds.
+        /// </summary>
+        /// <summary>A language that was never recorded, shown as "?".</summary>
+        private static string OrQuery(string language)
+            => string.IsNullOrEmpty(language) ? "?" : language;
+
+        private void UpdatePreviewLabels(SearchResult r)
+        {
+            bool off = r != null && r.IsOffPair;
+            _lblPreviewSource.Text = off && !string.IsNullOrEmpty(r.OffPairSource)
+                ? LanguageUtils.LanguageDisplayName(r.OffPairSource)
+                : _languages.Source;
+            _lblPreviewTarget.Text = off && !string.IsNullOrEmpty(r.OffPairTarget)
+                ? LanguageUtils.LanguageDisplayName(r.OffPairTarget)
+                : _languages.Target;
+        }
 
         /// <summary>
         /// Populates the results grid with search results.
@@ -1407,9 +1515,31 @@ namespace Supervertaler.Trados.Controls
                         ? ""
                         : r.SegmentNumber.ToString();
 
-                var idx = _grid.Rows.Add(r.FileName, numCell, r.SourceText, r.TargetText, r.Status);
+                // A row in some other language pair (an NL→DE memory in an
+                // NL→EN project) says so here, since the column headers name the
+                // document's languages and are wrong for it. Codes, because the
+                // column is narrow; the tooltip has the names.
+                bool offPair = r.IsOffPair;
+                var status = offPair
+                    ? $"{r.Status} ({OrQuery(LanguageUtils.LanguageCode(r.OffPairSource))}"
+                      + $"→{OrQuery(LanguageUtils.LanguageCode(r.OffPairTarget))})"
+                    : r.Status;
+
+                var idx = _grid.Rows.Add(r.FileName, numCell, r.SourceText, r.TargetText, status);
                 var row = _grid.Rows[idx];
                 row.Tag = r;
+
+                if (offPair)
+                {
+                    var statusCell = row.Cells["colStatus"];
+                    statusCell.Style.ForeColor = OffPairColor;
+                    statusCell.Style.SelectionForeColor = OffPairColor;
+                    statusCell.ToolTipText =
+                        $"This row is {OrQuery(LanguageUtils.LanguageDisplayName(r.OffPairSource))} → "
+                        + $"{OrQuery(LanguageUtils.LanguageDisplayName(r.OffPairTarget))}, not "
+                        + $"{_languages.Source} → {_languages.Target} like the open document, "
+                        + "so the column headers do not apply to it.";
+                }
 
                 var fileCell = row.Cells["colFile"];
                 fileCell.ToolTipText = isTm
@@ -1658,6 +1788,7 @@ namespace Supervertaler.Trados.Controls
         private void UpdatePreview()
         {
             var result = GetSelectedResult();
+            UpdatePreviewLabels(result);
             if (result == null)
             {
                 _rtbPreviewSource.Text = "";

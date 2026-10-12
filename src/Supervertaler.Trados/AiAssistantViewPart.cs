@@ -4247,9 +4247,12 @@ namespace Supervertaler.Trados
             var response = new BridgeTmSearchResponse { Ok = true, Matches = new List<BridgeTmMatch>() };
             try
             {
+                // No document pair: each memory is searched and returned as
+                // stored, which is what search_studio_tm has always done.
                 var results = Core.TmSearcher.Search(
                     tms, q.Query, scope,
                     caseSensitive: false, useRegex: false, wholeWord: false,
+                    documentSource: null, documentTarget: null,
                     progress: null, ct: System.Threading.CancellationToken.None);
 
                 var seen = new HashSet<string>(StringComparer.Ordinal);

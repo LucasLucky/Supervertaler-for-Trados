@@ -154,6 +154,11 @@ namespace Supervertaler.Trados.Core
         /// and target concordance modes; the fuzzy hits are then post-filtered
         /// against the exact query options.
         /// </summary>
+        /// <param name="documentSource">The open document's source language as a
+        /// culture name ("nl-NL"), and <paramref name="documentTarget"/> its
+        /// target. Each memory is turned to face the document before it is
+        /// searched - see <see cref="SearchLanguageDirection"/>. Null when no
+        /// document is open, in which case every memory is searched as stored.</param>
         public static List<SearchResult> Search(
             List<string> tmFiles,
             string query,
@@ -161,6 +166,8 @@ namespace Supervertaler.Trados.Core
             bool caseSensitive,
             bool useRegex,
             bool wholeWord,
+            string documentSource,
+            string documentTarget,
             Action<int, int> progress,
             CancellationToken ct)
         {
@@ -168,12 +175,7 @@ namespace Supervertaler.Trados.Core
             if (string.IsNullOrEmpty(query) || tmFiles == null || tmFiles.Count == 0)
                 return results;
 
-            var modes = new List<SearchMode>();
-            if (scope == SearchScope.SourceOnly || scope == SearchScope.SourceAndTarget)
-                modes.Add(SearchMode.ConcordanceSearch);
-            if (scope == SearchScope.TargetOnly || scope == SearchScope.SourceAndTarget)
-                modes.Add(SearchMode.TargetConcordanceSearch);
-
+            var pair = Tuple.Create(documentSource, documentTarget);
             int total = tmFiles.Count;
 
             // This run's server sign-ins, one per host; gone with the run.
@@ -189,13 +191,13 @@ namespace Supervertaler.Trados.Core
                 // Route each entry to the file or server branch.
                 if (ServerTmClient.IsServerTmUri(entry))
                 {
-                    try { SearchServerTm(entry, query, scope, caseSensitive, useRegex, wholeWord, modes, results, connections, ct); }
+                    try { SearchServerTm(entry, query, scope, caseSensitive, useRegex, wholeWord, pair, results, connections, ct); }
                     catch (OperationCanceledException) { throw; }
                     catch { /* skip a server TM that can't be opened / authenticated */ }
                 }
                 else
                 {
-                    try { SearchFileTm(entry, query, scope, caseSensitive, useRegex, wholeWord, modes, results, ct); }
+                    try { SearchFileTm(entry, query, scope, caseSensitive, useRegex, wholeWord, pair, results, ct); }
                     catch (OperationCanceledException) { throw; }
                     catch { /* skip a TM that can't be opened (locked, corrupt) */ }
                 }
@@ -209,7 +211,7 @@ namespace Supervertaler.Trados.Core
         private static void SearchFileTm(
             string tmPath, string query, SearchScope scope,
             bool caseSensitive, bool useRegex, bool wholeWord,
-            List<SearchMode> modes, List<SearchResult> results, CancellationToken ct)
+            Tuple<string, string> documentPair, List<SearchResult> results, CancellationToken ct)
         {
             var tmName = Path.GetFileNameWithoutExtension(tmPath);
             var tm = new FileBasedTranslationMemory(tmPath);
@@ -217,14 +219,14 @@ namespace Supervertaler.Trados.Core
             if (ld == null) return;
 
             SearchLanguageDirection(ld, tmName, tmPath, "TM", query, scope,
-                caseSensitive, useRegex, wholeWord, modes, results, ct);
+                caseSensitive, useRegex, wholeWord, documentPair, results, ct);
         }
 
         // Server-based (GroupShare) branch.
         private static void SearchServerTm(
             string tmUri, string query, SearchScope scope,
             bool caseSensitive, bool useRegex, bool wholeWord,
-            List<SearchMode> modes, List<SearchResult> results,
+            Tuple<string, string> documentPair, List<SearchResult> results,
             ServerTmClient.Connections connections, CancellationToken ct)
         {
             if (!ServerTmClient.TryParseServerTmUri(tmUri, out var sref)) return;
@@ -234,13 +236,33 @@ namespace Supervertaler.Trados.Core
                 ct.ThrowIfCancellationRequested();
                 if (ld == null) continue;
                 SearchLanguageDirection(ld, sref.TmName, tmUri, "GroupShare", query, scope,
-                    caseSensitive, useRegex, wholeWord, modes, results, ct);
+                    caseSensitive, useRegex, wholeWord, documentPair, results, ct);
+            }
+        }
+
+        private static SearchScope Flip(SearchScope scope)
+        {
+            switch (scope)
+            {
+                case SearchScope.SourceOnly: return SearchScope.TargetOnly;
+                case SearchScope.TargetOnly: return SearchScope.SourceOnly;
+                default: return scope;
             }
         }
 
         // The shared concordance + post-filter + result-shaping loop, used
         // verbatim by both the file and server branches. This is the code that
         // previously lived inline inside Search().
+        //
+        // Every memory is turned to face the open document first. A memory
+        // stored the other way round (EN→NL, in an NL→EN project) used to be
+        // searched and shown as stored: the box for the language you translate
+        // from ran a concordance over the memory's English side, and any hit
+        // put English in the left-hand column. Now the query goes to whichever
+        // side holds that language and the row comes back the document's way
+        // round. A memory in some other pair altogether (NL→DE in an NL→EN
+        // project, which a multi-language project attaches alongside) is
+        // searched as stored, and its rows say which languages they hold.
         private static void SearchLanguageDirection(
             ITranslationMemoryLanguageDirection ld,
             string tmName,
@@ -251,10 +273,44 @@ namespace Supervertaler.Trados.Core
             bool caseSensitive,
             bool useRegex,
             bool wholeWord,
-            List<SearchMode> modes,
+            Tuple<string, string> documentPair,
             List<SearchResult> results,
             CancellationToken ct)
         {
+            string tmSource = null, tmTarget = null;
+            try
+            {
+                tmSource = ld.SourceLanguage?.Name;
+                tmTarget = ld.TargetLanguage?.Name;
+            }
+            catch { /* unreadable direction: searched as stored, claimed as nothing */ }
+
+            bool reversed = LanguageUtils.IsReversedPair(
+                documentPair.Item1, documentPair.Item2, tmSource, tmTarget);
+            var shownSource = reversed ? tmTarget : tmSource;
+            var shownTarget = reversed ? tmSource : tmTarget;
+            bool inPair = LanguageUtils.IsInDocumentPair(
+                documentPair.Item1, documentPair.Item2, shownSource, shownTarget);
+
+            // The scope is in the document's terms; on a reversed memory its
+            // "source" is the memory's target side.
+            var tmScope = reversed ? Flip(scope) : scope;
+            var modes = new List<SearchMode>();
+            if (tmScope == SearchScope.SourceOnly || tmScope == SearchScope.SourceAndTarget)
+                modes.Add(SearchMode.ConcordanceSearch);
+            if (tmScope == SearchScope.TargetOnly || tmScope == SearchScope.SourceAndTarget)
+                modes.Add(SearchMode.TargetConcordanceSearch);
+
+            // Keyed per memory, so two memories cannot keep un-suppressing
+            // each other on every search.
+            if (reversed || !inPair)
+                DiagnosticLog.LogIfChanged("SuperSearch TM " + tmName,
+                    $"TM '{tmName}' is {tmSource}→{tmTarget}, the document "
+                    + $"{documentPair.Item1}→{documentPair.Item2}: "
+                    + (reversed ? "searched and shown the other way round" : "")
+                    + (reversed && !inPair ? "; " : "")
+                    + (inPair ? "" : "rows labelled with their own languages"));
+
             // A TU can come back on both the source- and target-side passes;
             // dedupe on the source/target text pair.
             var seen = new HashSet<string>();
@@ -320,11 +376,12 @@ namespace Supervertaler.Trados.Core
                     var targetText = tu.TargetSegment?.ToPlain() ?? "";
 
                     // Post-filter the fuzzy concordance hit against the user's
-                    // exact case / regex / whole-word options.
+                    // exact case / regex / whole-word options. Both sides are
+                    // still the memory's own here, so the memory's scope applies.
                     bool matches = false;
-                    if (scope == SearchScope.SourceOnly || scope == SearchScope.SourceAndTarget)
+                    if (tmScope == SearchScope.SourceOnly || tmScope == SearchScope.SourceAndTarget)
                         matches = XliffSearcher.QueryMatches(sourceText, query, caseSensitive, useRegex, wholeWord);
-                    if (!matches && (scope == SearchScope.TargetOnly || scope == SearchScope.SourceAndTarget))
+                    if (!matches && (tmScope == SearchScope.TargetOnly || tmScope == SearchScope.SourceAndTarget))
                         matches = XliffSearcher.QueryMatches(targetText, query, caseSensitive, useRegex, wholeWord);
                     if (!matches) continue;
 
@@ -339,10 +396,12 @@ namespace Supervertaler.Trados.Core
                         ParagraphUnitId = null,
                         SegmentId = null,
                         SegmentNumber = 0,
-                        SourceText = sourceText,
-                        TargetText = targetText,
+                        SourceText = reversed ? targetText : sourceText,
+                        TargetText = reversed ? sourceText : targetText,
                         MatchScore = r.ScoringResult?.Match ?? 0,
-                        Status = status
+                        Status = status,
+                        OffPairSource = inPair ? null : shownSource,
+                        OffPairTarget = inPair ? null : shownTarget,
                     });
                 }
             }

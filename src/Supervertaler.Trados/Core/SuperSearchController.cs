@@ -88,6 +88,7 @@ namespace Supervertaler.Trados.Core
             {
                 _editorController.ActiveDocumentChanged += OnActiveDocumentChanged;
                 _activeDocument = _editorController.ActiveDocument;
+                ApplyDocumentLanguages();
 
                 // Kick off project discovery so the panel is populated when it
                 // first opens. RefreshProjectFiles offloads all file I/O to a
@@ -157,14 +158,7 @@ namespace Supervertaler.Trados.Core
         {
             try
             {
-                string sourceLocale = null, targetLocale = null;
-                try
-                {
-                    var activeFile = _activeDocument?.ActiveFile;
-                    sourceLocale = activeFile?.SourceFile?.Language?.CultureInfo?.Name;
-                    targetLocale = activeFile?.Language?.CultureInfo?.Name;
-                }
-                catch { /* ActiveFile is null when the panel has focus */ }
+                var (sourceLocale, targetLocale) = DocumentLanguages();
 
                 // A term picked from the target side is looked up in the target
                 // language, so the pair flips: a Dutch word in an EN→NL project
@@ -286,7 +280,40 @@ namespace Supervertaler.Trados.Core
         private void OnActiveDocumentChanged(object sender, DocumentEventArgs e)
         {
             _activeDocument = _editorController?.ActiveDocument;
+            ApplyDocumentLanguages();
             RefreshProjectFiles();
+        }
+
+        /// <summary>
+        /// The active document's source and target language as culture names
+        /// ("nl-NL", "en-GB"), or nulls when no document is open. UI thread only.
+        /// </summary>
+        private (string source, string target) DocumentLanguages()
+        {
+            try
+            {
+                var activeFile = _activeDocument?.ActiveFile;
+                return (activeFile?.SourceFile?.Language?.CultureInfo?.Name,
+                        activeFile?.Language?.CultureInfo?.Name);
+            }
+            catch { return (null, null); /* ActiveFile can throw while the document is changing */ }
+        }
+
+        /// <summary>
+        /// Points the panel's labels at the active document's languages, and
+        /// returns them. When they change, the panel drops the results it shows:
+        /// every row was turned to face the document it was searched from, so
+        /// under the new document's headers it would be wrong (Dutch under
+        /// "English", after switching from an NL→EN document to an EN→NL one),
+        /// and the Live filter would test the new boxes against the wrong
+        /// columns. UI thread only.
+        /// </summary>
+        private (string source, string target) ApplyDocumentLanguages()
+        {
+            var langs = DocumentLanguages();
+            if (_control.SetLanguages(langs.source, langs.target))
+                _lastResults = null;   // Replace All must never act on rows no longer shown
+            return langs;
         }
 
         /// <summary>
@@ -403,30 +430,31 @@ namespace Supervertaler.Trados.Core
             bool needTermbases = mode == SuperSearchSourceMode.Termbases
                               || mode == SuperSearchSourceMode.Everything;
 
+            // The document's language pair decides how every TM and termbase is
+            // turned before matching, so the source box always means "the
+            // language you translate from" - and it is what the column headers
+            // name. Re-applied here as well as on document change, so a pair
+            // that could not be read then is picked up now, and the headers
+            // always describe the rows this search will produce.
+            var languages = SafeInvokeGet(() => ApplyDocumentLanguages());
+
             // Termbase discovery needs the Trados document (project settings),
             // so resolve the project's MultiTerm/.ttb configuration on the UI
             // thread; the reading itself happens on the background thread with
             // everything else.
             List<Models.MultiTermTermbaseConfig> projectTermbaseConfigs = null;
-            string projectSourceLang = null;
             if (needTermbases)
             {
-                var tbContext = SafeInvokeGet(() =>
+                projectTermbaseConfigs = SafeInvokeGet(() =>
                 {
                     try
                     {
                         var doc = SdlTradosStudio.Application
                             .GetController<EditorController>()?.ActiveDocument;
-                        // The project's source language decides how each
-                        // termbase is oriented before matching, so the Src box
-                        // always means "the language you translate from".
-                        var lang = doc?.ActiveFile?.SourceFile?.Language?.DisplayName;
-                        return Tuple.Create(MultiTermProjectDetector.DetectTermbases(doc), lang);
+                        return MultiTermProjectDetector.DetectTermbases(doc);
                     }
                     catch { return null; }
                 });
-                projectTermbaseConfigs = tbContext?.Item1;
-                projectSourceLang = tbContext?.Item2;
             }
 
             // Resolve the active file path on the UI thread (Trados document
@@ -530,13 +558,14 @@ namespace Supervertaler.Trados.Core
                         if (tms.Count > 0)
                             m.AddRange(TmSearcher.Search(
                                 tms, q, scope, e.CaseSensitive, e.UseRegex, e.WholeWord,
+                                languages.source, languages.target,
                                 (done, total) => SafeInvoke(() =>
                                     _control.SetStatus($"Searching TMs ({label})... ({done}/{total})")),
                                 ct));
                         if (termbases.Count > 0)
                             m.AddRange(TermbaseSearcher.Search(
                                 termbases, q, scope, e.CaseSensitive, e.UseRegex, e.WholeWord,
-                                projectSourceLang,
+                                languages.source, languages.target,
                                 (done, total) => SafeInvoke(() =>
                                     _control.SetStatus($"Searching termbases ({label})... ({done}/{total})")),
                                 ct));
@@ -572,6 +601,23 @@ namespace Supervertaler.Trados.Core
                     SafeInvoke(() =>
                     {
                         _control.SetStatus(emptyMessage ?? "Nothing to search.");
+                        _control.SetSearching(false);
+                    });
+                    return;
+                }
+
+                // The rows face the document the search started from. If the
+                // user switched to a document in another language pair while it
+                // ran, the headers have moved on and these rows would sit under
+                // the wrong ones - so they are dropped, not shown.
+                bool stale = SafeInvokeGet(() =>
+                    !string.Equals(_control.Languages.SourceLocale, languages.source, StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(_control.Languages.TargetLocale, languages.target, StringComparison.OrdinalIgnoreCase));
+                if (stale)
+                {
+                    SafeInvoke(() =>
+                    {
+                        _control.SetStatus("The open document's languages changed during the search – search again.");
                         _control.SetSearching(false);
                     });
                     return;

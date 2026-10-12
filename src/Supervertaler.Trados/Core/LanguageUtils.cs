@@ -14,6 +14,11 @@ namespace Supervertaler.Trados.Core
         private static readonly Regex ParenthesizedRegion = new Regex(
             @"^(.+?)\s*\((.+?)\)$", RegexOptions.Compiled);
 
+        /// <summary>"nl", "nl-NL", "sr-Latn-RS", "es-419": a language subtag of
+        /// two or three letters, then any further subtags.</summary>
+        private static readonly Regex CultureNameShape = new Regex(
+            @"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$", RegexOptions.Compiled);
+
         /// <summary>
         /// Shortens a language display name by abbreviating the country/region part
         /// to its ISO 3166-1 alpha-2 code.
@@ -280,6 +285,254 @@ namespace Supervertaler.Trados.Core
                        == TermbaseDirection.Aligned;
         }
 
+        // ─── The two sides of a document, by language ───────────────
+
+        /// <summary>
+        /// What to call the two sides of the open document: language names in
+        /// place of "Source" and "Target", so a reader can see which column holds
+        /// which language. <see cref="Known"/> is false when there is no document
+        /// or its languages could not be read, and every label then falls back
+        /// to the generic word.
+        /// </summary>
+        public sealed class PairLabels
+        {
+            /// <summary>The culture names these labels were made from, as given ("nl-NL").</summary>
+            public string SourceLocale, TargetLocale;
+            /// <summary>"Dutch", or "Dutch (Belgium)" where the region matters.</summary>
+            public string Source, Target;
+            /// <summary>For a search box with little room: "NL", or "NL-BE".</summary>
+            public string SourceCode, TargetCode;
+            /// <summary>For tooltips: "Dutch (Netherlands), nl-NL".</summary>
+            public string SourceFull, TargetFull;
+            public bool Known;
+        }
+
+        /// <summary>
+        /// Labels for a document whose sides are <paramref name="sourceLocale"/>
+        /// and <paramref name="targetLocale"/> (culture names, as Trados gives
+        /// them).
+        ///
+        /// The region is left off unless it says something: "Dutch", not "Dutch
+        /// (Netherlands)". It is shown when the two sides share a language
+        /// (en-GB to en-US, where nothing else tells them apart), and for a
+        /// variant other than the language's usual one ("Dutch (Belgium)",
+        /// "French (Canada)") - see <see cref="IsUsualVariant"/>.
+        /// </summary>
+        public static PairLabels LabelsForPair(string sourceLocale, string targetLocale)
+        {
+            var src = TryGetCulture(sourceLocale);
+            var tgt = TryGetCulture(targetLocale);
+            if (src == null || tgt == null)
+                return GenericLabels(sourceLocale, targetLocale);
+
+            bool sameLanguage = string.Equals(
+                NeutralName(src), NeutralName(tgt), StringComparison.OrdinalIgnoreCase);
+
+            var labels = new PairLabels
+            {
+                SourceLocale = sourceLocale,
+                TargetLocale = targetLocale,
+                Source = ColumnName(src, sameLanguage),
+                Target = ColumnName(tgt, sameLanguage),
+                SourceCode = ColumnCode(src, sameLanguage),
+                TargetCode = ColumnCode(tgt, sameLanguage),
+                SourceFull = src.EnglishName + ", " + src.Name,
+                TargetFull = tgt.EnglishName + ", " + tgt.Name,
+                Known = true,
+            };
+
+            // The same culture on both sides: names cannot tell the columns
+            // apart, and "Source"/"Target" can.
+            if (string.Equals(labels.Source, labels.Target, StringComparison.OrdinalIgnoreCase))
+                return GenericLabels(sourceLocale, targetLocale);
+            return labels;
+        }
+
+        private static PairLabels GenericLabels(string sourceLocale, string targetLocale)
+        {
+            return new PairLabels
+            {
+                SourceLocale = sourceLocale,
+                TargetLocale = targetLocale,
+                Source = "Source", Target = "Target",
+                SourceCode = "Src", TargetCode = "Tgt",
+                SourceFull = "Source", TargetFull = "Target",
+                Known = false,
+            };
+        }
+
+        private static string ColumnName(CultureInfo c, bool forceRegion)
+        {
+            if (c.IsNeutralCulture || forceRegion || !IsUsualVariant(c))
+                return c.EnglishName;
+            return NeutralName(c);
+        }
+
+        private static string ColumnCode(CultureInfo c, bool forceRegion)
+        {
+            if (!c.IsNeutralCulture && (forceRegion || !IsUsualVariant(c)))
+                return c.Name.ToUpperInvariant();
+            return c.TwoLetterISOLanguageName.ToUpperInvariant();
+        }
+
+        /// <summary>
+        /// True for the variant a language means when nothing more is said:
+        /// whichever one Windows picks for the bare language code (nl-NL, de-DE,
+        /// fr-FR, es-ES, sv-SE, ja-JP). So nl-BE, fr-CA and de-AT carry their
+        /// region and nl-NL does not.
+        ///
+        /// English is the exception, and deliberately so: UK and US English are
+        /// both reference variants, and labelling one of them as if it were a
+        /// regional deviation like en-AU would read wrongly to either audience.
+        /// Both are plain "English" - except in an en-GB to en-US project, where
+        /// <see cref="LabelsForPair"/> shows the regions on both sides anyway.
+        /// </summary>
+        internal static bool IsUsualVariant(CultureInfo c)
+        {
+            if (c == null || c.IsNeutralCulture) return true;
+            var lang = c.TwoLetterISOLanguageName;
+            if (string.Equals(lang, "en", StringComparison.OrdinalIgnoreCase))
+                return c.Name.EndsWith("-GB", StringComparison.OrdinalIgnoreCase)
+                    || c.Name.EndsWith("-US", StringComparison.OrdinalIgnoreCase);
+            try
+            {
+                return string.Equals(CultureInfo.CreateSpecificCulture(lang).Name, c.Name,
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return true; }   // no default to compare with: claim nothing
+        }
+
+        /// <summary>
+        /// The language without its region, by English name: "Dutch" for nl-BE,
+        /// "Chinese (Simplified)" for zh-CN - the script is part of the language
+        /// here, as it is in <see cref="GetBaseLanguageName"/>.
+        ///
+        /// .NET Framework puts a legacy culture between zh-CN and zh-Hans
+        /// ("Chinese (Simplified) Legacy", zh-CHS); it is stepped over.
+        /// </summary>
+        private static string NeutralName(CultureInfo c)
+        {
+            var n = c;
+            while (!string.IsNullOrEmpty(n.Parent?.Name)
+                   && (!n.IsNeutralCulture
+                       || n.EnglishName.IndexOf("Legacy", StringComparison.OrdinalIgnoreCase) >= 0))
+                n = n.Parent;
+            return (string.IsNullOrEmpty(n.Name) ? c : n).EnglishName;
+        }
+
+        /// <summary>
+        /// The culture for a name such as "nl-NL", or null when there is none.
+        /// Windows invents a culture for a well-formed tag it does not know
+        /// ("Unknown Language (xx)") rather than refusing it; that counts as none.
+        /// </summary>
+        private static CultureInfo TryGetCulture(string name)
+        {
+            // A name such as "German" or "English (United Kingdom)" - termbases
+            // declare those - is not even shaped like a culture name. Asked
+            // anyway, .NET throws, and this runs for every row the grid draws.
+            if (string.IsNullOrWhiteSpace(name) || !CultureNameShape.IsMatch(name.Trim())) return null;
+            try
+            {
+                var c = CultureInfo.GetCultureInfo(name.Trim());
+                if (string.IsNullOrEmpty(c.Name)
+                    || c.EnglishName.IndexOf("Unknown", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return null;
+                return c;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// A language value as a person reads it: "German (Germany)" for de-DE,
+        /// "German" for de, and anything that is not a culture name (termbases
+        /// may declare "German" outright) as given. Null for null or blank.
+        /// </summary>
+        public static string LanguageDisplayName(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return null;
+            return TryGetCulture(value)?.EnglishName ?? value.Trim();
+        }
+
+        /// <summary>
+        /// A language value as a short code: "DE" for de-DE or de, and anything
+        /// that is not a culture name (a termbase may declare "German") as given.
+        /// Null for null or blank.
+        /// </summary>
+        public static string LanguageCode(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return null;
+            return TryGetCulture(value)?.TwoLetterISOLanguageName.ToUpperInvariant() ?? value.Trim();
+        }
+
+        /// <summary>
+        /// True when two language values name the same language, ignoring the
+        /// region. Takes culture names ("nl-BE") and English names ("Dutch",
+        /// "English (United Kingdom)") alike, since termbases store either.
+        /// </summary>
+        public static bool IsSameLanguage(string a, string b)
+        {
+            var x = BaseLanguage(a);
+            return x.Length > 0 && string.Equals(x, BaseLanguage(b), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string BaseLanguage(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "";
+            var c = TryGetCulture(value);
+            if (c != null) return NeutralName(c);
+            return GetBaseLanguageName(value) ?? "";
+        }
+
+        /// <summary>
+        /// True when a translation memory stored as
+        /// <paramref name="rowSource"/> → <paramref name="rowTarget"/> lines up
+        /// with the open document only once its sides are swapped - an EN→NL
+        /// memory in an NL→EN project.
+        ///
+        /// An exact culture match counts for more than a language-only one, so an
+        /// en-US → en-GB memory in an en-GB → en-US project is swapped too; by
+        /// language alone the two orientations are indistinguishable. A pair that
+        /// matches neither way better (an NL→DE memory in an NL→EN project) stays
+        /// as stored, as does everything when either pair is unknown.
+        /// </summary>
+        public static bool IsReversedPair(string projectSource, string projectTarget,
+            string rowSource, string rowTarget)
+        {
+            if (string.IsNullOrWhiteSpace(projectSource) || string.IsNullOrWhiteSpace(projectTarget)
+                || string.IsNullOrWhiteSpace(rowSource) || string.IsNullOrWhiteSpace(rowTarget))
+                return false;
+            int asStored = Affinity(rowSource, projectSource) + Affinity(rowTarget, projectTarget);
+            int swapped = Affinity(rowTarget, projectSource) + Affinity(rowSource, projectTarget);
+            return swapped > asStored;
+        }
+
+        private static int Affinity(string a, string b)
+        {
+            if (string.Equals(CanonicalLocale(a), CanonicalLocale(b), StringComparison.OrdinalIgnoreCase))
+                return 2;
+            return IsSameLanguage(a, b) ? 1 : 0;
+        }
+
+        /// <summary>
+        /// True unless a row - already turned to face the document's way - is
+        /// known to hold some other pair of languages: German in the column
+        /// headed English, say, from an NL→DE termbase or memory in an NL→EN
+        /// project.
+        ///
+        /// A side whose language was never recorded (a termbase declared without
+        /// languages) counts as matching. TermLens treats such a termbase as
+        /// facing the project's way, and SuperSearch has no better information.
+        /// </summary>
+        public static bool IsInDocumentPair(string projectSource, string projectTarget,
+            string rowSource, string rowTarget)
+        {
+            if (string.IsNullOrWhiteSpace(projectSource) || string.IsNullOrWhiteSpace(projectTarget))
+                return true;
+            bool srcOk = string.IsNullOrWhiteSpace(rowSource) || IsSameLanguage(rowSource, projectSource);
+            bool tgtOk = string.IsNullOrWhiteSpace(rowTarget) || IsSameLanguage(rowTarget, projectTarget);
+            return srcOk && tgtOk;
+        }
+
         private static bool LanguagePrefixMatches(string a, string b)
         {
             if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
@@ -292,7 +545,9 @@ namespace Supervertaler.Trados.Core
         /// <summary>
         /// Exercises <see cref="CompareTermbaseDirection"/> against a fixed
         /// table of canonical language-name shapes (full names, BCP-47 codes,
-        /// abbreviated regions, missing/empty inputs, mismatched pairs).
+        /// abbreviated regions, missing/empty inputs, mismatched pairs), and
+        /// SuperSearch's row orientation (<see cref="IsReversedPair"/>,
+        /// <see cref="IsInDocumentPair"/>) against the same kinds of input.
         /// Returns <c>null</c> on success or a short description of the first
         /// failed case. Wired into plugin startup alongside the
         /// <see cref="Settings.TermLensSettings.RunStartupSelfTest"/> guard so
@@ -368,7 +623,57 @@ namespace Supervertaler.Trados.Core
                            $"expected {c.Expected}";
                 }
             }
+
+            // SuperSearch: how a TM or termbase row is turned to face the
+            // document, and whether it then holds the document's languages.
+            // A wrong answer puts Dutch under a column headed English.
+            // projSrc, projTgt, rowSrc, rowTgt, reversed, in pair once oriented.
+            var pairCases = new[]
+            {
+                new PairCase("nl-NL", "en-GB", "nl-NL", "en-GB", false, true),
+                new PairCase("nl-NL", "en-GB", "en-GB", "nl-NL", true,  true),
+                // Regions differ, languages do not: still the same pair.
+                new PairCase("nl-NL", "en-GB", "en-US", "nl-BE", true,  true),
+                // Same language both sides: only the exact region decides.
+                new PairCase("en-GB", "en-US", "en-US", "en-GB", true,  true),
+                new PairCase("en-GB", "en-US", "en-GB", "en-US", false, true),
+                // A third language: Dutch is turned to the left, German stays
+                // German and must be reported as off the pair.
+                new PairCase("nl-NL", "en-GB", "nl-NL", "de-DE", false, false),
+                new PairCase("nl-NL", "en-GB", "de-DE", "nl-NL", true,  false),
+                // Termbases declare names as well as codes.
+                new PairCase("nl-NL", "en-GB", "English", "Dutch", true, true),
+                new PairCase("nl-NL", "en-GB", "en",      "nl",    true, true),
+                // Unknown on either side: leave as stored, claim nothing.
+                new PairCase(null,    "en-GB", "en-GB", "nl-NL", false, true),
+                new PairCase("nl-NL", "en-GB", "",      "",      false, true),
+            };
+            foreach (var c in pairCases)
+            {
+                var reversed = IsReversedPair(c.ProjSrc, c.ProjTgt, c.RowSrc, c.RowTgt);
+                var left = reversed ? c.RowTgt : c.RowSrc;
+                var right = reversed ? c.RowSrc : c.RowTgt;
+                var inPair = IsInDocumentPair(c.ProjSrc, c.ProjTgt, left, right);
+                if (reversed != c.Reversed || inPair != c.InPair)
+                {
+                    return $"SuperSearch orientation ('{c.ProjSrc}'→'{c.ProjTgt}', row " +
+                           $"'{c.RowSrc}'→'{c.RowTgt}'): reversed={reversed}, inPair={inPair}; " +
+                           $"expected reversed={c.Reversed}, inPair={c.InPair}";
+                }
+            }
             return null;
+        }
+
+        private struct PairCase
+        {
+            public string ProjSrc, ProjTgt, RowSrc, RowTgt;
+            public bool Reversed, InPair;
+            public PairCase(string projSrc, string projTgt, string rowSrc, string rowTgt,
+                bool reversed, bool inPair)
+            {
+                ProjSrc = projSrc; ProjTgt = projTgt; RowSrc = rowSrc; RowTgt = rowTgt;
+                Reversed = reversed; InPair = inPair;
+            }
         }
 
         private struct SelfTestCase

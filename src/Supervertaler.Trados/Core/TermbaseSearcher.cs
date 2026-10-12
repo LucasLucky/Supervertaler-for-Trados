@@ -160,12 +160,16 @@ namespace Supervertaler.Trados.Core
         /// <see cref="SearchResult"/>s. <paramref name="scope"/> selects which
         /// side of the pair the query is applied to, mirroring file/TM search.
         /// </summary>
-        /// <param name="projectSourceLang">The OPEN PROJECT's source language.
-        /// Termbases are oriented to it before matching, so the Src box always
-        /// means "the language you translate from" rather than "whichever
-        /// column this particular termbase happens to call source". Without
-        /// this, searching a Dutch phrase in an NL→EN project found nothing in
-        /// an EN→NL termbase, because the Dutch sat in its target column.</param>
+        /// <param name="documentSource">The open document's source language as a
+        /// culture name ("nl-NL"). Termbases are oriented to it before matching,
+        /// so the source box always means "the language you translate from"
+        /// rather than "whichever column this particular termbase happens to
+        /// call source". Without this, searching a Dutch phrase in an NL→EN
+        /// project found nothing in an EN→NL termbase, because the Dutch sat in
+        /// its target column.</param>
+        /// <param name="documentTarget">The document's target language, used only
+        /// to recognise rows in some third language - see
+        /// <see cref="OffPairTermbases"/>.</param>
         public static List<SearchResult> Search(
             IEnumerable<TermbaseSource> sources,
             string query,
@@ -173,7 +177,8 @@ namespace Supervertaler.Trados.Core
             bool caseSensitive,
             bool useRegex,
             bool wholeWord,
-            string projectSourceLang,
+            string documentSource,
+            string documentTarget,
             Action<int, int> progress,
             CancellationToken ct)
         {
@@ -182,6 +187,10 @@ namespace Supervertaler.Trados.Core
 
             var list = (sources ?? Enumerable.Empty<TermbaseSource>()).ToList();
             int done = 0;
+
+            var offPair = list.Any(s => s.Kind == "Supervertaler")
+                ? OffPairTermbases(SettingsService.Current?.TermbasePath, documentSource, documentTarget)
+                : new Dictionary<long, Tuple<string, string>>();
 
             // The Supervertaler termbases all live in ONE SQLite database, so
             // read it ONCE and bucket the entries by termbase id. Loading per
@@ -219,6 +228,10 @@ namespace Supervertaler.Trados.Core
                     perTermbase[name] = seen + 1;
                     string kind;
                     kindByName.TryGetValue(name, out kind);
+                    // MultiTerm entries are read through the document's own
+                    // language indexes, so they are always in its pair.
+                    Tuple<string, string> off = null;
+                    if (!e.IsMultiTerm) offPair.TryGetValue(e.TermbaseId, out off);
                     results.Add(new SearchResult
                     {
                         Kind = ResultKind.TermbaseEntry,
@@ -228,6 +241,8 @@ namespace Supervertaler.Trados.Core
                         TargetText = tgtText,
                         Status = kind ?? "Termbase",
                         Term = e,   // keeps the id, so the hit can be edited (#104)
+                        OffPairSource = off?.Item1,
+                        OffPairTarget = off?.Item2,
                     });
                 }
                 progress?.Invoke(list.Count, list.Count);
@@ -241,7 +256,7 @@ namespace Supervertaler.Trados.Core
                 svByTermbase = LoadSupervertalerTermsGrouped(
                     svSources[0].Path,
                     new HashSet<long>(svSources.Select(s => s.SupervertalerId)),
-                    projectSourceLang,
+                    documentSource,
                     ct);
             }
 
@@ -250,6 +265,9 @@ namespace Supervertaler.Trados.Core
                 ct.ThrowIfCancellationRequested();
                 try
                 {
+                    Tuple<string, string> off = null;
+                    if (src.SupervertalerId >= 0) offPair.TryGetValue(src.SupervertalerId, out off);
+
                     List<Tuple<string, string>> pairs;
                     if (src.SupervertalerId >= 0)
                     {
@@ -295,6 +313,8 @@ namespace Supervertaler.Trados.Core
                             // The Status column carries provenance: which kind
                             // of termbase the term came from.
                             Status = src.Kind,
+                            OffPairSource = off?.Item1,
+                            OffPairTarget = off?.Item2,
                         });
 
                         // Per termbase, not a running total across all of them:
@@ -325,6 +345,55 @@ namespace Supervertaler.Trados.Core
             catch { return new List<TermEntry>(); }
         }
 
+        /// <summary>
+        /// The Supervertaler termbases whose terms, once turned to face the
+        /// document, are NOT in the document's two languages, each mapped to the
+        /// languages they are in (left, right).
+        ///
+        /// TermLens orients a termbase by its source language alone (see
+        /// <see cref="LanguageUtils.CompareTermbaseDirection"/>), so an NL→DE
+        /// termbase with its Read tick on still loads in an NL→EN project, with
+        /// German where the English would be. Its rows are labelled rather than
+        /// dropped: TermLens shows those terms too, and the two should not
+        /// disagree about what the termbase contains.
+        ///
+        /// Reads the small termbases table only, never the terms. Empty when the
+        /// document's pair is unknown or the database cannot be read - the rows
+        /// are then unlabelled, as they were before.
+        /// </summary>
+        private static Dictionary<long, Tuple<string, string>> OffPairTermbases(
+            string dbPath, string documentSource, string documentTarget)
+        {
+            var result = new Dictionary<long, Tuple<string, string>>();
+            if (string.IsNullOrEmpty(documentSource) || string.IsNullOrEmpty(documentTarget)
+                || string.IsNullOrEmpty(dbPath) || !System.IO.File.Exists(dbPath))
+                return result;
+            try
+            {
+                using (var reader = new TermbaseReader(dbPath))
+                {
+                    if (!reader.Open()) return result;
+                    foreach (var kv in reader.GetTermbaseDirections())
+                    {
+                        var tbSrc = kv.Value.src;
+                        var tbTgt = kv.Value.tgt;
+                        // The same turn LoadAllTerms gives the terms.
+                        bool inverted = LanguageUtils.CompareTermbaseDirection(documentSource, tbSrc, tbTgt)
+                                        == LanguageUtils.TermbaseDirection.Inverted;
+                        var left = inverted ? tbTgt : tbSrc;
+                        var right = inverted ? tbSrc : tbTgt;
+                        if (!LanguageUtils.IsInDocumentPair(documentSource, documentTarget, left, right))
+                            result[kv.Key] = Tuple.Create(left, right);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLog.Log("SuperSearch", "Reading termbase languages failed: " + ex.Message);
+            }
+            return result;
+        }
+
         /// <summary>The scope-aware match test, shared by both paths.</summary>
         private static bool Matches(string srcText, string tgtText, string query,
             SearchScope scope, bool caseSensitive, bool useRegex, bool wholeWord)
@@ -347,7 +416,7 @@ namespace Supervertaler.Trados.Core
         /// <paramref name="wanted"/> (the Read-enabled termbases).
         /// </summary>
         private static Dictionary<long, List<Tuple<string, string>>> LoadSupervertalerTermsGrouped(
-            string dbPath, HashSet<long> wanted, string projectSourceLang, CancellationToken ct)
+            string dbPath, HashSet<long> wanted, string documentSource, CancellationToken ct)
         {
             var byTermbase = new Dictionary<long, List<Tuple<string, string>>>();
             try
@@ -362,7 +431,7 @@ namespace Supervertaler.Trados.Core
                     var index = reader.LoadAllTerms(
                         disabledTermbaseIds: null,
                         globalCaseSensitive: false,
-                        projectSourceLang: projectSourceLang);
+                        projectSourceLang: documentSource);
                     foreach (var kv in index ?? new Dictionary<string, List<TermEntry>>())
                     {
                         ct.ThrowIfCancellationRequested();

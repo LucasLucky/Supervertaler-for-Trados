@@ -7,6 +7,14 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.200 / 19.20.200] – Unreleased
+
+### Changed
+- **SuperSearch names your languages instead of saying "Source" and "Target".** The results columns, the preview pane and the two search boxes now carry the languages of the document you have open – **Dutch** and **English** in an NL→EN project, say – so you can see at a glance which column holds which language, even when your termbases and translation memories point different ways. A regional variant is named where it matters: *Dutch (Belgium)*, or *English (United Kingdom)* and *English (United States)* in a project between the two. In a narrow panel the box labels shorten to language codes (**NL:**, **EN:**). With no document open, the labels read "Source" and "Target" as before. Switching to a document in a different language pair clears the results on screen, since they were searched the other way round.
+
+### Fixed
+- **SuperSearch now searches a translation memory stored the other way round in your project's direction.** An EN→NL memory attached to an NL→EN project was searched as it was stored: a Dutch term typed in the source box was looked up on the memory's English side, so it found little or nothing, and any hit showed the English on the left. The memory is now searched on the side that holds the language you typed, and its hits are shown the same way round as your document, as termbase hits already were. A hit from a memory or Supervertaler termbase in some other language pair altogether – an NL→DE memory in a multilingual NL→EN project, for example – is marked in amber in the Status column with its own languages, such as **TM (NL→DE)**, because the column headers do not apply to it; the preview pane names its languages too.
+
 ## [18.20.199 / 19.20.199] – 2026-10-12
 
 ### Added

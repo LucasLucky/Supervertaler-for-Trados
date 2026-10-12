@@ -49,6 +49,20 @@ namespace Supervertaler.Trados.Core
         /// straight from the database, which carries text only.
         /// </summary>
         public TermEntry Term;
+
+        /// <summary>
+        /// The languages this row actually holds, set ONLY when they are not the
+        /// open document's: an NL→DE memory or termbase searched from an NL→EN
+        /// document. The grid's column headers name the document's languages, so
+        /// these rows say what they are in the Status column instead of sitting
+        /// silently under a header that is wrong for them. Null for every row in
+        /// the document's pair, which is nearly all of them.
+        /// </summary>
+        public string OffPairSource, OffPairTarget;
+
+        /// <summary>True when this row is in some other pair than the document's.</summary>
+        public bool IsOffPair =>
+            !string.IsNullOrEmpty(OffPairSource) || !string.IsNullOrEmpty(OffPairTarget);
     }
 
     /// <summary>
