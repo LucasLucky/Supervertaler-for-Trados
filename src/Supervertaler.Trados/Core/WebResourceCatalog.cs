@@ -20,7 +20,7 @@ namespace Supervertaler.Trados.Core
         /// ordering. Without this, a site that changes its URL scheme stays
         /// broken forever for existing users.
         /// </summary>
-        public const int DefaultsRevision = 2;
+        public const int DefaultsRevision = 3;
 
         /// <summary>
         /// Built-ins retired since launch. Ids listed here are dropped from a

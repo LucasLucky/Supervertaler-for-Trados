@@ -7,7 +7,7 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
-## [18.20.199 / 19.20.199] – Unreleased
+## [18.20.199 / 19.20.199] – 2026-10-12
 
 ### Added
 - ★ **Supervertaler for Trados now also runs in Trados Studio 2022.** A third build, numbered 17.20.199, joins the Studio 2024 and 2026 builds with the same features, including MultiTerm `.sdltb` termbases, which Studio 2022 reads the same way as 2024. Install it from the RWS App Store inside Studio 2022, as with the other builds. One licence covers every Studio version you use on the same computer and Windows account, and all of them share one data folder, so your settings, termbases, memory banks and prompts are the same in each. RWS ends its own support for Studio 2022 on 31 December 2026.
@@ -29,6 +29,7 @@
 
 ### Changed
 - **A licence now counts only for the computer and Windows account it was activated on.** A data folder used from more than one computer or Windows account – shared with colleagues, or synced between your own computers – now keeps a separate licence record for each, with its own trial and its own activation, so nobody's activation can overwrite anyone else's. If you have renamed your computer or reinstalled Windows since you activated, Supervertaler tells you so when Trados Studio starts and in Settings → Licence: re-enter your licence key there to activate it again. If the key has no activations left, the earlier activation recorded in your data folder is released to make room once it has gone a day unused. On a computer whose name and Windows account have not changed, nothing changes.
+- **SuperSearch's Beijerterm web resource is now Beijer Dictionary.** The dictionary has a new name and a new address, BeijerDictionary.com, and the built-in web resource uses both. If you had it switched on, it stays on.
 
 ## [18.20.198 / 19.20.198] – 2026-10-05
 
