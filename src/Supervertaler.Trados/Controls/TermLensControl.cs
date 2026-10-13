@@ -467,6 +467,26 @@ namespace Supervertaler.Trados.Controls
         }
 
         /// <summary>
+        /// Re-reads just these terms from the loaded database and swaps them into
+        /// the index - what an edit needs, instead of a full reload. The rows go
+        /// through the same LoadAllTerms code as a full load, with the same
+        /// switched-off termbases, case setting and project direction, so each
+        /// comes back exactly as a reload would have produced it.
+        ///
+        /// Returns false when there is no loaded database to read from; the
+        /// caller then falls back to a full reload.
+        /// </summary>
+        public bool RefreshTermsInIndex(ICollection<long> termIds, HashSet<long> disabledTermbaseIds,
+            bool globalCaseSensitive, string projectSourceLang)
+        {
+            if (_reader == null || termIds == null) return false;
+            var fragment = _reader.LoadAllTerms(disabledTermbaseIds, globalCaseSensitive, projectSourceLang,
+                onlyTermIds: new List<long>(termIds));
+            _matcher.ReplaceEntries(termIds, fragment);
+            return true;
+        }
+
+        /// <summary>
         /// Returns all loaded termbase term entries from the in-memory index.
         /// Used for termbase injection into AI translation prompts.
         /// </summary>

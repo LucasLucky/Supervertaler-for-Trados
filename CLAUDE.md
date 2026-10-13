@@ -226,9 +226,10 @@ The quick-add actions (Alt+Down, Alt+Up) and right-click edit/delete use **incre
 - **`TermbaseReader.InsertTermBatch()`** – inserts into multiple write termbases in a single SQLite connection + transaction, instead of one connection per termbase.
 - **`NotifyTermInserted(List<TermEntry>)`** – adds entries to the index and refreshes the UI. No settings reload, no DB reload.
 - **`NotifyTermDeleted(long termId)`** – removes from index and refreshes.
-- **`NotifyTermAdded()`** – the old full-reload path. Still used by the settings dialog when the user toggles termbases.
+- **`NotifyTermAdded()`** – the old full-reload path, ON THE UI THREAD. Still used by the settings dialog when the user toggles termbases, the ↻ refresh, the DB file watcher, and bulk Termbase Editor operations (direction swap, merge). Never call it after an edit: on a large termbase it is Studio "Not Responding" for tens of seconds.
+- **`NotifyTermsEdited(ids)`** – after terms are written (Term Entry Editor Save, Termbase Editor cell edit / new row / bulk non-translatables). Re-reads just those rows through `TermbaseReader.LoadAllTerms(..., onlyTermIds: ids)` – the same code a full load runs, so they come back turned, hydrated and keyed identically – and swaps them in with `TermMatcher.ReplaceEntries`. ~10 ms where the full reload took seconds. Refreshes the DB snapshot so the file watcher does not reload again; falls back to `ReloadAllInBackground()` (never the UI thread) on failure or above 500 ids. Do NOT hand-build `TermEntry` objects for the index: add mode does (`SavedEntry`) and already drifts from `LoadAllTerms` (it sets `CaseSensitive = false`).
 
-The edit handler (right-click → Edit) does a remove + add of the updated entry.
+The Term Entry Editor in edit mode writes only entries whose state differs from how they were shown (`SavedTermIds`; empty after an unchanged Save) and, in the multi-entry dialog, every changed entry, not just the one on screen. Callers pass the dialog to `TermLensEditorViewPart.ApplyEditorOutcome(dlg, result)`. It fills its fields from `TermbaseReader.GetTermById` and writes **every** field back through `UpdateTerm`, so a column `GetTermById` does not select is a column every Save wipes – that is how abbreviations, URL and project were erased from v4.19.25 to 18.20.200. Add a field to both, or to neither.
 
 On app startup or settings change, `LoadTermbase(forceReload: true)` still does a full DB load to ensure consistency.
 

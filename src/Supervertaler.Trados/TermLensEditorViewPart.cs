@@ -378,11 +378,17 @@ namespace Supervertaler.Trados
             UpdateFromActiveSegment();
         }
 
-        private void LoadTermbase(bool forceReload = false)
+        /// <summary>The termbases whose Read tick is off, or null for none.</summary>
+        private HashSet<long> DisabledTermbaseSet()
         {
-            var disabled = _settings.DisabledTermbaseIds != null && _settings.DisabledTermbaseIds.Count > 0
+            return _settings.DisabledTermbaseIds != null && _settings.DisabledTermbaseIds.Count > 0
                 ? new HashSet<long>(_settings.DisabledTermbaseIds)
                 : null;
+        }
+
+        private void LoadTermbase(bool forceReload = false)
+        {
+            var disabled = DisabledTermbaseSet();
             var globalCaseSensitive = _settings.CaseSensitiveMatching;
 
             // Push project termbase ID to the control for pink/blue coloring
@@ -3317,14 +3323,7 @@ namespace Supervertaler.Trados
                     {
                         var parent = _control.Value.FindForm();
                         var result = parent != null ? dlg.ShowDialog(parent) : dlg.ShowDialog();
-
-                        if (result == DialogResult.OK || result == DialogResult.Abort)
-                        {
-                            // Force reload to rebuild index after save or delete
-                            LoadTermbase(forceReload: true);
-                            LoadMultiTermTermbases();
-                            UpdateFromActiveSegment();
-                        }
+                        ApplyEditorOutcome(dlg, result);
                     }
                     return;
                 }
@@ -3341,23 +3340,24 @@ namespace Supervertaler.Trados
                 {
                     var parent = _control.Value.FindForm();
                     var result = parent != null ? dlg.ShowDialog(parent) : dlg.ShowDialog();
-
-                    if (result == DialogResult.OK)
-                    {
-                        // Term was saved (possibly with synonym changes) – force reload
-                        // to rebuild the index including source synonym keys
-                        LoadTermbase(forceReload: true);
-                        LoadMultiTermTermbases();
-                        UpdateFromActiveSegment();
-                    }
-                    else if (result == DialogResult.Abort)
-                    {
-                        // Term was deleted from the editor
-                        _control.Value.RemoveTermFromIndex(e.Entry.Id);
-                        UpdateFromActiveSegment();
-                    }
+                    ApplyEditorOutcome(dlg, result);
                 }
             });
+        }
+
+        /// <summary>
+        /// Brings TermLens up to date with what an edit-mode Term Entry Editor
+        /// wrote: the deleted entry out, the saved ones refreshed. Incremental in
+        /// both cases. Looked at whatever the dialog result, because a
+        /// multi-entry Save can write some entries and then fail on another,
+        /// leaving the dialog open to be cancelled.
+        /// </summary>
+        internal static void ApplyEditorOutcome(TermEntryEditorDialog dlg, DialogResult result)
+        {
+            if (dlg == null) return;
+            if (result == DialogResult.Abort)
+                NotifyTermDeleted(dlg.TermId);
+            NotifyTermsEdited(dlg.SavedTermIds);
         }
 
         /// <summary>
@@ -3516,24 +3516,96 @@ namespace Supervertaler.Trados
                 }
             }
 
-            // Off the UI thread: the dialog is already closed, and a forced
-            // reload can take ~2 min on a cold Studio 2026 cache.
-            // UpdateFromActiveSegment is marshalled back so chips refresh on
-            // whatever segment is active by the time it finishes.
+            instance.ReloadAllInBackground();
+        }
+
+        /// <summary>
+        /// The full reload, off the UI thread: a forced reload can take ~2 min on
+        /// a cold Studio 2026 cache, and on the UI thread that is Studio "Not
+        /// Responding" for the whole time. UpdateFromActiveSegment is marshalled
+        /// back so chips refresh on whatever segment is active when it finishes,
+        /// and the database snapshot is refreshed so the file watcher does not
+        /// run the same reload again.
+        /// </summary>
+        private void ReloadAllInBackground()
+        {
             System.Threading.Tasks.Task.Run(() =>
             {
                 try
                 {
-                    instance.LoadTermbase(forceReload: true);
-                    instance.LoadMultiTermTermbases();
-                    instance.SafeInvoke(instance.UpdateFromActiveSegment);
+                    LoadTermbase(forceReload: true);
+                    LoadMultiTermTermbases();
+                    SafeInvoke(UpdateFromActiveSegment);
+                    try { RefreshTermbaseDbSnapshot(); } catch { }
                 }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine(
-                        "[TermLens] Post-settings reload failed: " + ex);
+                        "[TermLens] Background reload failed: " + ex);
                 }
             });
+        }
+
+        /// <summary>Above this many edited terms, reload in the background instead.</summary>
+        private const int MaxIncrementalRefresh = 500;
+
+        /// <summary>
+        /// Called after terms have been written - saved in the Term Entry Editor,
+        /// or edited or added in the Termbase Editor. Swaps just those entries in
+        /// the index for fresh copies from the database (a new id simply comes
+        /// in), instead of reloading the whole termbase.
+        ///
+        /// Every editor route used to call <see cref="NotifyTermAdded"/> here: a
+        /// full reload of every term plus every MultiTerm termbase, on the UI
+        /// thread - twice, since the Save also changed the database under the
+        /// file watcher, which then reloaded everything again. Up to a minute of
+        /// "Not Responding" per Save (Michael, 12 Oct 2026). Measured on his
+        /// 38,764-term database outside Studio: the reload alone 2.0 s warm,
+        /// this refresh 11 ms.
+        ///
+        /// Empty or null ids (a Save with nothing changed) do nothing at all. If
+        /// the fresh read fails, the full reload still runs, but in the
+        /// background, so the worst case is stale chips for a while rather than
+        /// a frozen Studio.
+        /// </summary>
+        public static void NotifyTermsEdited(IReadOnlyCollection<long> termIds)
+        {
+            var instance = _currentInstance;
+            if (instance == null || termIds == null || termIds.Count == 0) return;
+
+            // A batch this large (a bulk paste of non-translatables, say) is
+            // past the point where re-reading it row by row beats a reload, and
+            // its id list would strain SQLite's parameter limit.
+            if (termIds.Count > MaxIncrementalRefresh)
+            {
+                instance.ReloadAllInBackground();
+                return;
+            }
+
+            bool refreshed = false;
+            try
+            {
+                refreshed = _control.Value.RefreshTermsInIndex(
+                    new List<long>(termIds), instance.DisabledTermbaseSet(),
+                    instance._settings.CaseSensitiveMatching, instance.GetDocumentSourceLanguage());
+            }
+            catch (Exception ex)
+            {
+                Core.DiagnosticLog.Log("TermLens",
+                    "Refreshing edited terms failed, reloading in the background: " + ex.Message);
+            }
+
+            if (!refreshed)
+            {
+                instance.ReloadAllInBackground();
+                return;
+            }
+
+            instance.UpdateFromActiveSegment();
+
+            // Own-write snapshot refresh (see NotifyTermInserted): otherwise the
+            // watcher sees the Save 2 s later and reloads everything anyway.
+            try { instance.RefreshTermbaseDbSnapshot(); } catch { }
         }
 
         /// <summary>

@@ -362,11 +362,18 @@ namespace Supervertaler.Trados.Core
         /// <param name="disabledTermbaseIds">
         /// Termbase IDs to exclude. Null or empty means load all termbases.
         /// </param>
+        /// <param name="onlyTermIds">
+        /// Load just these rows - an index fragment for a few edited terms, built
+        /// by exactly the code a full load uses, so the entries come out turned,
+        /// hydrated and keyed the same way. Null loads everything.
+        /// </param>
         public Dictionary<string, List<TermEntry>> LoadAllTerms(HashSet<long> disabledTermbaseIds = null,
-            bool globalCaseSensitive = false, string projectSourceLang = null)
+            bool globalCaseSensitive = false, string projectSourceLang = null,
+            IReadOnlyCollection<long> onlyTermIds = null)
         {
             var index = new Dictionary<string, List<TermEntry>>(StringComparer.OrdinalIgnoreCase);
             if (_connection == null) return index;
+            if (onlyTermIds != null && onlyTermIds.Count == 0) return index;
 
             // Load per-termbase case_sensitive settings
             var termbaseCaseSettings = new Dictionary<long, int>();
@@ -420,6 +427,9 @@ namespace Supervertaler.Trados.Core
                 sql += $" AND CAST(t.termbase_id AS INTEGER) NOT IN ({string.Join(",", placeholders)})";
             }
 
+            if (onlyTermIds != null)
+                sql += $" AND t.id IN ({string.Join(",", onlyTermIds.Select((_, n) => "@only" + n))})";
+
             sql += " ORDER BY ranking ASC";
 
             // First pass: load all term entries
@@ -433,6 +443,12 @@ namespace Supervertaler.Trados.Core
                     foreach (var id in disabledTermbaseIds)
                         cmd.Parameters.AddWithValue($"@ex{i++}", id);
                 }
+                if (onlyTermIds != null)
+                {
+                    int n = 0;
+                    foreach (var id in onlyTermIds)
+                        cmd.Parameters.AddWithValue("@only" + n++, id);
+                }
 
                 using (var reader = cmd.ExecuteReader())
                 {
@@ -444,10 +460,10 @@ namespace Supervertaler.Trados.Core
             }
 
             // Second pass: bulk-load all target synonyms into a dictionary
-            var synonymsByTermId = BulkLoadTargetSynonyms();
+            var synonymsByTermId = BulkLoadTargetSynonyms(onlyTermIds);
 
             // Third pass: bulk-load source synonyms for indexing
-            var sourceSynonymsByTermId = BulkLoadSourceSynonyms();
+            var sourceSynonymsByTermId = BulkLoadSourceSynonyms(onlyTermIds);
 
             // Build the index and hydrate synonyms
             foreach (var entry in allEntries)
@@ -605,41 +621,19 @@ namespace Supervertaler.Trados.Core
         /// Returns a dictionary mapping term_id → list of synonym texts.
         /// Used by LoadAllTerms() for efficient synonym hydration.
         /// </summary>
-        private Dictionary<long, List<string>> BulkLoadTargetSynonyms()
-        {
-            var result = new Dictionary<long, List<string>>();
-            if (_connection == null) return result;
-
-            const string sql = @"
-                SELECT term_id, synonym_text FROM termbase_synonyms
-                WHERE language = 'target' AND forbidden = 0
-                ORDER BY term_id, display_order ASC";
-
-            using (var cmd = new SqliteCommand(sql, _connection))
-            using (var reader = cmd.ExecuteReader())
-            {
-                while (reader.Read())
-                {
-                    if (reader.IsDBNull(1)) continue;
-
-                    var termId = reader.GetInt64(0);
-                    var text = reader.GetString(1);
-
-                    if (!result.ContainsKey(termId))
-                        result[termId] = new List<string>();
-                    result[termId].Add(text);
-                }
-            }
-
-            return result;
-        }
+        private Dictionary<long, List<string>> BulkLoadTargetSynonyms(IReadOnlyCollection<long> onlyTermIds = null)
+            => BulkLoadSynonyms("target", onlyTermIds);
 
         /// <summary>
         /// Bulk-loads all source synonyms in one query.
         /// Returns a dictionary mapping term_id → list of synonym texts.
         /// Used by LoadAllTerms() to index source synonyms for matching.
         /// </summary>
-        private Dictionary<long, List<string>> BulkLoadSourceSynonyms()
+        private Dictionary<long, List<string>> BulkLoadSourceSynonyms(IReadOnlyCollection<long> onlyTermIds = null)
+            => BulkLoadSynonyms("source", onlyTermIds);
+
+        /// <summary>One side's synonyms, for every term or only the given ones.</summary>
+        private Dictionary<long, List<string>> BulkLoadSynonyms(string language, IReadOnlyCollection<long> onlyTermIds)
         {
             var result = new Dictionary<long, List<string>>();
             if (_connection == null) return result;
@@ -648,24 +642,36 @@ namespace Supervertaler.Trados.Core
             if (!HasTable(_connection, "termbase_synonyms"))
                 return result;
 
-            const string sql = @"
+            var sql = @"
                 SELECT term_id, synonym_text FROM termbase_synonyms
-                WHERE language = 'source' AND forbidden = 0
-                ORDER BY term_id, display_order ASC";
+                WHERE language = @language AND forbidden = 0";
+            if (onlyTermIds != null)
+                sql += $" AND term_id IN ({string.Join(",", onlyTermIds.Select((_, n) => "@only" + n))})";
+            sql += " ORDER BY term_id, display_order ASC";
 
             using (var cmd = new SqliteCommand(sql, _connection))
-            using (var reader = cmd.ExecuteReader())
             {
-                while (reader.Read())
+                cmd.Parameters.AddWithValue("@language", language);
+                if (onlyTermIds != null)
                 {
-                    if (reader.IsDBNull(1)) continue;
+                    int n = 0;
+                    foreach (var id in onlyTermIds)
+                        cmd.Parameters.AddWithValue("@only" + n++, id);
+                }
 
-                    var termId = reader.GetInt64(0);
-                    var text = reader.GetString(1);
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        if (reader.IsDBNull(1)) continue;
 
-                    if (!result.ContainsKey(termId))
-                        result[termId] = new List<string>();
-                    result[termId].Add(text);
+                        var termId = reader.GetInt64(0);
+                        var text = reader.GetString(1);
+
+                        if (!result.ContainsKey(termId))
+                            result[termId] = new List<string>();
+                        result[termId].Add(text);
+                    }
                 }
             }
 
@@ -3599,8 +3605,16 @@ namespace Supervertaler.Trados.Core
         // ==================================================================
 
         /// <summary>
-        /// Loads a single term entry by its database row ID.
-        /// Used to open the Term Entry Editor after a merge operation.
+        /// Loads a single term entry by its database row ID, in termbase
+        /// direction, with every field the Term Entry Editor shows.
+        ///
+        /// The editor fills its fields from this and writes ALL of them back on
+        /// Save through <see cref="UpdateTerm"/>. A column read here is a column
+        /// the editor preserves; a column left out is one it wipes. That is how
+        /// every Save from the editor erased a term's abbreviations, URL and
+        /// project from v4.19.25 (when the editor started re-reading the entry
+        /// through this method) until v18.20.200: they were never selected, so
+        /// they showed empty and were saved empty.
         /// </summary>
         public static TermEntry GetTermById(string dbPath, long termId)
         {
@@ -3619,6 +3633,9 @@ namespace Supervertaler.Trados.Core
                 bool hasNt = HasColumn(conn, "termbase_terms", "is_nontranslatable");
                 bool hasClient = HasColumn(conn, "termbase_terms", "client");
                 bool hasForbidden = HasColumn(conn, "termbase_terms", "forbidden");
+                bool hasAbbr = HasColumn(conn, "termbase_terms", "source_abbreviation");
+                bool hasUrl = HasColumn(conn, "termbase_terms", "url");
+                bool hasProject = HasColumn(conn, "termbase_terms", "project");
 
                 var cols = "id, source_term, target_term, source_lang, target_lang, termbase_id, definition";
                 if (hasDomain) cols += ", domain";
@@ -3626,6 +3643,9 @@ namespace Supervertaler.Trados.Core
                 if (hasNt) cols += ", is_nontranslatable";
                 if (hasClient) cols += ", client";
                 if (hasForbidden) cols += ", forbidden";
+                if (hasAbbr) cols += ", source_abbreviation, target_abbreviation";
+                if (hasUrl) cols += ", url";
+                if (hasProject) cols += ", project";
 
                 var sql = $"SELECT {cols} FROM termbase_terms WHERE id = @id";
                 using (var cmd = new SqliteCommand(sql, conn))
@@ -3671,6 +3691,22 @@ namespace Supervertaler.Trados.Core
                         if (hasForbidden)
                         {
                             entry.Forbidden = !reader.IsDBNull(col) && GetBool(reader, col);
+                            col++;
+                        }
+                        if (hasAbbr)
+                        {
+                            entry.SourceAbbreviation = reader.IsDBNull(col) ? "" : reader.GetString(col);
+                            entry.TargetAbbreviation = reader.IsDBNull(col + 1) ? "" : reader.GetString(col + 1);
+                            col += 2;
+                        }
+                        if (hasUrl)
+                        {
+                            entry.Url = reader.IsDBNull(col) ? "" : reader.GetString(col);
+                            col++;
+                        }
+                        if (hasProject)
+                        {
+                            entry.Project = reader.IsDBNull(col) ? "" : reader.GetString(col);
                             col++;
                         }
 

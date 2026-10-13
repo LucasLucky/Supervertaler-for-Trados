@@ -624,7 +624,7 @@ namespace Supervertaler.Trados.Controls
                     }
 
                     UpdateTermCountLabel();
-                    TermLensEditorViewPart.NotifyTermAdded();
+                    TermLensEditorViewPart.NotifyTermsEdited(results.Select(r => r.Item2).ToList());
 
                     int skipped = dlg.Terms.Count - results.Count;
                     var msg = $"Added {results.Count} non-translatable term(s).";
@@ -679,11 +679,14 @@ namespace Supervertaler.Trados.Controls
                     targetAbbreviation: row["TgtAbbr"] as string ?? "",
                     url: row["Url"] as string ?? "",
                     client: row["Client"] as string ?? "",
+                    // UpdateTerm writes every column: left out, this reset the
+                    // Forbidden flag on any cell edit of a forbidden term.
+                    forbidden: row["Forbidden"] as bool? ?? false,
                     project: row["Project"] as string ?? "");
 
-                // Refresh the in-memory term index so TermLens reflects
-                // the edit immediately (source/target text may have changed)
-                TermLensEditorViewPart.NotifyTermAdded();
+                // Refresh just this entry in TermLens's index (source/target
+                // text may have changed) - not a full reload per cell edit.
+                TermLensEditorViewPart.NotifyTermsEdited(new[] { id });
             }
             catch (Exception ex)
             {
@@ -743,7 +746,7 @@ namespace Supervertaler.Trados.Controls
                 {
                     row["Id"] = newId;
                     UpdateTermCountLabel();
-                    TermLensEditorViewPart.NotifyTermAdded();
+                    TermLensEditorViewPart.NotifyTermsEdited(new[] { newId });
                 }
                 else
                 {
@@ -959,6 +962,8 @@ namespace Supervertaler.Trados.Controls
                         row["Definition"] = dlg.Definition;
                         row["Domain"] = dlg.Domain;
                         row["Notes"] = dlg.Notes;
+                        row["SrcAbbr"] = dlg.SourceAbbreviation;
+                        row["TgtAbbr"] = dlg.TargetAbbreviation;
                         row["Url"] = dlg.Url;
                         row["Client"] = dlg.Client;
                         row["Project"] = dlg.Project;
@@ -969,9 +974,10 @@ namespace Supervertaler.Trados.Controls
                         int synCount = dlg.SourceSynonymsList.Count + dlg.TargetSynonymsList.Count;
                         row["Synonyms"] = synCount > 0 ? $"{synCount} syn." : "";
 
-                        // Refresh the in-memory term index so TermLens
-                        // reflects the edit immediately
-                        TermLensEditorViewPart.NotifyTermAdded();
+                        // Refresh just this entry in TermLens's index - nothing
+                        // at all if the Save changed nothing. A full reload here
+                        // froze Studio for tens of seconds on every Save.
+                        TermLensEditorViewPart.NotifyTermsEdited(dlg.SavedTermIds);
                     }
                     finally
                     {

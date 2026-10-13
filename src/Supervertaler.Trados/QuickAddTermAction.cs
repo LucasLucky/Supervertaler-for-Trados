@@ -293,8 +293,9 @@ namespace Supervertaler.Trados
                                         {
                                             using (var editor = new TermEntryEditorDialog(entry, settings.TermbasePath, tb))
                                             {
-                                                if (editor.ShowDialog() == DialogResult.OK)
-                                                    TermLensEditorViewPart.NotifyTermAdded();
+                                                // Only what the editor wrote, not a full reload:
+                                                // the synonym merge above is already indexed.
+                                                TermLensEditorViewPart.ApplyEditorOutcome(editor, editor.ShowDialog());
                                             }
                                         }
                                     }

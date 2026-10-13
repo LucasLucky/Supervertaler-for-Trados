@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Supervertaler.Trados.Core;
@@ -95,7 +96,24 @@ namespace Supervertaler.Trados.Controls
             public List<SynonymEntry> SourceSyns = new List<SynonymEntry>();
             public List<SynonymEntry> TargetSyns = new List<SynonymEntry>();
             public bool SynonymsLoaded;
+            /// <summary>The entry as first shown (see <see cref="Signature"/>);
+            /// null until it has been shown, which means it cannot have been edited.</summary>
+            public string LoadedState;
         }
+
+        /// <summary>Edit mode, single entry: the entry as first shown.</summary>
+        private string _loadedState;
+
+        private readonly List<long> _savedTermIds = new List<long>();
+
+        /// <summary>
+        /// Edit mode: the ids of the existing terms this dialog actually wrote.
+        /// Empty after a Save that changed nothing, which writes nothing. Can be
+        /// non-empty after Cancel too, when a multi-entry Save wrote some entries
+        /// and then failed on another - the caller should refresh these whatever
+        /// the dialog result.
+        /// </summary>
+        public IReadOnlyList<long> SavedTermIds => _savedTermIds;
 
         // Output properties
         public string SourceTerm => _txtSource.Text.Trim();
@@ -160,6 +178,7 @@ namespace Supervertaler.Trados.Controls
             BuildUI(termbase);
             PopulateFromEntry(loadEntry);
             LoadSynonymsFromDb();
+            _loadedState = Signature(SnapshotCurrent());
         }
 
         /// <summary>
@@ -253,6 +272,8 @@ namespace Supervertaler.Trados.Controls
             primary.SourceSyns = new List<SynonymEntry>(_sourceSyns);
             primary.TargetSyns = new List<SynonymEntry>(_targetSyns);
             primary.SynonymsLoaded = true;
+            CaptureCurrentState();
+            primary.LoadedState = Signature(primary);
         }
 
         /// <summary>
@@ -1071,6 +1092,14 @@ namespace Supervertaler.Trados.Controls
 
             // Update title bar
             Text = $"Edit term entry (ID {ed.Entry.Id}) \u2013 {ed.Termbase?.Name ?? "Unknown"}";
+
+            // First time shown: remember it as loaded, in the same trimmed form
+            // CaptureCurrentState gives it, so Save can tell an edit from a visit.
+            if (ed.LoadedState == null)
+            {
+                CaptureCurrentState();
+                ed.LoadedState = Signature(ed);
+            }
         }
 
         private void LoadSynonymsForEntry(EntryData ed)
@@ -1307,6 +1336,12 @@ namespace Supervertaler.Trados.Controls
 
         private void OnSaveClick(object sender, EventArgs e)
         {
+            if (IsEditMode)
+            {
+                SaveEdits();
+                return;
+            }
+
             var source = _txtSource.Text.Trim();
             var target = _txtTarget.Text.Trim();
 
@@ -1323,18 +1358,7 @@ namespace Supervertaler.Trados.Controls
 
             try
             {
-                if (IsEditMode)
-                {
-                    // Update the main term
-                    TermbaseReader.UpdateTerm(_dbPath, _termId,
-                        source, target, Definition, Domain, Notes,
-                        isNonTranslatable: IsNonTranslatable,
-                        sourceAbbreviation: SourceAbbreviation,
-                        targetAbbreviation: TargetAbbreviation,
-                        url: Url, client: Client, forbidden: IsForbidden,
-                        project: Project);
-                }
-                else if (_termbase != null)
+                if (_termbase != null)
                 {
                     // Insert new term – store ID for synonym save
                     // Note: InsertTerm is for single termbase; for add mode we need the termbase
@@ -1416,7 +1440,7 @@ namespace Supervertaler.Trados.Controls
                     return;
                 }
 
-                // Save synonyms (edit mode)
+                // Add mode with no termbase to add to: no caller opens it so.
                 SaveAllSynonyms(_termId);
                 DialogResult = DialogResult.OK;
                 Close();
@@ -1428,27 +1452,164 @@ namespace Supervertaler.Trados.Controls
             }
         }
 
+        /// <summary>
+        /// Edit mode: writes every entry whose fields or synonyms now differ from
+        /// how they were shown, and nothing else.
+        ///
+        /// An unchanged Save writes nothing. It used to rewrite the row, which
+        /// stamped a new modified date on an untouched term and sent TermLens
+        /// into a full reload for nothing.
+        ///
+        /// In the multi-entry dialog (one term in several termbases) every
+        /// edited entry is written, not just the one on screen. Only the current
+        /// entry used to be saved: edits made to another termbase's entry before
+        /// switching back were kept in memory and then silently dropped.
+        /// </summary>
+        private void SaveEdits()
+        {
+            List<EntryData> changed;
+            if (_allEntryData.Count > 0)
+            {
+                CaptureCurrentState();
+                changed = _allEntryData
+                    .Where(ed => ed.LoadedState != null && Signature(ed) != ed.LoadedState)
+                    .ToList();
+            }
+            else
+            {
+                var current = SnapshotCurrent();
+                changed = Signature(current) == _loadedState
+                    ? new List<EntryData>()
+                    : new List<EntryData> { current };
+            }
+
+            foreach (var ed in changed)
+            {
+                if (string.IsNullOrWhiteSpace(ed.Source) || string.IsNullOrWhiteSpace(ed.Target))
+                {
+                    MessageBox.Show(changed.Count > 1 && ed.Termbase != null
+                            ? $"Both source and target terms are required (entry in {ed.Termbase.Name})."
+                            : "Both source and target terms are required.",
+                        "TermLens", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+            }
+
+            foreach (var ed in changed)
+            {
+                try
+                {
+                    WriteEntry(ed);
+                }
+                catch (Exception ex)
+                {
+                    // Entries written before this one stay written, and are in
+                    // SavedTermIds for the caller to refresh.
+                    MessageBox.Show($"Failed to save term:\n{ex.Message}",
+                        "TermLens", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+                if (!_savedTermIds.Contains(ed.Entry.Id)) _savedTermIds.Add(ed.Entry.Id);
+                // Written: a second Save after a later failure must not rewrite it.
+                ed.LoadedState = Signature(ed);
+                if (_allEntryData.Count == 0) _loadedState = ed.LoadedState;
+            }
+
+            DialogResult = DialogResult.OK;
+            Close();
+        }
+
+        /// <summary>The single entry on screen, as an EntryData (edit mode).</summary>
+        private EntryData SnapshotCurrent()
+        {
+            return new EntryData
+            {
+                Entry = new TermEntry { Id = _termId },
+                Termbase = _termbase,
+                Source = _txtSource.Text.Trim(),
+                Target = _txtTarget.Text.Trim(),
+                SourceAbbr = _txtSourceAbbr.Text.Trim(),
+                TargetAbbr = _txtTargetAbbr.Text.Trim(),
+                Definition = _txtDefinition.Text.Trim(),
+                Domain = _txtDomain.Text.Trim(),
+                Notes = _txtNotes.Text.Trim(),
+                Url = _txtUrl.Text.Trim(),
+                Client = _txtClient.Text.Trim(),
+                Project = _txtProject.Text.Trim(),
+                IsNonTranslatable = _chkNonTranslatable.Checked,
+                IsForbidden = _chkForbidden.Checked,
+                IsInverted = _isInverted,
+                SourceSyns = new List<SynonymEntry>(_sourceSyns),
+                TargetSyns = new List<SynonymEntry>(_targetSyns),
+                SynonymsLoaded = true,
+            };
+        }
+
+        /// <summary>
+        /// Everything Save would write for an entry, as one string, so "has it
+        /// changed?" is a comparison. Synonyms count with their order and
+        /// forbidden flag, since reordering or flagging one is an edit.
+        /// </summary>
+        private static string Signature(EntryData ed)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var s in new[] { ed.Source, ed.Target, ed.SourceAbbr, ed.TargetAbbr, ed.Definition,
+                                      ed.Domain, ed.Notes, ed.Url, ed.Client, ed.Project })
+                sb.Append(s ?? "").Append('\u0001');
+            sb.Append(ed.IsNonTranslatable ? '1' : '0').Append(ed.IsForbidden ? '1' : '0').Append('\u0001');
+            foreach (var syn in ed.SourceSyns)
+                sb.Append(syn.Text).Append(syn.Forbidden ? "\u0003F" : "").Append('\u0002');
+            sb.Append('\u0001');
+            foreach (var syn in ed.TargetSyns)
+                sb.Append(syn.Text).Append(syn.Forbidden ? "\u0003F" : "").Append('\u0002');
+            return sb.ToString();
+        }
+
+        /// <summary>Writes one existing entry and its synonyms.</summary>
+        private void WriteEntry(EntryData ed)
+        {
+            var source = ed.Source;
+            var target = ed.Target;
+
+            // When the project direction is inverted relative to the termbase, the left field
+            // holds the project source (termbase target) and vice versa – swap before saving.
+            if (ed.IsInverted) { var t = source; source = target; target = t; }
+
+            TermbaseReader.UpdateTerm(_dbPath, ed.Entry.Id,
+                source, target, ed.Definition, ed.Domain, ed.Notes,
+                isNonTranslatable: ed.IsNonTranslatable,
+                sourceAbbreviation: ed.SourceAbbr,
+                targetAbbreviation: ed.TargetAbbr,
+                url: ed.Url, client: ed.Client, forbidden: ed.IsForbidden,
+                project: ed.Project);
+            WriteSynonyms(ed.Entry.Id, ed.SourceSyns, ed.TargetSyns, ed.IsInverted);
+        }
+
         private void SaveAllSynonyms(long termId)
+            => WriteSynonyms(termId, _sourceSyns, _targetSyns, _isInverted);
+
+        private void WriteSynonyms(long termId, List<SynonymEntry> leftSyns, List<SynonymEntry> rightSyns,
+            bool inverted)
         {
             // Combine source and target synonym lists.
             // When inverted, the left column shows DB target synonyms and the right
             // column shows DB source synonyms, so we must reverse the language tags.
-            var leftLang = _isInverted ? "target" : "source";
-            var rightLang = _isInverted ? "source" : "target";
+            var leftLang = inverted ? "target" : "source";
+            var rightLang = inverted ? "source" : "target";
             var allSynonyms = new List<SynonymEntry>();
 
-            for (int i = 0; i < _sourceSyns.Count; i++)
+            for (int i = 0; i < leftSyns.Count; i++)
             {
-                _sourceSyns[i].DisplayOrder = i;
-                _sourceSyns[i].Language = leftLang;
-                allSynonyms.Add(_sourceSyns[i]);
+                leftSyns[i].DisplayOrder = i;
+                leftSyns[i].Language = leftLang;
+                allSynonyms.Add(leftSyns[i]);
             }
 
-            for (int i = 0; i < _targetSyns.Count; i++)
+            for (int i = 0; i < rightSyns.Count; i++)
             {
-                _targetSyns[i].DisplayOrder = i;
-                _targetSyns[i].Language = rightLang;
-                allSynonyms.Add(_targetSyns[i]);
+                rightSyns[i].DisplayOrder = i;
+                rightSyns[i].Language = rightLang;
+                allSynonyms.Add(rightSyns[i]);
             }
 
             TermbaseReader.SaveSynonyms(_dbPath, termId, allSynonyms);

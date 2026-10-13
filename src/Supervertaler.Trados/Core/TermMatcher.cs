@@ -420,6 +420,55 @@ namespace Supervertaler.Trados.Core
         }
 
         /// <summary>
+        /// Swaps edited entries for fresh copies without rebuilding the index:
+        /// every entry whose id is in <paramref name="termIds"/> is dropped from
+        /// every key it sat under, and <paramref name="freshFragment"/> is merged
+        /// in. The fragment comes from TermbaseReader.LoadAllTerms filtered to
+        /// those ids, so it is keyed exactly as a full load would key it
+        /// (synonyms, abbreviations, stripped punctuation); the bracket aliases
+        /// are added here, as <see cref="LoadIndex"/> adds them for a full load.
+        ///
+        /// An id with no fresh entry (the term was deleted, or its termbase is
+        /// switched off) simply disappears, as it would after a full reload.
+        /// MultiTerm entries are never touched: their ids are negative and are
+        /// not Supervertaler rows.
+        ///
+        /// One pass over the keys, whatever the number of ids: 11 ms including
+        /// the database read on a 38,764-term termbase, where the full reload
+        /// took 2 s warm outside Studio and far longer inside it.
+        /// </summary>
+        public void ReplaceEntries(ICollection<long> termIds, Dictionary<string, List<TermEntry>> freshFragment)
+        {
+            if (_termIndex == null || termIds == null || termIds.Count == 0) return;
+
+            var ids = new HashSet<long>(termIds);
+            var emptied = new List<string>();
+            foreach (var kvp in _termIndex)
+            {
+                kvp.Value.RemoveAll(e => !e.IsMultiTerm && ids.Contains(e.Id));
+                if (kvp.Value.Count == 0) emptied.Add(kvp.Key);
+            }
+            foreach (var key in emptied)
+                _termIndex.Remove(key);
+
+            if (freshFragment != null && freshFragment.Count > 0)
+            {
+                AddBracketAliases(freshFragment);
+                foreach (var kvp in freshFragment)
+                {
+                    if (!_termIndex.TryGetValue(kvp.Key, out var list))
+                    {
+                        list = new List<TermEntry>();
+                        _termIndex[kvp.Key] = list;
+                    }
+                    foreach (var e in kvp.Value)
+                        if (!list.Contains(e)) list.Add(e);
+                }
+            }
+            _multiWordTermsCache = null;
+        }
+
+        /// <summary>
         /// Returns all unique term entries from the in-memory index.
         /// Used for termbase injection into AI translation prompts.
         /// </summary>
