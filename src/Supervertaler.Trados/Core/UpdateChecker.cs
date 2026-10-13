@@ -27,7 +27,21 @@ namespace Supervertaler.Trados.Core
         private const int PluginId = 432;
         private const string ReleaseNotesUrlFormat =
             "https://github.com/Supervertaler/Supervertaler-for-Trados/releases/tag/v{0}";
+        private const string ChangelogPageUrl = "https://supervertaler.com/changelog/trados/";
         private const int CacheTtlHours = 24;
+
+        /// <summary>
+        /// The website's page for CHANGELOG.md. With a version, it shows only the
+        /// releases after it, so the update offer passes the installed one: a
+        /// translator three releases behind sees all three, where the offered
+        /// release's GitHub page listed that release alone. The page reads
+        /// CHANGELOG.md from main as it opens, so it is never behind it, and it
+        /// relies on the "## [versions] – date" heading format.
+        /// </summary>
+        internal static string ChangelogUrl(string sinceVersion = null) =>
+            string.IsNullOrWhiteSpace(sinceVersion)
+                ? ChangelogPageUrl
+                : ChangelogPageUrl + "?since=" + Uri.EscapeDataString(sinceVersion.Trim());
 
         static UpdateChecker()
         {

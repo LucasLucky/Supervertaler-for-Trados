@@ -186,7 +186,7 @@ The plugin binary is **not attached to GitHub releases** – this page is the ch
 ## Links
 
 - RWS App Store (signed): https://appstore.rws.com/plugin/432
-- Full changelog: https://github.com/Supervertaler/Supervertaler-for-Trados/blob/main/CHANGELOG.md
+- Full changelog: https://supervertaler.com/changelog/trados/
 - Questions & discussion: https://github.com/orgs/Supervertaler/discussions
 """
 

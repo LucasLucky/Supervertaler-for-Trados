@@ -299,6 +299,8 @@ namespace Supervertaler.Trados.Controls
             AddLink("Website", "https://supervertaler.com", leftPad, ref y);
             AddLink("Documentation", null, leftPad, ref y, () => HelpSystem.OpenDocsHome(),
                 tooltip: "Open the plugin documentation");
+            AddLink("Changelog", UpdateChecker.ChangelogUrl(), leftPad, ref y,
+                tooltip: "What changed in each release, newest first");
             AddLink("Support & Community", "https://supervertaler.com/trados/#support", leftPad, ref y,
                 tooltip: "Supervertaler forum and GitHub Issues");
             AddLink("Privacy Policy", "https://supervertaler.com/privacy/", leftPad, ref y,

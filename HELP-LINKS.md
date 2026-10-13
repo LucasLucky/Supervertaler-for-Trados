@@ -54,7 +54,7 @@ These are the topic constants defined in `HelpSystem.Topics` and the documentati
 
 ## Other links in the plugin
 
-These are hardcoded URLs outside `HelpSystem`, found in the About dialog and licence manager.
+These are hardcoded URLs outside `HelpSystem`, found in the About dialog, the update notice and the licence manager.
 
 | Link | URL | Location |
 |---|---|---|
@@ -62,7 +62,8 @@ These are hardcoded URLs outside `HelpSystem`, found in the About dialog and lic
 | Website | [supervertaler.com](https://supervertaler.com) | AboutDialog – "Website" link |
 | Support & Community | [supervertaler.com/trados/#support](https://supervertaler.com/trados/#support) | AboutDialog – "Support & Community" link |
 | Source code | [github.com/Supervertaler/Supervertaler-for-Trados](https://github.com/Supervertaler/Supervertaler-for-Trados) | AboutDialog – "Source Code" link |
-| Changelog | [CHANGELOG.md on GitHub](https://github.com/Supervertaler/Supervertaler-for-Trados/blob/main/CHANGELOG.md) | Website trados page – nav bar + footer |
+| Changelog | [supervertaler.com/changelog/trados/](https://supervertaler.com/changelog/trados/) | AboutDialog – "Changelog" link (`UpdateChecker.ChangelogUrl()`); also the website's footer |
+| Changes since your version | supervertaler.com/changelog/trados/?since=&lt;installed version&gt; | Update Available dialog – "What's new since your version?" link |
 | Purchase page | supervertaler.com/trados/ | LicenseManager – shown in trial-expired / upgrade-required messages |
 
 ## Docs source

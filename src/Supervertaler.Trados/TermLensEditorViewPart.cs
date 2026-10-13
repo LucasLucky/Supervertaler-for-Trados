@@ -4997,17 +4997,19 @@ namespace Supervertaler.Trados
                     catch { }
                 };
 
-                // Release notes link
+                // Everything released since the installed version, not just the
+                // offered release: releaseUrl (its GitHub page) is kept for the
+                // Download fallbacks below, since it explains where to install.
                 var lnkNotes = new LinkLabel
                 {
-                    Text = "What's new in this version?",
+                    Text = "What's new since your version?",
                     Location = new System.Drawing.Point(16, 140),
                     Size = new System.Drawing.Size(400, 18),
                     AutoSize = false
                 };
                 lnkNotes.LinkClicked += (s, ev) =>
                 {
-                    try { System.Diagnostics.Process.Start(releaseUrl); }
+                    try { System.Diagnostics.Process.Start(UpdateChecker.ChangelogUrl(currentVersion)); }
                     catch { }
                 };
 

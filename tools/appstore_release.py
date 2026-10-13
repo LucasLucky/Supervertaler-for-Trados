@@ -293,7 +293,7 @@ def main():
     output_lines.append("")
     output_lines.append(changelog_text)
     output_lines.append("")
-    output_lines.append("For the full changelog, see: https://github.com/Supervertaler/Supervertaler-for-Trados/releases")
+    output_lines.append("For the full changelog, see: https://supervertaler.com/changelog/trados/")
 
     full_output = "\n".join(output_lines)
 
