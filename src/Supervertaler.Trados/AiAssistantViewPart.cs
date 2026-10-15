@@ -1727,6 +1727,7 @@ namespace Supervertaler.Trados
             int processed = 0;
             int tagMismatches = 0;
             int trackedWholeSegment = 0;
+            int trackedTagsReplaced = 0;   // segments whose tags were replaced without a revision
             int staleFingerprints = 0;
 
             // updateTm: the segments written, to send to the TM once the whole
@@ -1881,6 +1882,12 @@ namespace Supervertaler.Trados
                 string trackedNote = null;
                 Core.TrackingSuspension suspension = null;
 
+                // How a tracked write was recorded ("word", "tag-only" or
+                // "whole-segment"), and how many tags it replaced without a
+                // revision. Reported on the item only once the write succeeded.
+                string revisionMode = null;
+                int tagsReplaced = 0;
+
                 // #138: true when the write leaves the target reading exactly as it
                 // did (judged on the accepted view, tags included). Then the default
                 // Draft status is not applied: nothing changed, so there is nothing
@@ -1914,8 +1921,12 @@ namespace Supervertaler.Trados
                             (sp, cancel) =>
                             {
                                 // The target as it stands, taken before anything below
-                                // clears it. Only needed for a tracked write.
+                                // clears it. Only needed for a tracked write. Asked of
+                                // the live target, not the clone: Clone() drops a
+                                // revision recorded on a tag itself.
                                 var targetBefore = trackWords ? sp.Target.Clone() as ISegment : null;
+                                bool tagRevisionsBefore = trackWords
+                                    && Core.TrackedTargetMerge.HasTagRevisions(sp.Target);
                                 var acceptedBefore = Core.TrackedTargetMerge.Project(sp.Target, accept: true);
 
                                 // Tag-aware write. NOTE the difference from bilingual
@@ -2000,7 +2011,8 @@ namespace Supervertaler.Trados
                                 // as built above, tracking stays on, and Studio records
                                 // its whole-segment change as it always has.
                                 if (targetBefore != null)
-                                    suspension = WriteAsTrackedChanges(sp, targetBefore, out trackedNote);
+                                    suspension = WriteAsTrackedChanges(sp, targetBefore, tagRevisionsBefore,
+                                        out trackedNote, out revisionMode, out tagsReplaced);
 
                                 unchangedText = Core.TrackedTargetMerge.Project(sp.Target, accept: true)
                                                 == acceptedBefore;
@@ -2072,6 +2084,9 @@ namespace Supervertaler.Trados
                             : item.Warning + " " + trackedNote;
                         trackedWholeSegment++;
                     }
+                    item.RevisionMode = revisionMode;
+                    item.TagsReplaced = tagsReplaced;
+                    if (tagsReplaced > 0) trackedTagsReplaced++;
                     response.Applied++;
                 }
                 catch (Exception ex)
@@ -2139,6 +2154,12 @@ namespace Supervertaler.Trados
                         "written as word-level revisions, so each was recorded as one whole-segment change - see the " +
                         "per-item 'warning' field for why. The text is exactly what was sent; only the granularity of " +
                         "the revision differs.";
+                if (trackedTagsReplaced > 0)
+                    response.Note += $" NOTE: in {trackedTagsReplaced} segment(s) the inline tags were replaced to match " +
+                        "what was sent (a tag's id changed, or a tag pair was added or removed around unchanged text) " +
+                        "without a revision mark, so that only text changes show as revisions - see each item's " +
+                        "'tagsReplaced'. Where nothing else changed, the item's revisionMode is 'tag-only' and nothing " +
+                        "shows as changed in Studio's editor.";
                 if (tagMismatches > 0)
                     response.Note += $" WARNING: {tagMismatches} segment(s) were written with inline tags whose " +
                         "underlying tag ids do not match the source – see the per-item 'warning' field. Studio's Tag " +
@@ -2433,7 +2454,8 @@ namespace Supervertaler.Trados
         {
             try
             {
-                var mismatch = DescribeTagIdListMismatch(CollectTagIds(source), CollectTagIds(target));
+                var mismatch = Core.TagIdAudit.DescribeListMismatch(
+                    Core.TagIdAudit.CollectTagIds(source), Core.TagIdAudit.CollectTagIds(target));
                 return mismatch == null
                     ? null
                     : mismatch + ". The text was written, but Studio's Tag Verifier will flag this segment.";
@@ -2445,58 +2467,6 @@ namespace Supervertaler.Trados
             }
         }
 
-        /// <summary>
-        /// The multiset comparison behind the write audit and the document-wide
-        /// check_tags pass: compares how many times each underlying tag id occurs,
-        /// not merely which ids occur, because the canonical failure is one id
-        /// appearing twice while another goes missing – which a set comparison
-        /// calls clean. Returns null when the multisets agree (or either list is
-        /// unavailable), otherwise a description without trailing punctuation so
-        /// callers can append their own context.
-        /// </summary>
-        private static string DescribeTagIdListMismatch(List<string> src, List<string> tgt)
-        {
-            if (src == null || tgt == null) return null;
-
-            var srcCounts = new Dictionary<string, int>(StringComparer.Ordinal);
-            foreach (var id in src)
-                srcCounts[id] = (srcCounts.TryGetValue(id, out var c) ? c : 0) + 1;
-
-            var tgtCounts = new Dictionary<string, int>(StringComparer.Ordinal);
-            foreach (var id in tgt)
-                tgtCounts[id] = (tgtCounts.TryGetValue(id, out var c) ? c : 0) + 1;
-
-            var duplicated = new List<string>();
-            var missing = new List<string>();
-
-            foreach (var kv in tgtCounts)
-            {
-                srcCounts.TryGetValue(kv.Key, out var inSource);
-                if (kv.Value > inSource)
-                    duplicated.Add(kv.Key + (kv.Value > 1 ? $" (×{kv.Value})" : ""));
-            }
-            foreach (var kv in srcCounts)
-            {
-                tgtCounts.TryGetValue(kv.Key, out var inTarget);
-                if (inTarget < kv.Value)
-                    missing.Add(kv.Key);
-            }
-
-            if (duplicated.Count == 0 && missing.Count == 0) return null;
-
-            var parts = new List<string>();
-            if (duplicated.Count > 0)
-                parts.Add("tag id(s) in the target that the source does not have (or has fewer of): "
-                          + string.Join(", ", duplicated));
-            if (missing.Count > 0)
-                parts.Add("source tag id(s) missing from the target: " + string.Join(", ", missing));
-
-            return "tag-id mismatch – " + string.Join("; ", parts);
-        }
-
-        /// <summary>Depth-first list of the underlying Trados tag ids in a segment,
-        /// in document order, including duplicates. Tags whose id cannot be read are
-        /// skipped rather than guessed at.</summary>
         /// <summary>
         /// #138: replaces the freshly built target in <paramref name="sp"/> with the
         /// same text expressed as word-level revisions against
@@ -2513,13 +2483,28 @@ namespace Supervertaler.Trados
         /// <para>The order is deliberate. The merge is built and self-checked on a
         /// detached copy first; tracking is switched off only once there is a
         /// verified result to write; and the target is replaced only once tracking
-        /// is known to be off. No failure along the way can leave an untracked
-        /// change behind.</para>
+        /// is known to be off. No failure along the way can leave a text change
+        /// untracked. Tags the merge had to replace to line the two targets up
+        /// are the one deliberate exception, counted in
+        /// <paramref name="tagsReplaced"/>.</para>
+        ///
+        /// <para><paramref name="revisionMode"/> says how the write was recorded:
+        /// "word" (word-level revisions, possibly none), "tag-only" (only tags
+        /// changed, so no revision at all) or "whole-segment".</para>
         /// </summary>
         private Core.TrackingSuspension WriteAsTrackedChanges(
-            ISegmentPair sp, ISegment targetBefore, out string note)
+            ISegmentPair sp, ISegment targetBefore, bool tagRevisionsBefore,
+            out string note, out string revisionMode, out int tagsReplaced)
         {
             note = null;
+            revisionMode = "whole-segment";
+            tagsReplaced = 0;
+            if (tagRevisionsBefore)
+            {
+                note = "tracked as a whole-segment change (the segment already carries tracked changes).";
+                return null;
+            }
+
             var factory = CreateDocumentItemFactory();
             var props = factory?.PropertiesFactory;
             if (props == null)
@@ -2540,7 +2525,8 @@ namespace Supervertaler.Trados
             del.Author = author;
             del.Date = now;
 
-            var refusal = Core.TrackedTargetMerge.TryMerge(targetBefore, sp.Target, factory, ins, del);
+            var refusal = Core.TrackedTargetMerge.TryMerge(targetBefore, sp.Target, factory, ins, del,
+                out var replaced, out var textRevised);
             if (refusal != null)
             {
                 note = "tracked as a whole-segment change (" + refusal + ").";
@@ -2569,51 +2555,9 @@ namespace Supervertaler.Trados
                 suspension.Dispose();
                 throw;
             }
+            revisionMode = !textRevised && replaced > 0 ? "tag-only" : "word";
+            tagsReplaced = replaced;
             return suspension;
-        }
-
-        private static List<string> CollectTagIds(IAbstractMarkupDataContainer container)
-        {
-            if (container == null) return null;
-            var ids = new List<string>();
-            CollectTagIdsInto(container, ids);
-            return ids;
-        }
-
-        private static void CollectTagIdsInto(IAbstractMarkupDataContainer container, List<string> ids)
-        {
-            foreach (var item in container)
-            {
-                if (item is ITagPair pair)
-                {
-                    var id = SafeTagId(pair.StartTagProperties);
-                    if (id != null) ids.Add(id);
-                    CollectTagIdsInto(pair, ids);
-                }
-                else if (item is IPlaceholderTag ph)
-                {
-                    var id = SafeTagId(ph.Properties);
-                    if (id != null) ids.Add(id);
-                }
-                else if (item is IAbstractMarkupDataContainer nested)
-                {
-                    CollectTagIdsInto(nested, ids);
-                }
-            }
-        }
-
-        /// <summary>The underlying Trados tag id, or null when it is blank.</summary>
-        /// <remarks>
-        /// Typed rather than reflective on purpose. Reflection here would degrade to
-        /// "no audit" if the SDK ever moved TagId — that is, the check would go quiet
-        /// and keep reporting success, which is the one failure mode a checker must
-        /// not have. A compile error is the loud, cheap alternative.
-        /// </remarks>
-        private static string SafeTagId(
-            Sdl.FileTypeSupport.Framework.NativeApi.IAbstractTagProperties tagProperties)
-        {
-            var id = tagProperties?.TagId.Id;
-            return string.IsNullOrEmpty(id) ? null : id;
         }
 
         /// <summary>Document the pu→file map was last built for. The map itself
@@ -2765,8 +2709,8 @@ namespace Supervertaler.Trados
                             ?? Sdl.Core.Globalization.ConfirmationLevel.Unspecified).ToString(),
                         SourceTagCount = sourceSer.TagMap?.Count ?? 0,
                         TargetTagCount = targetSer?.TagMap?.Count ?? 0,
-                        SourceTagIds = CollectTagIds(pair.Source),
-                        TargetTagIds = pair.Target != null ? CollectTagIds(pair.Target) : null,
+                        SourceTagIds = Core.TagIdAudit.CollectTagIds(pair.Source),
+                        TargetTagIds = pair.Target != null ? Core.TagIdAudit.CollectTagIds(pair.Target) : null,
                         MatchPercent = BridgeReadMatchPercent(pair),
                         IsLocked = pair.Properties?.IsLocked == true,
                         FileName = fileName
@@ -3535,7 +3479,7 @@ namespace Supervertaler.Trados
                     // stopped at counts, which is how a whole band of corrupt
                     // segments on a real job passed check_tags while failing
                     // verification.
-                    var idMismatch = DescribeTagIdListMismatch(s.SourceTagIds, s.TargetTagIds);
+                    var idMismatch = Core.TagIdAudit.DescribeListMismatch(s.SourceTagIds, s.TargetTagIds);
                     if (idMismatch != null)
                         AddIssue(s, idMismatch +
                             ". Re-send this segment with update_segments, copying the tag markers from its SOURCE field, to repair it");

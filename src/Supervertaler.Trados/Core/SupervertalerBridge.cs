@@ -1422,6 +1422,18 @@ namespace Supervertaler.Trados.Core
         /// was written — but the segment needs attention.</summary>
         [DataMember(Name = "warning", Order = 3, EmitDefaultValue = false)] public string Warning { get; set; }
 
+        /// <summary>#138: with Track Changes on, how the write was recorded -
+        /// "word" (only the changed words, which may be none), "tag-only" (only
+        /// inline tags changed, replaced without a revision, so nothing shows as
+        /// changed) or "whole-segment" (the warning says why). Absent when
+        /// Track Changes was off or no target was written.</summary>
+        [DataMember(Name = "revisionMode", Order = 4, EmitDefaultValue = false)] public string RevisionMode { get; set; }
+
+        /// <summary>With Track Changes on: how many inline tags were replaced,
+        /// added or removed without a revision mark to match what was sent (a
+        /// tag pair counts once). Absent when none were.</summary>
+        [DataMember(Name = "tagsReplaced", Order = 5, EmitDefaultValue = false)] public int TagsReplaced { get; set; }
+
         /// <summary>updateTm only: the translation-memory outcome for this segment.</summary>
         [DataMember(Name = "tm", Order = 30, EmitDefaultValue = false)] public BridgeTmWrite Tm { get; set; }
     }
