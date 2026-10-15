@@ -362,7 +362,8 @@ namespace Supervertaler.Trados.Settings
         /// <summary>
         /// When enabled, SuperMemory knowledge base articles (client profiles,
         /// domain knowledge, style guides, terminology reasoning) are automatically
-        /// loaded and included in the AI context for translations and chat.
+        /// loaded and included in the AI context for translations, Proofread and
+        /// chat. Proofread has no switch of its own: it follows this one.
         ///
         /// Defaults to <c>false</c>. SuperMemory is a power-user feature that
         /// most translators should opt into deliberately: the simpler workflow

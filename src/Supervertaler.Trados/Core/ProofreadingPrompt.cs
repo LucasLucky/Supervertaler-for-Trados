@@ -15,17 +15,22 @@ namespace Supervertaler.Trados.Core
     {
         /// <summary>
         /// Builds the full system prompt for proofreading by composing:
-        /// Base proofreading instructions -> Language-specific checks -> Termbase -> Custom prompt.
+        /// Base proofreading instructions -> Language-specific checks -> Termbase -> Custom prompt
+        /// -> SuperMemory -> Document -> Output contract.
         /// </summary>
         /// <param name="sourceLang">Source language display name</param>
         /// <param name="targetLang">Target language display name</param>
         /// <param name="terms">Optional termbase terms to check against</param>
         /// <param name="customPromptContent">Optional custom prompt content (already variable-substituted)</param>
+        /// <param name="kbContext">Optional SuperMemory block, as Batch Translate sends it
+        /// (<see cref="TranslationBankContext"/>); null or blank sends none</param>
         public static string BuildSystemPrompt(string sourceLang, string targetLang,
             List<TermEntry> terms = null, string customPromptContent = null,
             List<(string source, string target)> documentSegments = null,
-            bool includeTermMetadata = true)
+            bool includeTermMetadata = true,
+            string kbContext = null)
         {
+            var hasBank = !string.IsNullOrWhiteSpace(kbContext);
             var sb = new StringBuilder(4096);
 
             // Persona and task
@@ -56,6 +61,18 @@ namespace Supervertaler.Trados.Core
             sb.AppendLine("- Answer in the format set out in the OUTPUT CONTRACT at the end of these instructions.");
             sb.AppendLine("- Be concise but specific in your descriptions.");
             sb.AppendLine("- Do NOT flag stylistic preferences unless they are clear errors.");
+
+            // How a proofreader treats the memory bank: as the client's instructions,
+            // which the translation is checked AGAINST, the way it is checked against
+            // the termbase. A departure from a rule there is an error even where it
+            // would otherwise pass as style - the rule above this one would let it
+            // through - because the client or the translator decided it. The Issue
+            // line names the rule, so the translator can find it and judge it. And a
+            // point the bank says nothing about is not an error on the bank's
+            // account: without that, a model reads a silent bank as a rule broken.
+            if (hasBank)
+                sb.AppendLine("- The # SUPERMEMORY section below holds the client's decisions and the translator's standing rules for this work. Check every translation against it as you do against the termbase: a translation that departs from a rule, term decision or style instruction there is an ISSUE even where it would otherwise pass as a matter of style. Name the rule it breaks in the Issue line. Where the memory bank says nothing about a point, it gives no grounds for an issue.");
+
             sb.AppendLine("- Segment numbers in your verdicts and any Evidence citations refer to the document-absolute numbers shown in [SEGMENT XXXX] headers and in # DOCUMENT CONTENT \u2013 NOT to within-batch positions.");
 
             // Termbase injection
@@ -109,6 +126,18 @@ namespace Supervertaler.Trados.Core
                 sb.AppendLine("# CUSTOM INSTRUCTIONS");
                 sb.AppendLine();
                 sb.Append(customPromptContent);
+            }
+
+            // SuperMemory, after the custom prompt as on the translation side
+            // (TranslationPrompt.BuildSystemPrompt). In the system prompt, which is
+            // the same for every batch of a run, so the bank is read from the
+            // provider's prompt cache after the first request rather than paid for
+            // in full every time.
+            if (hasBank)
+            {
+                sb.AppendLine();
+                sb.AppendLine();
+                sb.Append(kbContext.TrimEnd());
             }
 
             // Document context – full bilingual document (source + target) with no truncation.

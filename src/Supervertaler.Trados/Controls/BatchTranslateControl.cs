@@ -839,12 +839,15 @@ namespace Supervertaler.Trados.Controls
 
         private void PopulateProofreadScopes()
         {
+            // Not persisted, so an item can go anywhere - as long as
+            // GetSelectedProofreadScope moves with it.
             _cmbScope.Items.Clear();
-            _cmbScope.Items.Add("Translated only");
-            _cmbScope.Items.Add("Translated + approved/signed-off");
-            _cmbScope.Items.Add("All segments");
-            _cmbScope.Items.Add("Filtered segments");
-            _cmbScope.Items.Add("Filtered (translated only)");
+            _cmbScope.Items.Add("Translated only");                    // 0
+            _cmbScope.Items.Add("Draft only");                         // 1 - what Batch Translate and the MCP server write
+            _cmbScope.Items.Add("Translated + approved/signed-off");   // 2
+            _cmbScope.Items.Add("All segments");                       // 3
+            _cmbScope.Items.Add("Filtered segments");                  // 4
+            _cmbScope.Items.Add("Filtered (translated only)");         // 5
             _cmbScope.SelectedIndex = 0;
         }
 
@@ -1044,6 +1047,20 @@ namespace Supervertaler.Trados.Controls
         /// </summary>
         public void UpdateSegmentCounts(int emptyCount, int totalCount, int filteredCount = -1, int notFinalizedCount = -1)
         {
+            // The two modes list different scopes at the same positions, so read the
+            // one that is showing: through GetSelectedScope, Proofread's "All segments"
+            // came out as Translate's "All unfinished segments".
+            if (_currentMode == BatchMode.Proofread)
+            {
+                var proofScope = GetSelectedProofreadScope();
+                _lblSegmentCount.Text =
+                    (proofScope == ProofreadScope.Filtered || proofScope == ProofreadScope.FilteredConfirmedOnly) && filteredCount >= 0
+                        ? $"Segments: {filteredCount} filtered / {emptyCount} empty / {totalCount} total"
+                        : $"Segments: {emptyCount} empty / {totalCount} total";
+                UpdateTranslateButton();
+                return;
+            }
+
             var scope = GetSelectedScope();
             if ((scope == BatchScope.Filtered || scope == BatchScope.FilteredEmptyOnly) && filteredCount >= 0)
                 _lblSegmentCount.Text = $"Segments: {filteredCount} filtered / {emptyCount} empty / {totalCount} total";
@@ -1257,12 +1274,14 @@ namespace Supervertaler.Trados.Controls
         /// </summary>
         public ProofreadScope GetSelectedProofreadScope()
         {
+            // By index, matching PopulateProofreadScopes.
             switch (_cmbScope.SelectedIndex)
             {
-                case 1: return ProofreadScope.TranslatedAndConfirmed;
-                case 2: return ProofreadScope.AllSegments;
-                case 3: return ProofreadScope.Filtered;
-                case 4: return ProofreadScope.FilteredConfirmedOnly;
+                case 1: return ProofreadScope.DraftOnly;
+                case 2: return ProofreadScope.TranslatedAndConfirmed;
+                case 3: return ProofreadScope.AllSegments;
+                case 4: return ProofreadScope.Filtered;
+                case 5: return ProofreadScope.FilteredConfirmedOnly;
                 default: return ProofreadScope.ConfirmedOnly;
             }
         }

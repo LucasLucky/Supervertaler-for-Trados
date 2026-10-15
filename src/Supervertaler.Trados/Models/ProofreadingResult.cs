@@ -41,5 +41,5 @@ namespace Supervertaler.Trados.Models
     }
 
     public enum BatchMode { Translate, Proofread }
-    public enum ProofreadScope { ConfirmedOnly, TranslatedAndConfirmed, AllSegments, Filtered, FilteredConfirmedOnly }
+    public enum ProofreadScope { ConfirmedOnly, TranslatedAndConfirmed, AllSegments, Filtered, FilteredConfirmedOnly, DraftOnly }
 }

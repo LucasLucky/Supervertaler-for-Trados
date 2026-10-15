@@ -551,7 +551,8 @@ namespace Supervertaler.Trados.Controls
             smTip.SetToolTip(_chkIncludeSuperMemory,
                 "When enabled, relevant SuperMemory articles (client profiles, domain\r\n" +
                 "knowledge, style guides, terminology decisions) are automatically\r\n" +
-                "loaded and included in AI prompts for translations and chat.");
+                "loaded and included in AI prompts for translations, Proofread and\r\n" +
+                "chat. Proofread checks the translations against them.");
             _chkIncludeSuperMemory.CheckedChanged += (s, ev) =>
             {
                 _chkIncludeSuperMemoryAutoPrompt.Enabled = _chkIncludeSuperMemory.Checked;

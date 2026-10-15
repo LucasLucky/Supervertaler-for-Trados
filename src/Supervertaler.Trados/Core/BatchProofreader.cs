@@ -52,7 +52,8 @@ namespace Supervertaler.Trados.Core
             int batchSize,
             CancellationToken cancellationToken,
             string customPromptContent = null,
-            List<(string source, string target)> documentSegments = null)
+            List<(string source, string target)> documentSegments = null,
+            string kbContext = null)
         {
             var sw = Stopwatch.StartNew();
             int totalChecked = 0;
@@ -69,13 +70,14 @@ namespace Supervertaler.Trados.Core
             }
 
             // Build system prompt with full bilingual document context (no truncation –
-            // proofreading specifically benefits from cross-document consistency checks).
+            // proofreading specifically benefits from cross-document consistency checks)
+            // and the memory bank, which the translation is checked against.
             var includeDoc = aiSettings?.IncludeDocumentContext != false;
             var includeTermMeta = aiSettings?.IncludeTermMetadata != false;
             var systemPrompt = ProofreadingPrompt.BuildSystemPrompt(
                 sourceLang, targetLang, termbaseTerms, customPromptContent,
                 includeDoc ? documentSegments : null,
-                includeTermMeta);
+                includeTermMeta, kbContext);
 
             // Resolve provider settings
             var provider = aiSettings.SelectedProvider ?? LlmModels.ProviderOpenAi;
@@ -128,25 +130,11 @@ namespace Supervertaler.Trados.Core
                     {
                         var batchSw = Stopwatch.StartNew();
 
-                        // Build numbered segment list for prompt – use absolute document
-                        // segment numbers (segments[i].Index + 1) so the model can cite them
-                        // against the same numbers in # DOCUMENT CONTENT.
-                        var promptSegments = new List<(int number, string source, string target)>();
-                        for (int i = startIdx; i < endIdx; i++)
-                        {
-                            promptSegments.Add((
-                                number: segments[i].Index + 1, // absolute document position, 1-based
-                                source: segments[i].SourceText,
-                                target: segments[i].ExistingTarget
-                            ));
-                        }
-
-                        // Build user prompt
-                        var userPrompt = ProofreadingPrompt.BuildBatchUserPrompt(promptSegments);
+                        var userPrompt = UserPromptFor(segments, startIdx, endIdx);
 
                         // Call LLM. enablePromptCaching: the system prompt (instructions + termbase +
-                        // bilingual document context) is byte-stable across all batches in this proofread
-                        // run. Anthropic and OpenRouter→Anthropic add explicit cache_control markers;
+                        // memory bank + bilingual document context) is byte-stable across all batches
+                        // in this proofread run. Anthropic and OpenRouter→Anthropic add explicit cache_control markers;
                         // OpenAI/DeepSeek/Gemini 2.5+ benefit from implicit automatic caching.
                         var response = await client.SendPromptAsync(
                             userPrompt, systemPrompt, maxTokens, cancellationToken,
@@ -255,6 +243,27 @@ namespace Supervertaler.Trados.Core
                 Elapsed = sw.Elapsed,
                 Cancelled = cancellationToken.IsCancellationRequested
             });
+        }
+
+        /// <summary>
+        /// The user prompt for the batch of <paramref name="segments"/> from
+        /// <paramref name="startIdx"/> up to <paramref name="endIdx"/>. Internal so
+        /// Preview prompt builds it through the same function the run does.
+        /// Segments carry their absolute document numbers (Index + 1), so the model
+        /// can cite them against the same numbers in # DOCUMENT CONTENT.
+        /// </summary>
+        internal static string UserPromptFor(IList<BatchSegment> segments, int startIdx, int endIdx)
+        {
+            var promptSegments = new List<(int number, string source, string target)>(endIdx - startIdx);
+            for (int i = startIdx; i < endIdx; i++)
+            {
+                promptSegments.Add((
+                    number: segments[i].Index + 1, // absolute document position, 1-based
+                    source: segments[i].SourceText,
+                    target: segments[i].ExistingTarget
+                ));
+            }
+            return ProofreadingPrompt.BuildBatchUserPrompt(promptSegments);
         }
 
         private void RaiseProgress(int current, int total, string message,

@@ -12219,10 +12219,48 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         ? CollectBilingualDocumentContext()
                         : null;
 
-                    promptText = ClipboardRelay.FormatForProofreading(
-                        segments, sourceLang, targetLang,
-                        customPromptContent, termbaseTerms, customSystemPrompt,
-                        bilingualDocSegments, includeTermMeta);
+                    if (batchControl.IsClipboardMode)
+                    {
+                        // What Copy to Clipboard copies. No memory bank: Clipboard Mode
+                        // sends none for a translation either.
+                        promptText = ClipboardRelay.FormatForProofreading(
+                            segments, sourceLang, targetLang,
+                            customPromptContent, termbaseTerms, customSystemPrompt,
+                            bilingualDocSegments, includeTermMeta);
+                    }
+                    else
+                    {
+                        // The API path, through the run's own functions. This preview
+                        // used to show the Clipboard Mode text here too, which has no
+                        // memory bank and the whole scope in one message - not what a
+                        // run sends. The bank block is the run's (and is made here when
+                        // the preview comes first; the run reuses it).
+                        var kbContext = KbBlockNow(KbContextForTranslation(
+                            GetProjectName(), sourceLang, targetLang));
+
+                        var proofSystemPrompt = ProofreadingPrompt.BuildSystemPrompt(
+                            sourceLang, targetLang, termbaseTerms, customPromptContent,
+                            bilingualDocSegments, includeTermMeta, kbContext);
+
+                        var batchSize = aiSettings != null && aiSettings.BatchSize > 0
+                            ? aiSettings.BatchSize : 20;
+                        var previewCount = Math.Min(batchSize, segments.Count);
+
+                        promptText = proofSystemPrompt
+                            + Environment.NewLine + Environment.NewLine
+                            + "════════ USER MESSAGE ════════"
+                            + Environment.NewLine + Environment.NewLine
+                            + BatchProofreader.UserPromptFor(segments, 0, previewCount);
+
+                        if (segments.Count > previewCount)
+                        {
+                            promptText += Environment.NewLine + Environment.NewLine
+                                + "(" + segments.Count + " segments are in scope; this is the "
+                                + "first request of " + ((segments.Count + batchSize - 1) / batchSize)
+                                + ", carrying " + previewCount + " of them. The system prompt above "
+                                + "is identical in every request.)";
+                        }
+                    }
                 }
                 else
                 {
@@ -12343,7 +12381,8 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
 
             var headerText = scopeNote +
                 "This is exactly what will be sent to the AI: the assembled system prompt " +
-                "(including the active custom prompt, termbase entries, language-specific " +
+                "(including the active custom prompt, termbase entries, the memory bank when " +
+                "SuperMemory is on and you are not in Clipboard Mode, language-specific " +
                 "checks, and the full bilingual document context for proofread), followed by " +
                 "the numbered segment list. No LLM call is made by this preview.";
 
@@ -12718,7 +12757,9 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 int batchSize = aiSettings.BatchSize > 0 ? aiSettings.BatchSize : 20;
 
                 // Initialize the report
-                _currentReport = new ProofreadingReport();
+                var previousReport = _currentReport;
+                var report = new ProofreadingReport();
+                _currentReport = report;
 
                 // Start proofreading
                 batchControl.SetRunning(true);
@@ -12727,35 +12768,79 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     $"batch size={batchSize}" +
                     (docSegments != null ? $", bilingual context: {docSegments.Count} segments" : ", no document context"));
 
-                _proofreadCts = new CancellationTokenSource();
-                _batchProofreader = new BatchProofreader();
+                // SuperMemory: the block Batch Translate sends for this document, and the
+                // same cached task, so a document already translated reuses its bank
+                // selection byte for byte. A large bank not yet selected for it is
+                // selected in the background and awaited in the run below. The settings
+                // that switch SuperMemory off, the token budget and the audience:
+                // assistant exclusions all apply, as they do for a translation.
+                var kbTask = KbContextForTranslation(GetProjectName(), sourceLang, targetLang);
 
-                _batchProofreader.Progress += OnBatchProgress;
-                _batchProofreader.SegmentProofread += OnProofreadSegmentResult;
-                _batchProofreader.Completed += OnProofreadCompleted;
+                _proofreadCts = new CancellationTokenSource();
+                var proofreader = new BatchProofreader();
+                _batchProofreader = proofreader;
+
+                proofreader.Progress += OnBatchProgress;
+                proofreader.SegmentProofread += OnProofreadSegmentResult;
+                proofreader.Completed += OnProofreadCompleted;
 
                 var ct = _proofreadCts.Token;
+
+                // A run that ends before ProofreadAsync could raise Completed - Stop
+                // pressed while the bank was being selected, or a failure before the
+                // first batch - has to do what Completed does: reset the panel and let go
+                // of the proofreader. Nothing was checked, so the report the Reports tab
+                // shows (and Save report saves) stays the previous run's.
+                void EndEarly(string message, bool isError) => SafeInvoke(() =>
+                {
+                    if (ReleaseBatchProofreader(proofreader) && ReferenceEquals(_currentReport, report))
+                        _currentReport = previousReport;
+                    batchControl.AppendLog(message, isError);
+                    batchControl.SetRunning(false);
+                });
 
                 Task.Run(async () =>
                 {
                     try
                     {
-                        await _batchProofreader.ProofreadAsync(
+                        var kbContext = await AwaitKbForTranslation(kbTask, ct, batchControl, alwaysReport: true);
+
+                        await proofreader.ProofreadAsync(
                             segments, sourceLang, targetLang,
                             aiSettings, termbaseTerms, batchSize, ct,
                             customPromptContent,
-                            docSegments);
+                            docSegments, kbContext);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        EndEarly("Cancelled.", false);
                     }
                     catch (Exception ex)
                     {
-                        SafeInvoke(() =>
-                        {
-                            batchControl.AppendLog($"Unexpected error: {ex.Message}", true);
-                            batchControl.SetRunning(false);
-                        });
+                        EndEarly($"Unexpected error: {ex.Message}", true);
                     }
                 });
             });
+        }
+
+        /// <summary>
+        /// Lets go of a run's proofreader the way <see cref="OnProofreadCompleted"/>
+        /// does, for a run that ended before the proofreader could raise Completed.
+        /// Only this run's proofreader: a newer run's, or one Completed already let go
+        /// of, is left alone, and false is returned. UI thread.
+        /// </summary>
+        private bool ReleaseBatchProofreader(BatchProofreader proofreader)
+        {
+            if (proofreader == null || !ReferenceEquals(_batchProofreader, proofreader)) return false;
+
+            proofreader.Progress -= OnBatchProgress;
+            proofreader.SegmentProofread -= OnProofreadSegmentResult;
+            proofreader.Completed -= OnProofreadCompleted;
+            _batchProofreader = null;
+
+            _proofreadCts?.Dispose();
+            _proofreadCts = null;
+            return true;
         }
 
         private void OnProofreadSegmentResult(object sender, ProofreadSegmentEventArgs e)
@@ -13169,6 +13254,11 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         case ProofreadScope.FilteredConfirmedOnly:
                             // "Translated only" – segments at exactly Translated status
                             include = confirmLevel == Sdl.Core.Globalization.ConfirmationLevel.Translated;
+                            break;
+                        case ProofreadScope.DraftOnly:
+                            // "Draft only" – the status Batch Translate and the MCP server
+                            // write AI output in, so the AI's drafts can be checked as such
+                            include = confirmLevel == Sdl.Core.Globalization.ConfirmationLevel.Draft;
                             break;
                         case ProofreadScope.TranslatedAndConfirmed:
                             // "Translated + Approved" – Translated, Approved, and Signed-off
