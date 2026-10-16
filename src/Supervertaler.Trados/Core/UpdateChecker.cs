@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
 using System.Reflection;
@@ -50,11 +51,14 @@ namespace Supervertaler.Trados.Core
 
         /// <summary>
         /// Checks the RWS AppStore for a newer published version. Returns
-        /// (newVersion, releaseNotesUrl, pluginDownloadUrl) if an update is
-        /// available, or null if the user is up to date or the check fails.
-        /// A 24-hour local cache avoids hammering the API across sessions.
+        /// (newVersion, releaseNotesUrl, pluginDownloadUrl, signedCopy) if an
+        /// update is available, or null if the user is up to date or the check
+        /// fails. signedCopy means the App Store holds the version that is
+        /// already running, and the running copy is an unsigned one (see
+        /// <see cref="Classify"/>). A 24-hour local cache avoids hammering the
+        /// API across sessions.
         /// </summary>
-        public static async Task<(string version, string url, string pluginUrl)?> CheckForUpdateAsync(
+        public static async Task<(string version, string url, string pluginUrl, bool signedCopy)?> CheckForUpdateAsync(
             TermLensSettings settings = null)
         {
             settings = settings ?? SettingsService.Current;
@@ -112,7 +116,14 @@ namespace Supervertaler.Trados.Core
             }
             if (bestTag == null) return null;
 
-            if (CompareVersions(bestTag, currentVersion) <= 0) return null;
+            // The package is opened only when the versions are equal, so an
+            // ordinary start, with the App Store behind or level and signed,
+            // never reads it.
+            bool? runningSigned = CompareVersions(bestTag, currentVersion) == 0
+                ? IsSignedPackage(RunningInstall()?.PackagePath)
+                : null;
+            var kind = Classify(bestTag, currentVersion, runningSigned);
+            if (kind == UpdateKind.None) return null;
 
             if (string.Equals(settings.SkippedUpdateVersion, bestTag, StringComparison.OrdinalIgnoreCase))
                 return null;
@@ -126,7 +137,63 @@ namespace Supervertaler.Trados.Core
             var releaseUrl = string.Format(ReleaseNotesUrlFormat, bestTag);
             var pluginUrl = ToHttps(bestDownloadUrl);
 
-            return (bestTag, releaseUrl, pluginUrl);
+            return (bestTag, releaseUrl, pluginUrl, kind == UpdateKind.SignedCopy);
+        }
+
+        internal enum UpdateKind { None, Newer, SignedCopy }
+
+        /// <summary>
+        /// What the App Store's best version for this Studio means for the running
+        /// copy. Newer: the ordinary update. SignedCopy: the same version, while the
+        /// running copy is unsigned - a build handed to the user before RWS approved
+        /// it. Without this the user stayed on that unsigned copy, with Studio's
+        /// unsigned-plug-in warning at every start, until the NEXT release, because
+        /// an equal version was never offered. Installing it writes over the
+        /// package this copy runs from (ShowUpdateDialog), so it also cannot leave
+        /// a second copy beside it. Unknown signing (null) offers nothing.
+        /// Development builds stay clear of this because the version is bumped
+        /// straight after each release (CLAUDE.md, release channels), so they are
+        /// always ahead of the App Store.
+        /// </summary>
+        internal static UpdateKind Classify(string bestTag, string currentVersion, bool? runningSigned)
+        {
+            if (string.IsNullOrEmpty(bestTag) || string.IsNullOrEmpty(currentVersion))
+                return UpdateKind.None;
+            var c = CompareVersions(bestTag, currentVersion);
+            if (c > 0) return UpdateKind.Newer;
+            if (c == 0 && runningSigned == false) return UpdateKind.SignedCopy;
+            return UpdateKind.None;
+        }
+
+        // Where an OPC package keeps its signature. RWS signs every build it
+        // publishes this way (an origin part, its .rels and one .psdsxs under
+        // xml-signature/); package_plugin.py, and so build.sh, adds none.
+        private const string SignaturePartPrefix = "package/services/digital-signature/xml-signature/";
+
+        /// <summary>
+        /// Whether a .sdlplugin carries a package signature, as every build the
+        /// RWS App Store publishes does. Presence only: Studio checks the signature
+        /// itself, and the question here is just "App Store file or not". Null when
+        /// the file is missing or cannot be read.
+        /// </summary>
+        internal static bool? IsSignedPackage(string sdlpluginPath)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(sdlpluginPath) || !File.Exists(sdlpluginPath))
+                    return null;
+                using (var stream = new FileStream(sdlpluginPath, FileMode.Open, FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete))
+                using (var zip = new ZipArchive(stream, ZipArchiveMode.Read))
+                {
+                    return zip.Entries.Any(e =>
+                        e.FullName.StartsWith(SignaturePartPrefix, StringComparison.OrdinalIgnoreCase));
+                }
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>
@@ -345,10 +412,15 @@ namespace Supervertaler.Trados.Core
 
         // --- Cache -----------------------------------------------------------
 
-        private static string CacheFilePath =>
+        // Machine-local, and NOT in %LocalAppData%\Supervertaler.Trados: that is the
+        // pre-unification data folder, which UserDataPath.CleanupLegacyFolders
+        // deletes at every Studio start once it has been migrated. The cache lived
+        // there until 201, so it never outlived a restart and every start fetched
+        // the catalogue again. %LocalAppData%\Supervertaler is left alone.
+        internal static string CacheFilePath =>
             Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Supervertaler.Trados", "appstore_cache.json");
+                "Supervertaler", "trados-appstore-cache.json");
 
         private static CachedEntry LoadCachedEntry()
         {

@@ -7,6 +7,12 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.201 / 19.20.201] – Unreleased
+
+### Fixed
+- **A copy of Supervertaler installed before RWS approved it is now offered the signed App Store copy.** A build sent to you ahead of its App Store release is not signed by RWS, so Trados Studio warns about an unsigned plug-in every time it starts, and until now nothing told you when the signed copy of that same version came out: you stayed on the early copy until the next release. Once the App Store has the version you are running, the update notice now offers its signed copy, and **Install Update** puts it in place of the early copy, so the warning goes. A copy installed from the App Store is not affected. Early copies are also now named as the App Store names its own, so installing from the App Store later replaces an early copy instead of loading the plugin twice, which stopped Trados Studio from starting.
+- **Supervertaler checks the App Store for updates at most once a day, as intended.** It kept the answer for 24 hours in a folder it also cleared at every start, so in practice it asked the App Store again every time Trados Studio started.
+
 ## [18.20.200 / 19.20.200] – 2026-10-16
 
 ### Added

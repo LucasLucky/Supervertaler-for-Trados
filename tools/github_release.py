@@ -57,9 +57,9 @@ MCPB_NAME = "Supervertaler-MCP-Server.mcpb"
 # extension format - ChatGPT desktop and friends.
 MCPB_EXE_ZIP = "Supervertaler-MCP-Server-exe.zip"
 
-# (sdlplugin filename in dist/, zip asset name, human label). The .sdlplugin names are
-# load-bearing — they must match the manifest PlugInName — so they are never renamed; the
-# zip carries them verbatim.
+# (sdlplugin filename in dist/, zip asset name, human label). The dist/ names are
+# load-bearing for build.sh, appstore_release.py and the App Store upload, so they are
+# never renamed there.
 PLUGINS = [
     ("Supervertaler for Trados.sdlplugin",
      "Supervertaler-for-Trados-Studio-2024.zip",
@@ -216,6 +216,16 @@ def build_mcpb(version):
     return [mcpb_path, exe_zip]
 
 
+# The name of the .sdlplugin INSIDE every zip, whichever Studio it is for: the name
+# the RWS App Store serves each build under. Studio unpacks a package into
+# Unpacked/<file name>/, so a zip handed to a user before App Store approval must
+# carry this name. Under build.sh's "(Studio 2026)" or "(Studio 2022)" name it
+# would land BESIDE an App Store install of the same Studio - before or after it -
+# and two packages declaring PlugInName "Supervertaler for Trados" is the startup
+# crash in the 20.34 changelog. Each zip holds one Studio's build, so they cannot clash.
+HANDOFF_SDL_NAME = "Supervertaler for Trados.sdlplugin"
+
+
 def make_zips():
     """(Re)create the release zips in dist/, one per build found there. Returns the list of zip paths."""
     paths = []
@@ -226,8 +236,8 @@ def make_zips():
             print(f"  WARNING: {sdl_name} not found in dist/ — skipping {zip_name} (run bash build.sh first)")
             continue
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            zf.write(sdl_path, arcname=sdl_name)  # arcname preserves the exact, load-bearing name
-        print(f"  Zipped: {zip_name}  (contains '{sdl_name}')")
+            zf.write(sdl_path, arcname=HANDOFF_SDL_NAME)
+        print(f"  Zipped: {zip_name}  (contains '{HANDOFF_SDL_NAME}', from '{sdl_name}')")
         paths.append(zip_path)
     return paths
 

@@ -230,7 +230,8 @@ namespace Supervertaler.Trados
                     // to Studio's window so it can't open behind it, and holds it
                     // back until any other notice is off the screen (issue #54).
                     Core.StartupNotices.Enqueue(ctrl, "update", owner =>
-                        ShowUpdateDialog(update.Value.version, update.Value.url, update.Value.pluginUrl, owner));
+                        ShowUpdateDialog(update.Value.version, update.Value.url, update.Value.pluginUrl, owner,
+                            update.Value.signedCopy));
                 }
                 catch
                 {
@@ -5004,8 +5005,11 @@ namespace Supervertaler.Trados
             catch { return "unknown"; }
         }
 
+        /// <param name="signedCopy">The App Store holds the version already running,
+        /// and this copy is unsigned (UpdateChecker.Classify): offered as the signed
+        /// copy rather than as a new version. Installing works the same way.</param>
         private void ShowUpdateDialog(string newVersion, string releaseUrl, string pluginDownloadUrl,
-            IWin32Window owner = null)
+            IWin32Window owner = null, bool signedCopy = false)
         {
             var currentVersion = UpdateChecker.GetCurrentVersion();
             // Installs in place of the package this copy was unpacked from - the
@@ -5015,7 +5019,7 @@ namespace Supervertaler.Trados
 
             using (var form = new Form())
             {
-                form.Text = "Update Available";
+                form.Text = signedCopy ? "Signed Copy Available" : "Update Available";
                 form.FormBorderStyle = FormBorderStyle.FixedDialog;
                 form.StartPosition = FormStartPosition.CenterScreen;
                 form.MaximizeBox = false;
@@ -5025,9 +5029,13 @@ namespace Supervertaler.Trados
 
                 var lbl = new Label
                 {
-                    Text = $"A new version of Supervertaler for Trados is available.\n\n" +
-                           $"Latest version:   v{newVersion}\n" +
-                           $"Your version:      v{currentVersion}",
+                    Text = signedCopy
+                        ? $"RWS has now published the signed copy of your version.\n\n" +
+                          $"Version:   v{newVersion}\n" +
+                          $"Your copy came before RWS approval and is not signed."
+                        : $"A new version of Supervertaler for Trados is available.\n\n" +
+                          $"Latest version:   v{newVersion}\n" +
+                          $"Your version:      v{currentVersion}",
                     Location = new System.Drawing.Point(16, 16),
                     Size = new System.Drawing.Size(400, 80),
                     AutoSize = false
@@ -5077,7 +5085,8 @@ namespace Supervertaler.Trados
                     Text = "What's new since your version?",
                     Location = new System.Drawing.Point(16, 140),
                     Size = new System.Drawing.Size(400, 18),
-                    AutoSize = false
+                    AutoSize = false,
+                    Visible = !signedCopy   // the same version: nothing is new
                 };
                 lnkNotes.LinkClicked += (s, ev) =>
                 {
