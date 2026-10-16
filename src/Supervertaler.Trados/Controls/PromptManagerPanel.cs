@@ -83,8 +83,13 @@ namespace Supervertaler.Trados.Controls
         private bool IsProofread(PromptTemplate prompt) =>
             prompt != null && BatchTranslateControl.CategoryBelongsTo(prompt.Category, "Proofread");
 
+        /// <summary>The prompt a run in <paramref name="prompt"/>'s mode uses, as
+        /// the batch dropdown resolves it: a prompt never chosen is the mode's
+        /// shipped default (Core/BatchPromptChoice), so that is the one ticked.</summary>
         private string ActiveFor(PromptTemplate prompt) =>
-            IsProofread(prompt) ? _activeProofreadPromptPath : _activePromptPath;
+            IsProofread(prompt)
+                ? BatchPromptChoice.Effective(_activeProofreadPromptPath, true, _library?.GetAllPrompts())
+                : BatchPromptChoice.Effective(_activePromptPath, false, _library?.GetAllPrompts());
 
         // ─── SuperMemory (read-only) ─────────────────────────────
         // A distinct Tag TYPE, not a string: OnTreeAfterSelect treats any string
@@ -2753,10 +2758,13 @@ namespace Supervertaler.Trados.Controls
             // Toggle within the prompt's own mode: a Proofread prompt is the
             // active proofreading prompt, anything else the translation one.
             var proofread = IsProofread(prompt);
-            var current = proofread ? _activeProofreadPromptPath : _activePromptPath;
+            var current = ActiveFor(prompt);
+            // Turning off the active prompt means the built-in instructions alone,
+            // stored as such: "" would bring the mode's default prompt back, so
+            // turning the default itself off would do nothing.
             var next = !string.IsNullOrEmpty(current)
                 && PromptPaths.Match(prompt.RelativePath, current) /* marker-tolerant, #100 */
-                ? "" : prompt.RelativePath;
+                ? BatchPromptChoice.BuiltInOnly : prompt.RelativePath;
             if (proofread) _activeProofreadPromptPath = next; else _activePromptPath = next;
 
             RefreshTree();

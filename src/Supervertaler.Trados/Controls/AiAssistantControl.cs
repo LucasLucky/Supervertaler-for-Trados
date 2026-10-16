@@ -238,6 +238,19 @@ namespace Supervertaler.Trados.Controls
 
             Controls.Add(_tabControl);
 
+            // ─── SuperMemory bar, above the tabs ─────────────────────
+            // The active memory bank feeds every AI feature - the chat, Batch
+            // Translate, Proofread, Translate active segment, AutoPrompt - so it
+            // sits above the tabs and stays in view on all of them. It was inside
+            // the Chat tab, where it read as a chat setting and could not be seen
+            // from Batch Operations or Reports, which made it easy to run one
+            // client's job with another client's bank (Michael, 16 Oct 2026).
+            // Built in BuildChatTab with the rest of its wiring. Docked after the
+            // tab control is added, then the tab control is brought to the front:
+            // WinForms docks the Fill control last only when it is frontmost.
+            Controls.Add(_superMemoryToolbar);
+            _tabControl.BringToFront();
+
             // ─── Settings gear button – floats at top-right ──────────
             _btnSettings = new Button
             {
@@ -289,6 +302,7 @@ namespace Supervertaler.Trados.Controls
 
             // Position buttons at top-right, and keep them there on resize
             Resize += (s, e) => PositionTopButtons();
+            _tabControl.LocationChanged += (s, e) => PositionTopButtons();   // below the SuperMemory bar
             PositionTopButtons();
         }
 
@@ -406,7 +420,7 @@ namespace Supervertaler.Trados.Controls
             };
             _contextStrip.Controls.Add(contextSep);
 
-            // ─── SuperMemory toolbar (below context strip) ─────────
+            // ─── SuperMemory toolbar (placed above the tabs, in the constructor) ─
             _superMemoryToolbar = new SuperMemoryToolbar();
             _superMemoryToolbar.ConvertLegacyRequested += (s, e) =>
                 ConvertLegacyBankRequested?.Invoke(this, EventArgs.Empty);
@@ -717,7 +731,6 @@ namespace Supervertaler.Trados.Controls
             page.Controls.Add(_chatPanel);
             page.Controls.Add(_lblThinking);
             page.Controls.Add(_inputPanel);
-            page.Controls.Add(_superMemoryToolbar);
             page.Controls.Add(_contextStrip);
 
             // Layout input controls
@@ -770,9 +783,11 @@ namespace Supervertaler.Trados.Controls
         private void PositionTopButtons()
         {
             if (_btnHelp == null || _btnSettings == null) return;
-            // Help "?" at far right, gear to its left
-            _btnHelp.Location = new Point(Width - _btnHelp.Width - 2, 1);
-            _btnSettings.Location = new Point(_btnHelp.Left - _btnSettings.Width, 1);
+            // Help "?" at far right, gear to its left - on the tab row, which
+            // starts below the SuperMemory bar.
+            var top = (_tabControl?.Top ?? 0) + 1;
+            _btnHelp.Location = new Point(Width - _btnHelp.Width - 2, top);
+            _btnSettings.Location = new Point(_btnHelp.Left - _btnSettings.Width, top);
         }
 
         private void OnHelpDropdown(object sender, EventArgs e)

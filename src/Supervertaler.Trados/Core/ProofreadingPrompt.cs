@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using Supervertaler.Core;
@@ -74,6 +75,13 @@ namespace Supervertaler.Trados.Core
                 sb.AppendLine("- The # SUPERMEMORY section below holds the client's decisions and the translator's standing rules for this work. Check every translation against it as you do against the termbase: a translation that departs from a rule, term decision or style instruction there is an ISSUE even where it would otherwise pass as a matter of style. Name the rule it breaks in the Issue line. Where the memory bank says nothing about a point, it gives no grounds for an issue.");
 
             sb.AppendLine("- Segment numbers in your verdicts and any Evidence citations refer to the document-absolute numbers shown in [SEGMENT XXXX] headers and in # DOCUMENT CONTENT \u2013 NOT to within-batch positions.");
+
+            // The batch carries each segment's inline tags (BatchProofreader,
+            // SegmentTagHandler.ToProofreadText), so that a Corrected line comes
+            // back with them and can be written into the segment. Without this the
+            // model was shown the tags only in # DOCUMENT CONTENT, and a correction
+            // of "WARNING!" would have lost the bold around it.
+            sb.AppendLine("- Segments show their inline tags as numbered placeholders: <t1>...</t1> around formatted text, <t2/> for a standalone code. A tag in a target has the number of the source tag it stands for. Tags are formatting, not words: report one only when it is missing or wraps the wrong words.");
 
             // Termbase injection
             if (terms != null && terms.Count > 0)
@@ -244,11 +252,13 @@ namespace Supervertaler.Trados.Core
         /// <param name="response">Raw AI response text</param>
         /// <param name="batchStartNumber">1-based number of the first segment in this batch</param>
         /// <param name="batchSize">Number of segments expected in this batch</param>
-        /// <returns>List of parsed results: (segmentNumber, isOk, issueDescription, suggestion)</returns>
-        public static List<(int segmentNumber, bool isOk, string issueDescription, string suggestion, string evidence)>
+        /// <returns>List of parsed results. <c>corrected</c> is the Corrected
+        /// line as written (several lines joined with LF), or null; it is read
+        /// only on an ISSUE verdict.</returns>
+        public static List<(int segmentNumber, bool isOk, string issueDescription, string suggestion, string evidence, string corrected)>
             ParseBatchResponse(string response, int batchStartNumber, int batchSize)
         {
-            var results = new List<(int, bool, string, string, string)>();
+            var results = new List<(int, bool, string, string, string, string)>();
             if (string.IsNullOrWhiteSpace(response))
                 return results;
 
@@ -264,6 +274,9 @@ namespace Supervertaler.Trados.Core
             var suggestionPattern = new Regex(@"^\s*Suggestion\s*:\s*(.+)", RegexOptions.IgnoreCase);
             // Pattern to match Evidence: line (optional \u2014 only used for issues citing other segments)
             var evidencePattern = new Regex(@"^\s*Evidence\s*:\s*(.+)", RegexOptions.IgnoreCase);
+            // The corrected translation (core OutputContract.ProofreadText). Its text
+            // starts after the colon, spaces trimmed, and may be empty on this line.
+            var correctedPattern = new Regex(@"^\s*Corrected\s*:[ \t]*(.*)$", RegexOptions.IgnoreCase);
 
             int currentNumber = -1;
             bool currentIsOk = true;
@@ -271,18 +284,41 @@ namespace Supervertaler.Trados.Core
             string currentSuggestion = null;
             string currentEvidence = null;
 
+            // The Corrected line comes last and keeps a translation's own line
+            // breaks, so the lines after it belong to it until the next segment
+            // header or a labelled line, which closes it without discarding it.
+            // Null while the verdict has none.
+            List<string> corrected = null;
+            bool correctedOpen = false;
+
+            string Corrected()
+            {
+                if (corrected == null) return null;
+                // Blank lines between this verdict and the next are not the translation's.
+                int end = corrected.Count;
+                while (end > 0 && corrected[end - 1].Trim().Length == 0) end--;
+                var text = string.Join("\n", corrected.Take(end));
+                return text.Trim().Length == 0 ? null : text;
+            }
+
+            void Flush()
+            {
+                if (currentNumber >= 0)
+                    results.Add((currentNumber, currentIsOk, currentIssue, currentSuggestion, currentEvidence,
+                        currentIsOk ? null : Corrected()));
+            }
+
             for (int i = 0; i < lines.Length; i++)
             {
-                var line = lines[i];
+                // A reply with CR LF line ends leaves a CR on every line; inside a
+                // multi-line Corrected it would be written as a hard return.
+                var line = lines[i].TrimEnd('\r');
                 var segMatch = segmentPattern.Match(line);
 
                 if (segMatch.Success)
                 {
                     // Flush previous segment if any
-                    if (currentNumber >= 0)
-                    {
-                        results.Add((currentNumber, currentIsOk, currentIssue, currentSuggestion, currentEvidence));
-                    }
+                    Flush();
 
                     currentNumber = int.Parse(segMatch.Groups[1].Value);
                     var verdict = segMatch.Groups[2].Value.Trim().ToUpperInvariant();
@@ -291,6 +327,8 @@ namespace Supervertaler.Trados.Core
                     currentIssue = null;
                     currentSuggestion = null;
                     currentEvidence = null;
+                    corrected = null;
+                    correctedOpen = false;
                 }
                 else if (currentNumber >= 0)
                 {
@@ -298,6 +336,7 @@ namespace Supervertaler.Trados.Core
                     if (issueMatch.Success)
                     {
                         currentIssue = issueMatch.Groups[1].Value.Trim();
+                        correctedOpen = false;
                         continue;
                     }
 
@@ -305,6 +344,7 @@ namespace Supervertaler.Trados.Core
                     if (evMatch.Success)
                     {
                         currentEvidence = evMatch.Groups[1].Value.Trim();
+                        correctedOpen = false;
                         continue;
                     }
 
@@ -312,15 +352,28 @@ namespace Supervertaler.Trados.Core
                     if (sugMatch.Success)
                     {
                         currentSuggestion = sugMatch.Groups[1].Value.Trim();
+                        correctedOpen = false;
+                        continue;
                     }
+
+                    var corMatch = correctedPattern.Match(line);
+                    if (corMatch.Success)
+                    {
+                        corrected = new List<string>();
+                        correctedOpen = true;
+                        if (corMatch.Groups[1].Value.Length > 0)
+                            corrected.Add(corMatch.Groups[1].Value);
+                        continue;
+                    }
+
+                    // A line of the translation the Corrected line holds.
+                    if (correctedOpen && (corrected.Count > 0 || line.Trim().Length > 0))
+                        corrected.Add(line);
                 }
             }
 
             // Flush last segment
-            if (currentNumber >= 0)
-            {
-                results.Add((currentNumber, currentIsOk, currentIssue, currentSuggestion, currentEvidence));
-            }
+            Flush();
 
             return results;
         }

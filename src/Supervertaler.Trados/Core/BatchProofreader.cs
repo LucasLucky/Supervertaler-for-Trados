@@ -146,9 +146,9 @@ namespace Supervertaler.Trados.Core
                             response, startIdx + 1, batchCount);
 
                         // Map parsed results back to segments by absolute number
-                        var resultMap = new Dictionary<int, (bool isOk, string issue, string suggestion, string evidence)>();
+                        var resultMap = new Dictionary<int, (bool isOk, string issue, string suggestion, string evidence, string corrected)>();
                         foreach (var p in parsed)
-                            resultMap[p.segmentNumber] = (p.isOk, p.issueDescription, p.suggestion, p.evidence);
+                            resultMap[p.segmentNumber] = (p.isOk, p.issueDescription, p.suggestion, p.evidence, p.corrected);
 
                         // Apply results
                         int batchIssues = 0;
@@ -183,6 +183,11 @@ namespace Supervertaler.Trados.Core
                                 proofResult.IssueDescription = result.issue;
                                 proofResult.Suggestion = result.suggestion;
                                 proofResult.Evidence = result.evidence;
+                                // What Apply on the Reports tab would write; null when
+                                // the reply gave none or it changes nothing.
+                                if (!result.isOk)
+                                    proofResult.CorrectedTarget = ProofreadCorrection.Normalise(
+                                        segments[i].ExistingTarget, result.corrected);
                             }
                             else
                             {
@@ -250,7 +255,10 @@ namespace Supervertaler.Trados.Core
         /// <paramref name="startIdx"/> up to <paramref name="endIdx"/>. Internal so
         /// Preview prompt builds it through the same function the run does.
         /// Segments carry their absolute document numbers (Index + 1), so the model
-        /// can cite them against the same numbers in # DOCUMENT CONTENT.
+        /// can cite them against the same numbers in # DOCUMENT CONTENT, and their
+        /// tags as placeholders, the target's numbered as the source's
+        /// (<see cref="SegmentTagHandler.ToProofreadText"/>), so a Corrected line
+        /// comes back with them.
         /// </summary>
         internal static string UserPromptFor(IList<BatchSegment> segments, int startIdx, int endIdx)
         {

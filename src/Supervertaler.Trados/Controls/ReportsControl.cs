@@ -17,6 +17,12 @@ namespace Supervertaler.Trados.Controls
         public string SegmentId { get; set; }
     }
 
+    /// <summary>A finding on the Reports tab, for Apply.</summary>
+    public class ProofreadIssueEventArgs : EventArgs
+    {
+        public ProofreadingIssue Issue { get; set; }
+    }
+
     /// <summary>
     /// WinForms UserControl for the Reports tab.
     /// Displays proofreading results as clickable issue cards.
@@ -37,6 +43,7 @@ namespace Supervertaler.Trados.Controls
         private Label _lblIssueCount;
         private Button _btnClear;
         private Button _btnSave;      // #105: enabled only while a proofreading report is showing
+        private Button _btnApplyAll;  // enabled while a card has a correction that can be applied; "Stop" while applying
         private Label _lblRunningCost; // item 7 (198): this session's and today's AI cost
         private readonly ToolTip _footerTip = new ToolTip();
 
@@ -53,11 +60,27 @@ namespace Supervertaler.Trados.Controls
         private int _issueCount;
         private int _checkedCount;
 
+        // The footer's own text ("Last run: ... - saved as ..."), which an Apply
+        // all summary is shown after rather than added to.
+        private string _footerBase = "";
+
+        // Apply all is running: the cards' Apply buttons are off and Apply all reads Stop.
+        private bool _applying;
+
         // Proofreading card colours
         private static readonly Color CardColor = Color.FromArgb(255, 253, 231);      // #FFFDE7
         private static readonly Color HoverColor = Color.FromArgb(255, 249, 196);
         private static readonly Color TextColor = Color.FromArgb(60, 60, 60);
         private static readonly Color SuggColor = Color.FromArgb(120, 120, 120);
+        private static readonly Color CorrColor = Color.FromArgb(46, 110, 52);        // the text Apply writes
+        private static readonly Color RefusedColor = Color.FromArgb(176, 0, 32);      // could not be applied
+        private static readonly Color NoteColor = Color.FromArgb(150, 95, 0);         // applied, with something to check
+
+        // Card fonts, shared by every card (never disposed: they live as long as Studio).
+        private static readonly Font CardBodyFont = new Font("Segoe UI", 8.5f);
+        private static readonly Font CardSegNumFont = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+        private static readonly Font CardSmallFont = new Font("Segoe UI", 8f);
+        private static readonly Font CardEvidenceFont = new Font("Segoe UI", 8f, FontStyle.Italic);
 
         // Prompt log card colours
         private static readonly Color PromptCardColor = Color.FromArgb(227, 242, 253);  // #E3F2FD
@@ -65,7 +88,6 @@ namespace Supervertaler.Trados.Controls
         private static readonly Color PromptHeaderColor = Color.FromArgb(30, 90, 160);
 
         private const int MaxPromptLogEntries = 500;
-        private int _promptLogCount;
 
         /// <summary>Fired when user clicks an issue card to navigate to that segment.</summary>
         public event EventHandler<NavigateToSegmentEventArgs> NavigateToSegmentRequested;
@@ -80,6 +102,14 @@ namespace Supervertaler.Trados.Controls
         /// <summary>An issue was ticked off (#105); the owner persists the report so the
         /// dismissal survives a restart.</summary>
         public event EventHandler IssueDismissed;
+
+        /// <summary>Apply on a card: write the finding's correction into its
+        /// segment. The owner answers with <see cref="ShowApplyOutcome"/>.</summary>
+        public event EventHandler<ProofreadIssueEventArgs> ApplyRequested;
+
+        /// <summary>Apply all in the header: every finding not ticked off - or,
+        /// while one is running, Stop.</summary>
+        public event EventHandler ApplyAllRequested;
 
         /// <summary>Gets the number of issues currently displayed.</summary>
         public int IssueCount => _issueCount;
@@ -101,7 +131,11 @@ namespace Supervertaler.Trados.Controls
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing) SessionCost.Changed -= OnRunningCostChanged;
+            if (disposing)
+            {
+                SessionCost.Changed -= OnRunningCostChanged;
+                _refineTimer?.Dispose();
+            }
             base.Dispose(disposing);
         }
 
@@ -185,6 +219,29 @@ namespace Supervertaler.Trados.Controls
             _btnSave.Click += (s, e) => SaveReportRequested?.Invoke(this, EventArgs.Empty);
             Controls.Add(_btnSave);
 
+            // Apply all: writes every open finding's correction into its segment.
+            // Sits left of Save; enabled only while some card can be applied.
+            _btnApplyAll = new Button
+            {
+                Text = "Apply all",
+                Size = new Size(ClearButtonMinWidth, ClearButtonMinHeight),
+                Location = new Point(40, y),
+                FlatStyle = FlatStyle.Flat,
+                Font = bodyFont,
+                ForeColor = Color.FromArgb(80, 80, 80),
+                BackColor = Color.FromArgb(245, 245, 245),
+                Cursor = Cursors.Hand,
+                Enabled = false
+            };
+            _btnApplyAll.FlatAppearance.BorderColor = Color.FromArgb(200, 200, 200);
+            _btnApplyAll.FlatAppearance.MouseOverBackColor = Color.FromArgb(230, 230, 230);
+            _btnApplyAll.Click += (s, e) => ApplyAllRequested?.Invoke(this, EventArgs.Empty);
+            _footerTip.SetToolTip(_btnApplyAll,
+                "Writes the AI's correction into every segment whose card is not ticked off.\r\n" +
+                "A segment that has changed since it was checked is left alone.\r\n" +
+                "Each fixed segment is set to Draft; with Track Changes on, the fix is tracked.");
+            Controls.Add(_btnApplyAll);
+
             _lblIssueCount = new Label
             {
                 Text = "",
@@ -263,6 +320,10 @@ namespace Supervertaler.Trados.Controls
                 Text = "",
                 TextAlign = ContentAlignment.MiddleLeft,
                 AutoSize = false,
+                // One line, cut with "...": the row is shared with the cost note,
+                // and wrapped text was cut in half by the row's height instead.
+                // The tooltip carries the whole text where it matters.
+                AutoEllipsis = true,
                 Location = new Point(0, 0),
                 Padding = new Padding(12, 0, 12, 0)
             };
@@ -278,16 +339,29 @@ namespace Supervertaler.Trados.Controls
             };
             Controls.Add(_footerPanel);
 
-            // ─── Scrollable results panel (fills remaining space) ──
+            // ─── Results panel (fills remaining space) ──
+            // Not AutoScroll: it holds only the cards in view and scrolls them
+            // itself, with its own scroll bar (see "Findings: a virtual list").
             _resultsPanel = new Panel
             {
                 Location = new Point(0, y),
-                AutoScroll = true,
+                AutoScroll = false,
                 BackColor = Color.White,
                 Padding = new Padding(8, 4, 8, 4),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom
             };
             Controls.Add(_resultsPanel);
+
+            _scrollBar = new VScrollBar { Dock = DockStyle.Right, Visible = false };
+            _scrollBar.Scroll += (s, e) =>
+            {
+                _thumbTracking = e.Type == ScrollEventType.ThumbTrack;
+                if (e.NewValue == _scrollY) return;
+                _scrollY = e.NewValue;
+                Arrange();
+            };
+            _resultsPanel.Controls.Add(_scrollBar);
+            _resultsPanel.MouseWheel += OnListMouseWheel;
 
             // ─── Empty state label ────────────────────────────────
             _lblEmpty = new Label
@@ -300,6 +374,8 @@ namespace Supervertaler.Trados.Controls
                 Dock = DockStyle.Fill
             };
             _resultsPanel.Controls.Add(_lblEmpty);
+            _lblEmpty.BringToFront();
+            _resultsPanel.Resize += OnResultsPanelResize;
 
             ResumeLayout(false);
 
@@ -327,12 +403,17 @@ namespace Supervertaler.Trados.Controls
                 Math.Max(HeaderLeft, clientWidth - _btnClear.Width - HeaderSpacing),
                 HeaderTop - 2);
 
-            // Save sits immediately left of Clear (#105).
+            // Save sits immediately left of Clear (#105), Apply all left of Save.
             var leftmostButton = _btnClear.Left;
             if (_btnSave != null)
             {
                 _btnSave.Location = new Point(Math.Max(HeaderLeft, _btnClear.Left - _btnSave.Width - HeaderSpacing), _btnClear.Top);
                 leftmostButton = _btnSave.Left;
+            }
+            if (_btnApplyAll != null)
+            {
+                _btnApplyAll.Location = new Point(Math.Max(HeaderLeft, leftmostButton - _btnApplyAll.Width - HeaderSpacing), _btnClear.Top);
+                leftmostButton = _btnApplyAll.Left;
             }
 
             // Position issue count label between the title and the buttons; if the
@@ -364,14 +445,26 @@ namespace Supervertaler.Trados.Controls
                 new Size(int.MaxValue, int.MaxValue),
                 TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
 
+            // Height: what a flat button says it needs for its text. The text's own
+            // height plus a fixed padding came out 5 px short at 125% scaling, and
+            // the "p"s and "y"s of Apply all and Save report were cut off at the
+            // bottom (Michael, 16 Oct 2026). The other two buttons take this height.
             _btnClear.Size = new Size(
                 Math.Max(ClearButtonMinWidth, measured.Width + ClearButtonHorizontalPadding),
-                Math.Max(ClearButtonMinHeight, measured.Height + ClearButtonVerticalPadding));
+                Math.Max(Math.Max(ClearButtonMinHeight, measured.Height + ClearButtonVerticalPadding),
+                    _btnClear.GetPreferredSize(Size.Empty).Height));
             if (_btnSave != null)
             {
                 var m2 = TextRenderer.MeasureText(_btnSave.Text, _btnSave.Font);
                 _btnSave.Size = new Size(
                     Math.Max(ClearButtonMinWidth, m2.Width + ClearButtonHorizontalPadding),
+                    _btnClear.Height);
+            }
+            if (_btnApplyAll != null)
+            {
+                var m3 = TextRenderer.MeasureText(_btnApplyAll.Text, _btnApplyAll.Font);
+                _btnApplyAll.Size = new Size(
+                    Math.Max(ClearButtonMinWidth, m3.Width + ClearButtonHorizontalPadding),
                     _btnClear.Height);
             }
         }
@@ -397,7 +490,8 @@ namespace Supervertaler.Trados.Controls
             OnControlResize(this, EventArgs.Empty);
 
             // Update footer
-            _lblFooter.Text = $"Last run: {report.Timestamp:HH:mm:ss} \u2013 {report.Duration.TotalSeconds:F1}s";
+            _footerBase = $"Last run: {report.Timestamp:HH:mm:ss} \u2013 {report.Duration.TotalSeconds:F1}s";
+            _lblFooter.Text = _footerBase;
             _footerTip.SetToolTip(_lblFooter, "");
             if (_btnSave != null) _btnSave.Enabled = true;   // #105
 
@@ -405,6 +499,7 @@ namespace Supervertaler.Trados.Controls
             {
                 _lblEmpty.Text = "No issues found \u2013 all segments look good!";
                 _lblEmpty.Visible = true;
+                UpdateApplyAllButton();
                 return;
             }
 
@@ -415,207 +510,816 @@ namespace Supervertaler.Trados.Controls
                 UpdateIssueCountLabel();
                 _lblEmpty.Text = "All issues addressed \u2013 well done!";
                 _lblEmpty.Visible = true;
+                UpdateApplyAllButton();
                 return;
             }
-            _resultsPanel.SuspendLayout();
 
-            var bodyFont = new Font("Segoe UI", 8.5f);
-            var segNumFont = new Font("Segoe UI", 8.5f, FontStyle.Bold);
-            var suggFont = new Font("Segoe UI", 8f);
-
-            // Issues already ticked off (a restored report) count as addressed and get no card.
+            // Issues already ticked off (a restored report) count as addressed and get no row.
             _checkedCount = report.Issues.Count(i => !i.IsOk && i.Dismissed);
             if (_checkedCount > 0) UpdateIssueCountLabel();
-            int yPos = 4;
 
-            foreach (var issue in report.Issues)
+            // One row per open finding, by segment number (a stable sort: equal
+            // numbers - one per file of a merged document - keep the report's order).
+            foreach (var issue in report.Issues.Where(i => !i.IsOk && !i.Dismissed).OrderBy(i => i.SegmentNumber))
             {
-                if (issue.IsOk || issue.Dismissed) continue;
-
-                var card = new Panel
-                {
-                    Location = new Point(4, yPos),
-                    BackColor = CardColor,
-                    Cursor = Cursors.Hand,
-                    Padding = new Padding(8, 6, 8, 6),
-                    Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                    Tag = issue
-                };
-
-                // Checkbox for marking issue as addressed
-                var chk = new CheckBox
-                {
-                    AutoSize = true,
-                    Location = new Point(8, 6),
-                    BackColor = Color.Transparent,
-                    Cursor = Cursors.Hand,
-                    Tag = "chk"
-                };
-
-                // Segment number + warning icon (offset right for checkbox)
-                var lblSegNum = new Label
-                {
-                    Text = $"\u26A0 Segment {issue.SegmentNumber}",
-                    Font = segNumFont,
-                    ForeColor = TextColor,
-                    Location = new Point(26, 6),
-                    AutoSize = true
-                };
-
-                // Issue description (TextBox so users can select and copy text)
-                var txtDesc = new TextBox
-                {
-                    Text = issue.IssueDescription ?? "",
-                    Font = bodyFont,
-                    ForeColor = TextColor,
-                    BackColor = CardColor,
-                    Location = new Point(8, 24),
-                    ReadOnly = true,
-                    BorderStyle = BorderStyle.None,
-                    Multiline = true,
-                    WordWrap = true,
-                    TabStop = false,
-                    Tag = "desc"
-                };
-
-                // Evidence (if model cited specific source segments – e.g. for terminology
-                // consistency claims). Rendered between description and suggestion in italic
-                // grey so the eye reads it as "the *why* for the issue", not as an action.
-                TextBox txtEvidence = null;
-                if (!string.IsNullOrEmpty(issue.Evidence))
-                {
-                    txtEvidence = new TextBox
-                    {
-                        Text = "Evidence: " + issue.Evidence,
-                        Font = new Font("Segoe UI", 8f, FontStyle.Italic),
-                        ForeColor = SuggColor,
-                        BackColor = CardColor,
-                        Location = new Point(8, 44),
-                        ReadOnly = true,
-                        BorderStyle = BorderStyle.None,
-                        Multiline = true,
-                        WordWrap = true,
-                        TabStop = false,
-                        Tag = "evidence"
-                    };
-                }
-
-                // Suggestion (if available, also a selectable TextBox)
-                TextBox txtSugg = null;
-                if (!string.IsNullOrEmpty(issue.Suggestion))
-                {
-                    txtSugg = new TextBox
-                    {
-                        Text = "Suggestion: " + issue.Suggestion,
-                        Font = suggFont,
-                        ForeColor = SuggColor,
-                        BackColor = CardColor,
-                        Location = new Point(8, 44),
-                        ReadOnly = true,
-                        BorderStyle = BorderStyle.None,
-                        Multiline = true,
-                        WordWrap = true,
-                        TabStop = false,
-                        Tag = "sugg"
-                    };
-                }
-
-                card.Controls.Add(chk);
-                card.Controls.Add(lblSegNum);
-                card.Controls.Add(txtDesc);
-                if (txtEvidence != null)
-                    card.Controls.Add(txtEvidence);
-                if (txtSugg != null)
-                    card.Controls.Add(txtSugg);
-
-                // Right-click context menu for copying text
-                var ctxMenu = BuildIssueContextMenu(issue, txtSugg != null);
-                card.ContextMenuStrip = ctxMenu;
-                lblSegNum.ContextMenuStrip = ctxMenu;
-                txtDesc.ContextMenuStrip = ctxMenu;
-                if (txtEvidence != null)
-                    txtEvidence.ContextMenuStrip = ctxMenu;
-                if (txtSugg != null)
-                    txtSugg.ContextMenuStrip = ctxMenu;
-
-                // Checkbox toggle – change card colour and text when checked
-                var capturedCard = card;
-                var capturedSegNum = lblSegNum;
-                var capturedDesc = txtDesc;
-                var capturedSugg = txtSugg;
-                var capturedIssue = issue;
-                chk.CheckedChanged += (s, e) =>
-                {
-                    if (!chk.Checked) return;
-
-                    capturedIssue.Dismissed = true;   // #105: the report remembers
-                    try { IssueDismissed?.Invoke(this, EventArgs.Empty); } catch { }
-
-                    // Remove the card from the panel
-                    _resultsPanel.SuspendLayout();
-                    _resultsPanel.Controls.Remove(capturedCard);
-                    capturedCard.Dispose();
-
-                    // Update count
-                    _checkedCount++;
-                    UpdateIssueCountLabel();
-
-                    // Re-flow remaining cards
-                    RelayoutCards();
-                    _resultsPanel.ResumeLayout(true);
-
-                    // Show empty state if all issues addressed
-                    if (_checkedCount >= _issueCount)
-                    {
-                        _lblEmpty.Text = "All issues addressed \u2013 well done!";
-                        _lblEmpty.Visible = true;
-                    }
-                };
-
-                // Hover effect – apply to card and all children
-                // TextBox controls keep IBeam cursor for text selection;
-                // navigation on click only for non-checkbox, non-textbox controls
-                Action<Control> applyHover = null;
-                applyHover = (ctrl) =>
-                {
-                    ctrl.MouseEnter += (s, e) =>
-                    {
-                        capturedCard.BackColor = HoverColor;
-                        // Update TextBox BackColor so selected text looks right
-                        foreach (Control c in capturedCard.Controls)
-                            if (c is TextBox tb) tb.BackColor = HoverColor;
-                    };
-                    ctrl.MouseLeave += (s, e) =>
-                    {
-                        capturedCard.BackColor = CardColor;
-                        foreach (Control c in capturedCard.Controls)
-                            if (c is TextBox tb) tb.BackColor = CardColor;
-                    };
-                    // TextBox: let users select text – don't hijack click for navigation
-                    // CheckBox: has its own click handler
-                    if (!(ctrl is CheckBox) && !(ctrl is TextBox))
-                    {
-                        ctrl.Click += (s, e) => OnIssueCardClick(capturedCard.Tag as ProofreadingIssue);
-                        ctrl.Cursor = Cursors.Hand;
-                    }
-                };
-                applyHover(card);
-                foreach (Control child in card.Controls)
-                    applyHover(child);
-
-                _resultsPanel.Controls.Add(card);
-
-                // Layout the card – need to measure text height
-                LayoutCard(card, lblSegNum, txtDesc, txtEvidence, txtSugg);
-
-                yPos += card.Height + 4;
+                _rows.Add(issue);
+                _rowInfo[issue] = new RowInfo();
             }
 
-            _resultsPanel.ResumeLayout(true);
+            // Estimated heights now, exact ones for the rows in view (Arrange),
+            // the rest while Studio is idle (StartRefine).
+            EstimateAllRows(CardWidth());
+            _scrollY = 0;
+            Arrange();
+            UpdateApplyAllButton();
+            StartRefine();
+        }
 
-            // Re-layout cards on panel resize
-            _resultsPanel.Resize -= OnResultsPanelResize;
-            _resultsPanel.Resize += OnResultsPanelResize;
+        // ─── Findings: a virtual list ─────────────────────────────
+        //
+        // A report can hold thousands of findings. One card of controls per
+        // finding cost about six window handles and six GDI objects each: at
+        // 1,000 findings filling the tab took 52 seconds and 6,300 handles, and
+        // at 3,000 the process ran out of them - inside Trados Studio, Studio's
+        // own process. And Windows cannot place a control more than 32,767 pixels
+        // down, so beyond roughly 200 findings the cards piled up on top of one
+        // another. (Measured 16 Oct 2026 with .dev/reports-scale-test.ps1.)
+        //
+        // So a finding is a row of data with its height at the current width,
+        // and only the rows in view have a card. Cards come from a pool the size
+        // of the view and are bound to other rows as the list scrolls. The panel
+        // scrolls itself, with its own scroll bar, so no control is ever placed
+        // outside the view. The prompt log cards that share the panel stay real
+        // controls (at most MaxPromptLogEntries) and are placed the same way.
+        //
+        // Measuring a row exactly takes about a millisecond (TextRenderer, one
+        // wrapped text at a time, whatever device context it is given), so a
+        // report of 3,000 findings would take seconds to measure before showing
+        // anything. Rows are therefore given an estimated height from their
+        // character counts, the rows in view are measured exactly before they
+        // are shown, and the rest are measured in short slices while Studio is
+        // idle. A row above the view that changes height moves the scroll
+        // position by as much, so what is in view does not jump.
+
+        /// <summary>What a row needs besides its finding.</summary>
+        private sealed class RowInfo
+        {
+            /// <summary>The card's height: exact at <see cref="Width"/>, an
+            /// estimate while <see cref="Width"/> is -1.</summary>
+            public int Height;
+
+            /// <summary>The card width <see cref="Height"/> was measured at; -1
+            /// while it is an estimate.</summary>
+            public int Width = -1;
+
+            /// <summary><see cref="Status"/> and <see cref="CanApply"/> are worked
+            /// out (see Resolve). Until then the row has no status line, and counts
+            /// as one Apply all may be able to apply.</summary>
+            public bool Resolved;
+
+            /// <summary>The card's last line - why it cannot be applied, or what
+            /// Apply did - or null for none.</summary>
+            public string Status;
+            public Color StatusColor;
+
+            /// <summary>The card has an Apply button.</summary>
+            public bool CanApply;
+        }
+
+        private readonly List<ProofreadingIssue> _rows = new List<ProofreadingIssue>();
+        private readonly Dictionary<ProofreadingIssue, RowInfo> _rowInfo = new Dictionary<ProofreadingIssue, RowInfo>();
+
+        // _rowTops[i] is row i's top within the findings, _rowTops[_rows.Count]
+        // their total height. Rebuilt from the stored heights when stale: O(rows),
+        // nothing measured.
+        private int[] _rowTops = new int[1];
+        private bool _rowTopsStale = true;
+
+        private readonly Dictionary<ProofreadingIssue, Panel> _boundCards = new Dictionary<ProofreadingIssue, Panel>();
+        private readonly Stack<Panel> _freeCards = new Stack<Panel>();
+        private readonly List<Panel> _promptCards = new List<Panel>();   // newest first
+        private VScrollBar _scrollBar;
+        private int _scrollY;
+        private bool _binding;   // a card's tick box is being reset, not ticked
+
+        // Measures the rows still on an estimate, a slice at a time, while Studio
+        // is idle (a WinForms timer ticks only when no other message is waiting).
+        private Timer _refineTimer;
+        private const int RefineSliceMs = 25;
+
+        // The scroll bar's thumb is being dragged: the scroll position is the
+        // user's, and refining (which moves it to keep the view still) waits.
+        private bool _thumbTracking;
+
+        // The card width the rows' heights (estimated or exact) are for.
+        private int _layoutWidth = -1;
+
+        // For estimating a text's height: each card font's average character
+        // width and line height, measured once.
+        private float[] _avgCharWidth;
+        private int[] _lineHeight;
+
+        private static readonly Font PromptSmallFont = new Font("Segoe UI", 7.5f);
+        private static readonly Font MenuFont = new Font("Segoe UI", 9f);
+
+        /// <summary>Works out the row's status line and whether it can be applied
+        /// - once; an Apply outcome shown on it since is left as it is.</summary>
+        private static void Resolve(ProofreadingIssue issue, RowInfo info)
+        {
+            if (info.Resolved) return;
+            info.Resolved = true;
+            if (issue.Applied)
+            {
+                info.Status = "Applied.";
+                info.StatusColor = NoteColor;
+            }
+            else if (issue.CorrectedTarget != null)
+            {
+                var problem = ProofreadCorrection.Problem(issue.SourceText, issue.TargetText, issue.CorrectedTarget);
+                if (problem != null)
+                {
+                    info.Status = "Cannot be applied: " + problem;
+                    info.StatusColor = RefusedColor;
+                }
+                else
+                {
+                    info.CanApply = true;
+                }
+            }
+        }
+
+        /// <summary>The width every card gets: the panel's, less the scroll bar
+        /// and margins, whether the scroll bar is showing or not - so a card's
+        /// height never depends on whether the list is long enough to scroll.</summary>
+        private int CardWidth()
+        {
+            var w = _resultsPanel.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 24;
+            return w < 100 ? 300 : w;
+        }
+
+        private Graphics MeasureGraphics() =>
+            _resultsPanel.IsHandleCreated ? _resultsPanel.CreateGraphics() : Graphics.FromHwnd(IntPtr.Zero);
+
+        // ── A card's layout, in one place: measuring a row and laying out its card
+        // both go through CardBlocks, so a card is always exactly its row's height.
+
+        private const int CardTextLeft = 8;
+        private const int CardBlockGap = 2;
+        private const int CardBottomPad = 6;
+
+        private static string[] CardTexts(ProofreadingIssue issue, RowInfo info) => new[]
+        {
+            issue.IssueDescription ?? "",
+            string.IsNullOrEmpty(issue.Evidence) ? null : "Evidence: " + issue.Evidence,
+            string.IsNullOrEmpty(issue.Suggestion) ? null : "Suggestion: " + issue.Suggestion,
+            issue.CorrectedTarget == null ? null : "Correction: " + ForTextBox(issue.CorrectedTarget),
+            info.Status,
+        };
+
+        private static readonly Font[] CardFonts = { CardBodyFont, CardEvidenceFont, CardSmallFont, CardSmallFont, CardSmallFont };
+        private static readonly string[] CardTags = { "desc", "evidence", "sugg", "corr", "status" };
+
+        /// <summary>Where the texts start: under the segment number, and under
+        /// the Apply button, whether or not this card has one, so Apply coming and
+        /// going never changes a row's height.</summary>
+        private int CardHeaderBottom(IDeviceContext dc)
+        {
+            var seg = TextRenderer.MeasureText(dc, "Xg", CardSegNumFont);
+            var btn = ApplyButtonSize();
+            return Math.Max(6 + seg.Height, 3 + btn.Height) + CardBlockGap;
+        }
+
+        private Size _applyButtonSize;
+
+        /// <summary>The cards' Apply button: the size a flat button says it needs
+        /// for "Apply" - not the text measured plus a fixed padding, which came out
+        /// 5 px short at 125% and cut off the descenders (16 Oct 2026). Worked out
+        /// once, from a button that is never shown.</summary>
+        private Size ApplyButtonSize()
+        {
+            if (_applyButtonSize.IsEmpty)
+            {
+                using (var probe = new Button { Text = "Apply", Font = CardSmallFont, FlatStyle = FlatStyle.Flat })
+                    _applyButtonSize = probe.GetPreferredSize(Size.Empty);
+            }
+            return _applyButtonSize;
+        }
+
+        /// <summary>The height of each text block (0 where there is none) and of
+        /// the whole card, for a card <paramref name="cardWidth"/> wide.</summary>
+        private int CardBlocks(ProofreadingIssue issue, RowInfo info, int cardWidth, IDeviceContext dc,
+            int headerBottom, int[] heights)
+        {
+            var texts = CardTexts(issue, info);
+            int textWidth = cardWidth - 20;
+            int top = headerBottom, height = headerBottom + 4;
+            for (int b = 0; b < texts.Length; b++)
+            {
+                heights[b] = 0;
+                if (texts[b] == null) continue;
+                var size = TextRenderer.MeasureText(dc, texts[b], CardFonts[b],
+                    new Size(textWidth, int.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl);
+                heights[b] = Math.Max(16, size.Height + 4);
+                height = top + heights[b] + CardBottomPad;
+                top += heights[b] + CardBlockGap;
+            }
+            return Math.Max(40, height);
+        }
+
+        /// <summary>The row's exact height at <paramref name="cardWidth"/>
+        /// (its status worked out first: the status line is part of the card).</summary>
+        private void MeasureRow(ProofreadingIssue issue, RowInfo info, int cardWidth, IDeviceContext dc, int headerBottom)
+        {
+            Resolve(issue, info);
+            info.Height = CardBlocks(issue, info, cardWidth, dc, headerBottom, new int[CardTexts(issue, info).Length]);
+            info.Width = cardWidth;
+            _rowTopsStale = true;
+        }
+
+        /// <summary>Every row given an estimated height for <paramref name="cardWidth"/>:
+        /// milliseconds for thousands of rows, where measuring them takes seconds.</summary>
+        private void EstimateAllRows(int cardWidth)
+        {
+            _layoutWidth = cardWidth;
+            if (_rows.Count == 0) return;
+            using (var g = MeasureGraphics())
+            {
+                EnsureFontMetrics(g);
+                var header = CardHeaderBottom(g);
+                foreach (var issue in _rows)
+                {
+                    var info = _rowInfo[issue];
+                    info.Width = -1;
+                    info.Height = EstimateRow(issue, info, cardWidth, header);
+                }
+            }
+            _rowTopsStale = true;
+        }
+
+        private void EnsureFontMetrics(IDeviceContext dc)
+        {
+            if (_avgCharWidth != null) return;
+            // Text of the kind the cards hold, so the average is a fair one.
+            const string sample = "The valve is closed when the pressure exceeds 17,1 bar; use 'valve', not 'flap'. Het apparaat werkt.";
+            _avgCharWidth = new float[CardFonts.Length];
+            _lineHeight = new int[CardFonts.Length];
+            for (int b = 0; b < CardFonts.Length; b++)
+            {
+                _avgCharWidth[b] = TextRenderer.MeasureText(dc, sample, CardFonts[b]).Width / (float)sample.Length;
+                _lineHeight[b] = TextRenderer.MeasureText(dc, "Xg", CardFonts[b]).Height;
+            }
+        }
+
+        /// <summary>A card's height from its character counts: each text's lines,
+        /// each line wrapped at the average character width plus a margin for the
+        /// space word wrapping leaves at line ends. Close, not exact: an exact
+        /// height replaces it before the row is shown.</summary>
+        private int EstimateRow(ProofreadingIssue issue, RowInfo info, int cardWidth, int headerBottom)
+        {
+            var texts = CardTexts(issue, info);
+            int textWidth = Math.Max(20, cardWidth - 20);
+            int top = headerBottom, height = headerBottom + 4;
+            for (int b = 0; b < texts.Length; b++)
+            {
+                if (texts[b] == null) continue;
+                int lines = 0;
+                foreach (var line in texts[b].Split('\n'))
+                    lines += Math.Max(1, (int)Math.Ceiling(line.Length * _avgCharWidth[b] * 1.1f / textWidth));
+                int block = Math.Max(16, lines * _lineHeight[b] + 4);
+                height = top + block + CardBottomPad;
+                top += block + CardBlockGap;
+            }
+            return Math.Max(40, height);
+        }
+
+        private void EnsureRowTops()
+        {
+            if (!_rowTopsStale && _rowTops.Length == _rows.Count + 1) return;
+            if (_rowTops.Length != _rows.Count + 1) _rowTops = new int[_rows.Count + 1];
+            int y = 0;
+            for (int i = 0; i < _rows.Count; i++)
+            {
+                _rowTops[i] = y;
+                y += _rowInfo[_rows[i]].Height + 4;
+            }
+            _rowTops[_rows.Count] = y;
+            _rowTopsStale = false;
+        }
+
+        /// <summary>The first row whose bottom is below <paramref name="y"/>
+        /// (within the findings).</summary>
+        private int FirstRowAt(int y)
+        {
+            int lo = 0, hi = _rows.Count - 1, found = _rows.Count;
+            while (lo <= hi)
+            {
+                int mid = (lo + hi) / 2;
+                if (_rowTops[mid + 1] > y) { found = mid; hi = mid - 1; }
+                else lo = mid + 1;
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// Places everything for the current scroll position: the prompt log cards
+        /// (newest first), then a card for each finding in view. Cards whose row
+        /// has scrolled away go back to the pool. Cheap enough to run on every
+        /// scroll step: it measures only rows in view whose height is still an
+        /// estimate.
+        /// </summary>
+        private void Arrange()
+        {
+            if (_resultsPanel == null) return;
+            int cardWidth = CardWidth();
+            int viewHeight = Math.Max(1, _resultsPanel.ClientSize.Height);
+
+            int promptsBottom = 4;
+            foreach (var p in _promptCards) promptsBottom += p.Height + 4;
+
+            // Rows in view whose height is still an estimate: measured now, the
+            // rest by the refine timer.
+            EnsureRowTops();
+            int first = FirstRowAt(_scrollY - promptsBottom);
+            bool remeasured = false;
+            using (var g = MeasureGraphics())
+            {
+                int header = -1;
+                for (int i = first; i < _rows.Count && promptsBottom + _rowTops[i] < _scrollY + viewHeight; i++)
+                {
+                    var info = _rowInfo[_rows[i]];
+                    if (info.Width == cardWidth) continue;
+                    if (header < 0) header = CardHeaderBottom(g);
+                    MeasureRow(_rows[i], info, cardWidth, g, header);
+                    remeasured = true;
+                }
+                if (remeasured) EnsureRowTops();
+
+                int total = promptsBottom + _rowTops[_rows.Count];
+                UpdateScrollBar(total, viewHeight);
+                first = FirstRowAt(_scrollY - promptsBottom);
+
+                _resultsPanel.SuspendLayout();
+                try
+                {
+                    int y = 4;
+                    foreach (var p in _promptCards)
+                    {
+                        bool inView = y + p.Height > _scrollY && y < _scrollY + viewHeight;
+                        if (inView)
+                        {
+                            if (p.Width != cardWidth) p.Width = cardWidth;
+                            var at = new Point(4, y - _scrollY);
+                            if (p.Location != at) p.Location = at;
+                        }
+                        if (p.Visible != inView) p.Visible = inView;
+                        y += p.Height + 4;
+                    }
+
+                    // The rows to show, then cards: a card keeps its row while the
+                    // row stays in view, and only cards whose row left are reused.
+                    var inViewRows = new List<int>();
+                    for (int i = first; i < _rows.Count && promptsBottom + _rowTops[i] < _scrollY + viewHeight; i++)
+                        inViewRows.Add(i);
+                    var wanted = new HashSet<ProofreadingIssue>(inViewRows.Select(i => _rows[i]));
+                    foreach (var issue in _boundCards.Keys.Where(k => !wanted.Contains(k)).ToList())
+                        UnbindCard(issue);
+
+                    int headerBottom = -1;
+                    foreach (var i in inViewRows)
+                    {
+                        var issue = _rows[i];
+                        if (!_boundCards.TryGetValue(issue, out var card) || card.Width != cardWidth)
+                        {
+                            if (card == null) card = _freeCards.Count > 0 ? _freeCards.Pop() : MakeCard();
+                            if (headerBottom < 0) headerBottom = CardHeaderBottom(g);
+                            BindCard(card, issue, _rowInfo[issue], cardWidth, g, headerBottom);
+                            _boundCards[issue] = card;
+                        }
+                        var at = new Point(4, promptsBottom + _rowTops[i] - _scrollY);
+                        if (card.Location != at) card.Location = at;
+                        if (!card.Visible) card.Visible = true;
+                    }
+                }
+                finally
+                {
+                    _resultsPanel.ResumeLayout(false);
+                }
+            }
+        }
+
+        private void UpdateScrollBar(int total, int viewHeight)
+        {
+            int maxScroll = Math.Max(0, total - viewHeight);
+            if (_scrollY > maxScroll) _scrollY = maxScroll;
+            if (_scrollY < 0) _scrollY = 0;
+            if (maxScroll > 0)
+            {
+                // A scroll bar's Value goes up to Maximum - LargeChange + 1.
+                _scrollBar.Minimum = 0;
+                _scrollBar.Maximum = total - 1;
+                _scrollBar.LargeChange = viewHeight;
+                _scrollBar.SmallChange = Math.Max(1, CardBodyFont.Height * 3);
+                _scrollBar.Value = _scrollY;
+            }
+            if (_scrollBar.Visible != (maxScroll > 0)) _scrollBar.Visible = maxScroll > 0;
+        }
+
+        /// <summary>Scrolls the list to <paramref name="y"/> pixels from its top
+        /// (clamped).</summary>
+        private void ScrollFindingsTo(int y)
+        {
+            _scrollY = Math.Max(0, y);
+            Arrange();
+        }
+
+        private void OnListMouseWheel(object sender, MouseEventArgs e)
+        {
+            var lines = SystemInformation.MouseWheelScrollLines;
+            int step = lines < 0 ? _resultsPanel.ClientSize.Height : Math.Max(1, lines) * CardBodyFont.Height;
+            ScrollFindingsTo(_scrollY - (int)((long)e.Delta * step / 120));
+            // The read-only TextBoxes would otherwise scroll their own text.
+            if (e is HandledMouseEventArgs handled) handled.Handled = true;
+        }
+
+        private void StartRefine()
+        {
+            if (_rows.Count == 0) return;
+            if (_refineTimer == null)
+            {
+                _refineTimer = new Timer { Interval = 15 };
+                _refineTimer.Tick += OnRefineTick;
+            }
+            _refineTimer.Start();
+        }
+
+        /// <summary>
+        /// Measures rows still on an estimate for about <see cref="RefineSliceMs"/>,
+        /// top to bottom, then gives Studio the thread back. Rows above the view
+        /// that change height move the scroll position by as much, so the cards
+        /// in view stay exactly where they are; rows below only change how long
+        /// the scroll bar says the list is. Stops when every row is exact.
+        /// </summary>
+        private void OnRefineTick(object sender, EventArgs e)
+        {
+            if (_thumbTracking) return;
+            if (_rows.Count == 0 || IsDisposed) { _refineTimer.Stop(); return; }
+
+            int cardWidth = CardWidth();
+            EnsureRowTops();
+            int promptsBottom = 4;
+            foreach (var p in _promptCards) promptsBottom += p.Height + 4;
+            int anchor = FirstRowAt(_scrollY - promptsBottom);
+
+            int shift = 0;
+            bool measured = false, more = false;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            using (var g = MeasureGraphics())
+            {
+                int header = CardHeaderBottom(g);
+                for (int i = 0; i < _rows.Count; i++)
+                {
+                    var info = _rowInfo[_rows[i]];
+                    if (info.Width == cardWidth) continue;
+                    if (clock.ElapsedMilliseconds >= RefineSliceMs) { more = true; break; }
+                    int before = info.Height;
+                    MeasureRow(_rows[i], info, cardWidth, g, header);
+                    if (i < anchor) shift += info.Height - before;
+                    measured = true;
+                }
+            }
+
+            if (measured)
+            {
+                _scrollY += shift;
+                Arrange();
+                UpdateApplyAllButton();
+            }
+            if (!more) _refineTimer.Stop();
+        }
+
+        /// <summary>
+        /// A card for the pool: tick box, segment number, Apply, then a read-only
+        /// TextBox for each of the issue, evidence, suggestion, correction and
+        /// status, so the text can be selected. Made once and bound to row after
+        /// row: its handlers read the finding from the card's Tag when they run.
+        /// </summary>
+        private Panel MakeCard()
+        {
+            var card = new Panel { BackColor = CardColor, Cursor = Cursors.Hand, Visible = false };
+
+            var chk = new CheckBox
+            {
+                AutoSize = true,
+                Location = new Point(8, 6),
+                BackColor = Color.Transparent,
+                Cursor = Cursors.Hand,
+                Tag = "chk"
+            };
+            var lblSegNum = new Label
+            {
+                Font = CardSegNumFont,
+                ForeColor = TextColor,
+                Location = new Point(26, 6),
+                AutoSize = false,
+                Tag = "seg"
+            };
+            var btnApply = new Button
+            {
+                Text = "Apply",
+                Font = CardSmallFont,
+                FlatStyle = FlatStyle.Flat,
+                ForeColor = CorrColor,
+                BackColor = Color.White,
+                Cursor = Cursors.Hand,
+                Tag = "apply"
+            };
+            btnApply.FlatAppearance.BorderColor = Color.FromArgb(170, 200, 170);
+            btnApply.FlatAppearance.MouseOverBackColor = Color.FromArgb(232, 245, 233);
+            _footerTip.SetToolTip(btnApply,
+                "Write the correction into this segment. It is set to Draft; with Track Changes on, the fix is tracked.");
+
+            card.Controls.Add(chk);
+            card.Controls.Add(lblSegNum);
+            card.Controls.Add(btnApply);
+            for (int b = 0; b < CardTags.Length; b++)
+                card.Controls.Add(CardText("", CardFonts[b], b == 3 ? CorrColor : b == 0 ? TextColor : SuggColor, CardTags[b]));
+
+            // Right-click: copy the card's texts. Filled when it opens, for
+            // whichever finding the card shows then.
+            var menu = new ContextMenuStrip();
+            menu.Opening += (s, e) =>
+            {
+                var issue = card.Tag as ProofreadingIssue;
+                if (issue == null) { e.Cancel = true; return; }
+                FillIssueContextMenu(menu, issue);
+            };
+            card.ContextMenuStrip = menu;
+            card.Disposed += (s, e) => menu.Dispose();
+
+            // Tick box: the finding is dealt with, and its row goes.
+            chk.CheckedChanged += (s, e) =>
+            {
+                if (_binding || !chk.Checked) return;
+                var issue = card.Tag as ProofreadingIssue;
+                if (issue == null) return;
+                issue.Dismissed = true;   // #105: the report remembers
+                try { IssueDismissed?.Invoke(this, EventArgs.Empty); } catch { }
+                int removed = RemoveRows(new[] { issue });
+                Arrange();
+                if (removed > 0) AfterCardsRemoved();
+            };
+
+            btnApply.Click += (s, e) =>
+            {
+                if (_applying) return;
+                var issue = card.Tag as ProofreadingIssue;
+                if (issue != null) ApplyRequested?.Invoke(this, new ProofreadIssueEventArgs { Issue = issue });
+            };
+
+            WireCardControl(card, card);
+            foreach (Control child in card.Controls)
+                WireCardControl(card, child);
+
+            _resultsPanel.Controls.Add(card);
+            return card;
+        }
+
+        /// <summary>Shows <paramref name="issue"/> on <paramref name="card"/>,
+        /// laid out for <paramref name="cardWidth"/> exactly as its row was measured.</summary>
+        private void BindCard(Panel card, ProofreadingIssue issue, RowInfo info, int cardWidth,
+            IDeviceContext dc, int headerBottom)
+        {
+            var texts = CardTexts(issue, info);
+            var heights = new int[texts.Length];
+            int height = CardBlocks(issue, info, cardWidth, dc, headerBottom, heights);
+
+            card.SuspendLayout();
+            card.Tag = issue;
+            card.BackColor = CardColor;
+            card.Size = new Size(cardWidth, height);
+
+            int top = headerBottom;
+            foreach (Control c in card.Controls)
+            {
+                var tag = c.Tag as string;
+                if (c is CheckBox chk)
+                {
+                    _binding = true;
+                    try { chk.Checked = false; } finally { _binding = false; }
+                }
+                else if (tag == "seg")
+                {
+                    c.Text = "\u26A0 Segment " + issue.SegmentNumber;
+                    var m = TextRenderer.MeasureText(dc, c.Text, CardSegNumFont);
+                    c.Size = new Size(m.Width + 4, m.Height);
+                }
+                else if (tag == "apply")
+                {
+                    var b = (Button)c;
+                    b.Size = ApplyButtonSize();
+                    b.Location = new Point(Math.Max(26 + 8, cardWidth - b.Width - 8), 3);
+                    b.Enabled = !_applying;
+                    b.Visible = info.CanApply;
+                }
+            }
+
+            // The texts, in order, each under the last.
+            for (int b = 0; b < CardTags.Length; b++)
+            {
+                var tb = (TextBox)card.Controls.Cast<Control>().First(c => (c.Tag as string) == CardTags[b]);
+                tb.BackColor = CardColor;
+                if (texts[b] == null)
+                {
+                    tb.Visible = false;
+                    tb.Text = "";
+                    continue;
+                }
+                tb.Text = texts[b];
+                if (b == 4) tb.ForeColor = info.StatusColor;
+                tb.Location = new Point(CardTextLeft, top);
+                tb.Size = new Size(cardWidth - 20, heights[b]);
+                tb.Visible = true;
+                top += heights[b] + CardBlockGap;
+            }
+            card.ResumeLayout(false);
+        }
+
+        private void UnbindCard(ProofreadingIssue issue)
+        {
+            if (!_boundCards.TryGetValue(issue, out var card)) return;
+            _boundCards.Remove(issue);
+            card.Visible = false;
+            card.Tag = null;
+            _freeCards.Push(card);
+        }
+
+        /// <summary>
+        /// Hover, context menu, click-to-navigate and the mouse wheel for one
+        /// control on a card, or the card itself. TextBox controls keep the I-beam
+        /// for text selection; the tick box and Apply have their own clicks.
+        /// </summary>
+        private void WireCardControl(Panel card, Control ctrl)
+        {
+            ctrl.MouseWheel += OnListMouseWheel;
+            ctrl.MouseEnter += (s, e) =>
+            {
+                card.BackColor = HoverColor;
+                // Update TextBox BackColor so selected text looks right
+                foreach (Control c in card.Controls)
+                    if (c is TextBox tb) tb.BackColor = HoverColor;
+            };
+            ctrl.MouseLeave += (s, e) =>
+            {
+                card.BackColor = CardColor;
+                foreach (Control c in card.Controls)
+                    if (c is TextBox tb) tb.BackColor = CardColor;
+            };
+            if (ctrl is CheckBox || ctrl is Button) return;
+
+            if (ctrl != card) ctrl.ContextMenuStrip = card.ContextMenuStrip;
+            // TextBox: let users select text – don't hijack click for navigation
+            if (!(ctrl is TextBox))
+            {
+                ctrl.Click += (s, e) => OnIssueCardClick(card.Tag as ProofreadingIssue);
+                ctrl.Cursor = Cursors.Hand;
+            }
+        }
+
+        private static TextBox CardText(string text, Font font, Color color, string tag) => new TextBox
+        {
+            Text = text,
+            Font = font,
+            ForeColor = color,
+            BackColor = CardColor,
+            Location = new Point(8, 24),
+            ReadOnly = true,
+            BorderStyle = BorderStyle.None,
+            Multiline = true,
+            WordWrap = true,
+            TabStop = false,
+            Tag = tag
+        };
+
+        /// <summary>A TextBox breaks lines only at CR LF; a translation's soft
+        /// returns are bare LFs.</summary>
+        private static string ForTextBox(string text) =>
+            (text ?? "").Replace("\r\n", "\n").Replace("\n", "\r\n");
+
+        /// <summary>Takes the rows of <paramref name="issues"/> out of the list
+        /// in one pass and counts them as addressed. Returns how many there were.</summary>
+        private int RemoveRows(IEnumerable<ProofreadingIssue> issues)
+        {
+            var gone = new HashSet<ProofreadingIssue>(issues ?? Enumerable.Empty<ProofreadingIssue>());
+            gone.RemoveWhere(i => i == null || !_rowInfo.ContainsKey(i));
+            if (gone.Count == 0) return 0;
+
+            foreach (var issue in gone)
+            {
+                UnbindCard(issue);
+                _rowInfo.Remove(issue);
+            }
+            _rows.RemoveAll(gone.Contains);
+            _rowTopsStale = true;
+            _checkedCount += gone.Count;
+            return gone.Count;
+        }
+
+        // ─── Apply ────────────────────────────────────────────────
+
+        /// <summary>
+        /// What Apply did, for any number of findings at once (one Apply all
+        /// step): the rows in <paramref name="done"/> go, as a ticked-off one
+        /// does; each row in <paramref name="notes"/> stays and shows its line -
+        /// a refusal in red, or, for one that was applied with something to check,
+        /// in amber (<paramref name="appliedWithNote"/>), without its Apply button.
+        /// Only the noted rows are measured again.
+        /// </summary>
+        public void ShowApplyOutcome(IEnumerable<ProofreadingIssue> done,
+            IEnumerable<KeyValuePair<ProofreadingIssue, string>> notes,
+            ISet<ProofreadingIssue> appliedWithNote = null)
+        {
+            int removed = RemoveRows(done);
+
+            var noteList = (notes ?? Enumerable.Empty<KeyValuePair<ProofreadingIssue, string>>()).ToList();
+            if (noteList.Count > 0)
+            {
+                int cardWidth = CardWidth();
+                using (var g = MeasureGraphics())
+                {
+                    int header = CardHeaderBottom(g);
+                    foreach (var kv in noteList)
+                    {
+                        if (!_rowInfo.TryGetValue(kv.Key, out var info)) continue;
+                        bool applied = appliedWithNote != null && appliedWithNote.Contains(kv.Key);
+                        Resolve(kv.Key, info);   // so it never overwrites this line later
+                        info.Status = kv.Value;
+                        info.StatusColor = applied ? NoteColor : RefusedColor;
+                        if (applied) info.CanApply = false;   // written: nothing left to apply
+                        MeasureRow(kv.Key, info, cardWidth, g, header);
+                        UnbindCard(kv.Key);   // bound again, with its new line, by Arrange
+                    }
+                }
+            }
+
+            Arrange();
+            if (removed > 0) AfterCardsRemoved();
+            else UpdateApplyAllButton();
+        }
+
+        /// <summary>
+        /// Apply all running, or not. While it runs the cards' Apply buttons are
+        /// off and Apply all reads "Stop (done/total)".
+        /// </summary>
+        public void SetApplying(bool running, int done = 0, int total = 0)
+        {
+            _applying = running;
+            if (_btnApplyAll != null)
+                _btnApplyAll.Text = running ? $"Stop ({done}/{total})" : "Apply all";
+            foreach (var card in _boundCards.Values)
+                foreach (Control c in card.Controls)
+                    if (c is Button b && (string)b.Tag == "apply") b.Enabled = !running;
+            UpdateApplyAllButton();
+            UpdateClearButtonSize();
+            OnControlResize(this, EventArgs.Empty);
+        }
+
+        /// <summary>
+        /// Apply all's outcome in the footer, in place of the run line until the
+        /// next report; null puts the run line back. The footer shares its row
+        /// with the cost note and is narrow in a docked panel, so the text is cut
+        /// with an ellipsis and given whole in the tooltip.
+        /// </summary>
+        public void ShowApplySummary(string summary)
+        {
+            if (_lblFooter == null) return;
+            _lblFooter.Text = string.IsNullOrEmpty(summary) ? _footerBase : summary;
+            // The label's own ellipsis tooltip stays off while this ToolTip is
+            // associated with it (it is, from SetResults on), so it shows once.
+            if (!string.IsNullOrEmpty(summary)) _footerTip.SetToolTip(_lblFooter, summary);
+        }
+
+        private void AfterCardsRemoved()
+        {
+            UpdateIssueCountLabel();
+            UpdateApplyAllButton();
+
+            // Show empty state if all issues addressed
+            if (_checkedCount >= _issueCount)
+            {
+                _lblEmpty.Text = "All issues addressed \u2013 well done!";
+                _lblEmpty.Visible = true;
+            }
+        }
+
+        /// <summary>Apply all is on while it runs (it is Stop then) and while
+        /// any row still has an Apply button - or may have, for a row not yet
+        /// worked out. Apply all checks each correction again before it starts.</summary>
+        private void UpdateApplyAllButton()
+        {
+            if (_btnApplyAll == null) return;
+            _btnApplyAll.Enabled = _applying || _rowInfo.Any(kv => kv.Value.Resolved
+                ? kv.Value.CanApply
+                : kv.Key.CorrectedTarget != null && !kv.Key.Applied);
         }
 
         /// <summary>
@@ -626,9 +1330,11 @@ namespace Supervertaler.Trados.Controls
             ClearResultsInternal();
             _issueCount = 0;
             _lblIssueCount.Text = "";
+            _footerBase = "";
             _lblFooter.Text = "";
             _footerTip.SetToolTip(_lblFooter, "");
             if (_btnSave != null) _btnSave.Enabled = false;   // #105
+            UpdateApplyAllButton();
             _lblEmpty.Text = "No reports yet";
             _lblEmpty.Visible = true;
         }
@@ -640,7 +1346,8 @@ namespace Supervertaler.Trados.Controls
         public void ShowSavedPath(string path)
         {
             if (string.IsNullOrEmpty(path) || _lblFooter == null) return;
-            _lblFooter.Text += "  \u2013  saved as " + System.IO.Path.GetFileName(path);
+            _footerBase += "  \u2013  saved as " + System.IO.Path.GetFileName(path);
+            _lblFooter.Text = _footerBase;
             _footerTip.SetToolTip(_lblFooter, path);
         }
 
@@ -656,39 +1363,30 @@ namespace Supervertaler.Trados.Controls
 
             _lblEmpty.Visible = false;
 
-            // Cap entries
-            if (_promptLogCount >= MaxPromptLogEntries)
+            // Cap entries: the oldest card goes. (The list is newest first.)
+            if (_promptCards.Count >= MaxPromptLogEntries)
             {
-                // Remove the oldest prompt log card (last one with PromptCardColor)
-                for (int i = _resultsPanel.Controls.Count - 1; i >= 0; i--)
-                {
-                    var ctrl = _resultsPanel.Controls[i];
-                    if (ctrl is Panel p && p.Tag is PromptLogEntry)
-                    {
-                        _resultsPanel.Controls.RemoveAt(i);
-                        ctrl.Dispose();
-                        _promptLogCount--;
-                        break;
-                    }
-                }
+                var oldest = _promptCards[_promptCards.Count - 1];
+                _promptCards.RemoveAt(_promptCards.Count - 1);
+                _resultsPanel.Controls.Remove(oldest);
+                oldest.Dispose();
             }
 
             _resultsPanel.SuspendLayout();
 
-            var bodyFont = new Font("Segoe UI", 8.5f);
-            var headerFont = new Font("Segoe UI", 8.5f, FontStyle.Bold);
-            var smallFont = new Font("Segoe UI", 7.5f);
+            // Shared fonts, as for the findings' cards: one set, not three per call.
+            var bodyFont = CardBodyFont;
+            var headerFont = CardSegNumFont;
+            var smallFont = PromptSmallFont;
 
-            var availableWidth = _resultsPanel.ClientSize.Width
-                - SystemInformation.VerticalScrollBarWidth - 24;
-            if (availableWidth < 100) availableWidth = 300;
+            var availableWidth = CardWidth();
 
             var card = new Panel
             {
                 Width = availableWidth,
                 BackColor = PromptCardColor,
                 Padding = new Padding(8, 6, 8, 6),
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                Visible = false,
                 Tag = entry
             };
 
@@ -771,39 +1469,29 @@ namespace Supervertaler.Trados.Controls
             };
             card.Controls.Add(lnkCopyAll);
 
+            // Height from the controls' positions. Not from Visible, which reads
+            // false for every control on a card that is not in view; the content
+            // boxes, collapsed, are the only ones meant to take no room.
             var copyAllHeight = Math.Max(14, copyAllSize.Height);
-            // Calculate height from actual control positions
-            int maxBottom = 0;
-            foreach (Control ctrl in card.Controls)
-            {
-                if (ctrl.Visible)
-                {
-                    int b = ctrl.Top + ctrl.Height;
-                    if (b > maxBottom) maxBottom = b;
-                }
-            }
-            card.Height = Math.Max(Math.Max(40, yPos + copyAllHeight + 8), maxBottom + 8);
+            card.Height = Math.Max(40, yPos + copyAllHeight + 8);
 
-            // Hover effect
-            Action<Control> applyHover = null;
-            applyHover = (ctrl) =>
+            // Hover effect, and the wheel scrolls the whole list
+            Action<Control> applyHover = (ctrl) =>
             {
                 ctrl.MouseEnter += (s, e) => card.BackColor = PromptHoverColor;
                 ctrl.MouseLeave += (s, e) => card.BackColor = PromptCardColor;
+                if (!(ctrl is TextBox)) ctrl.MouseWheel += OnListMouseWheel;
             };
             applyHover(card);
             foreach (Control child in card.Controls)
                 applyHover(child);
 
             _resultsPanel.Controls.Add(card);
-            _promptLogCount++;
-
-            // Re-flow all cards (sorts prompt log entries by timestamp descending)
-            RelayoutCards();
-            _resultsPanel.ResumeLayout(true);
+            _promptCards.Insert(0, card);
+            _resultsPanel.ResumeLayout(false);
 
             // Scroll to top so the newest entry is visible
-            _resultsPanel.AutoScrollPosition = new Point(0, 0);
+            ScrollFindingsTo(0);
         }
 
         private int AddExpandableSection(Panel card, string title, string content,
@@ -869,7 +1557,7 @@ namespace Supervertaler.Trados.Controls
 
                 // Recalculate card height
                 RecalcPromptCardHeight(capturedCard);
-                RelayoutCards();
+                Arrange();
             };
 
             // Escape key collapses the expanded section
@@ -881,7 +1569,7 @@ namespace Supervertaler.Trados.Controls
                     lnkCopy.Visible = false;
                     lnkToggle.Text = $"Show {title.ToLowerInvariant()}...";
                     RecalcPromptCardHeight(capturedCard);
-                    RelayoutCards();
+                    Arrange();
                     e.Handled = true;
                 }
             };
@@ -895,6 +1583,8 @@ namespace Supervertaler.Trados.Controls
 
         private void RecalcPromptCardHeight(Panel card)
         {
+            // Runs on a click on the card, which is in view, so Visible is the
+            // controls' own setting here.
             int maxBottom = 0;
             foreach (Control ctrl in card.Controls)
             {
@@ -907,80 +1597,71 @@ namespace Supervertaler.Trados.Controls
 
         // ─── Internal Helpers ──────────────────────────────────────
 
+        /// <summary>Empties the list: every row, every prompt log card. The pool's
+        /// cards are kept, unbound, for the next report.</summary>
         private void ClearResultsInternal()
         {
+            foreach (var issue in _boundCards.Keys.ToList())
+                UnbindCard(issue);
+            _rows.Clear();
+            _rowInfo.Clear();
+            _rowTopsStale = true;
+
             _resultsPanel.SuspendLayout();
-            for (int i = _resultsPanel.Controls.Count - 1; i >= 0; i--)
+            foreach (var p in _promptCards)
             {
-                var ctrl = _resultsPanel.Controls[i];
-                if (ctrl != _lblEmpty)
-                {
-                    _resultsPanel.Controls.RemoveAt(i);
-                    ctrl.Dispose();
-                }
+                _resultsPanel.Controls.Remove(p);
+                p.Dispose();
             }
-            _resultsPanel.ResumeLayout();
+            _promptCards.Clear();
+            _resultsPanel.ResumeLayout(false);
+
+            _scrollY = 0;
+            Arrange();
         }
 
         private void UpdateIssueCountLabel()
         {
-            var totalChecked = _issueCount; // total issues, not total segments
             if (_checkedCount > 0)
                 _lblIssueCount.Text = $"{_issueCount} issue{(_issueCount != 1 ? "s" : "")} found – {_checkedCount} addressed";
             // Text is set in SetResults initially; only update when checked count changes
             OnControlResize(this, EventArgs.Empty);
         }
 
-        private ContextMenuStrip BuildIssueContextMenu(ProofreadingIssue issue, bool hasSuggestion)
+        /// <summary>The card's right-click menu, for the finding it shows when it
+        /// opens. The previous items are disposed: the menu belongs to a pooled
+        /// card and is filled again on every opening.</summary>
+        private static void FillIssueContextMenu(ContextMenuStrip menu, ProofreadingIssue issue)
         {
-            var menu = new ContextMenuStrip();
-            var menuFont = new Font("Segoe UI", 9f);
+            var old = menu.Items.Cast<ToolStripItem>().ToList();
+            menu.Items.Clear();
+            foreach (var item in old) item.Dispose();
 
-            var miCopyIssue = new ToolStripMenuItem("Copy issue description", null, (s, e) =>
+            Action<string, string> add = (label, text) =>
             {
-                try { if (!string.IsNullOrEmpty(issue.IssueDescription)) Clipboard.SetText(issue.IssueDescription); }
-                catch { }
-            }) { Font = menuFont };
-            menu.Items.Add(miCopyIssue);
-
-            if (!string.IsNullOrEmpty(issue.Evidence))
-            {
-                var miCopyEv = new ToolStripMenuItem("Copy evidence", null, (s, e) =>
+                if (string.IsNullOrEmpty(text)) return;
+                menu.Items.Add(new ToolStripMenuItem(label, null, (s, e) =>
                 {
-                    try { Clipboard.SetText(issue.Evidence); }
+                    try { Clipboard.SetText(text); }
                     catch { }
-                }) { Font = menuFont };
-                menu.Items.Add(miCopyEv);
-            }
+                }) { Font = MenuFont });
+            };
 
-            if (hasSuggestion)
-            {
-                var miCopySugg = new ToolStripMenuItem("Copy suggestion", null, (s, e) =>
-                {
-                    try { if (!string.IsNullOrEmpty(issue.Suggestion)) Clipboard.SetText(issue.Suggestion); }
-                    catch { }
-                }) { Font = menuFont };
-                menu.Items.Add(miCopySugg);
-            }
+            add("Copy issue description", issue.IssueDescription);
+            add("Copy evidence", issue.Evidence);
+            add("Copy suggestion", issue.Suggestion);
+            add("Copy correction", issue.CorrectedTarget);
 
             menu.Items.Add(new ToolStripSeparator());
 
-            var miCopyAll = new ToolStripMenuItem("Copy all", null, (s, e) =>
-            {
-                try
-                {
-                    var text = $"Segment {issue.SegmentNumber}\n{issue.IssueDescription}";
-                    if (!string.IsNullOrEmpty(issue.Evidence))
-                        text += $"\nEvidence: {issue.Evidence}";
-                    if (!string.IsNullOrEmpty(issue.Suggestion))
-                        text += $"\nSuggestion: {issue.Suggestion}";
-                    Clipboard.SetText(text);
-                }
-                catch { }
-            }) { Font = menuFont };
-            menu.Items.Add(miCopyAll);
-
-            return menu;
+            var all = $"Segment {issue.SegmentNumber}\n{issue.IssueDescription}";
+            if (!string.IsNullOrEmpty(issue.Evidence))
+                all += $"\nEvidence: {issue.Evidence}";
+            if (!string.IsNullOrEmpty(issue.Suggestion))
+                all += $"\nSuggestion: {issue.Suggestion}";
+            if (issue.CorrectedTarget != null)
+                all += $"\nCorrection: {issue.CorrectedTarget}";
+            add("Copy all", all);
         }
 
         private void OnIssueCardClick(ProofreadingIssue issue)
@@ -993,131 +1674,18 @@ namespace Supervertaler.Trados.Controls
             });
         }
 
-        private void LayoutCard(Panel card, Label lblSegNum, Control txtDesc,
-            Control txtEvidence, Control txtSugg)
-        {
-            var availableWidth = _resultsPanel.ClientSize.Width
-                - SystemInformation.VerticalScrollBarWidth - 24;
-            if (availableWidth < 100) availableWidth = 300;
-
-            card.Width = availableWidth;
-            var textWidth = availableWidth - 20;
-
-            // Size the description TextBox to fit its content
-            txtDesc.Location = new Point(8, lblSegNum.Bottom + 2);
-            txtDesc.Width = textWidth;
-            var descSize = TextRenderer.MeasureText(txtDesc.Text, txtDesc.Font,
-                new Size(textWidth, int.MaxValue),
-                TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl);
-            txtDesc.Height = Math.Max(16, descSize.Height + 4);
-
-            int cardHeight = txtDesc.Bottom + 6;
-            int nextTop = txtDesc.Bottom + 2;
-
-            if (txtEvidence != null)
-            {
-                txtEvidence.Location = new Point(8, nextTop);
-                txtEvidence.Width = textWidth;
-                var evSize = TextRenderer.MeasureText(txtEvidence.Text, txtEvidence.Font,
-                    new Size(textWidth, int.MaxValue),
-                    TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl);
-                txtEvidence.Height = Math.Max(16, evSize.Height + 4);
-                cardHeight = txtEvidence.Bottom + 6;
-                nextTop = txtEvidence.Bottom + 2;
-            }
-
-            if (txtSugg != null)
-            {
-                txtSugg.Location = new Point(8, nextTop);
-                txtSugg.Width = textWidth;
-                var suggSize = TextRenderer.MeasureText(txtSugg.Text, txtSugg.Font,
-                    new Size(textWidth, int.MaxValue),
-                    TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl);
-                txtSugg.Height = Math.Max(16, suggSize.Height + 4);
-                cardHeight = txtSugg.Bottom + 6;
-            }
-
-            card.Height = Math.Max(40, cardHeight);
-        }
-
-        private void RelayoutCards()
-        {
-            OnResultsPanelResize(this, EventArgs.Empty);
-        }
-
+        /// <summary>The panel was resized. At a new width every row gets a new
+        /// estimate, the rows in view are measured at once and the rest while
+        /// Studio is idle - a docked panel being dragged resizes many times a
+        /// second, and estimating is cheap where measuring is not.</summary>
         private void OnResultsPanelResize(object sender, EventArgs e)
         {
-            if (_resultsPanel == null) return;
-            _resultsPanel.SuspendLayout();
-
-            // Collect all card panels so we can sort prompt log entries by timestamp
-            // before assigning y-positions (newest entry at top).
-            var allCards = new List<Panel>();
-            foreach (Control ctrl in _resultsPanel.Controls)
+            if (_rows.Count > 0 && CardWidth() != _layoutWidth)
             {
-                if (ctrl == _lblEmpty || !(ctrl is Panel p)) continue;
-                allCards.Add(p);
+                EstimateAllRows(CardWidth());
+                StartRefine();
             }
-
-            // Prompt log cards newest-first, then issue cards by segment number.
-            // List<T>.Sort is not stable, so issue cards need an explicit tie-break
-            // on SegmentNumber – otherwise removing a card (e.g. checkbox toggle)
-            // can scramble the remaining cards' order.
-            allCards.Sort((a, b) =>
-            {
-                var ea = a.Tag as PromptLogEntry;
-                var eb = b.Tag as PromptLogEntry;
-                if (ea != null && eb != null)
-                    return eb.Timestamp.CompareTo(ea.Timestamp); // newest first
-                if (ea != null) return -1; // prompt logs before issue cards
-                if (eb != null) return 1;
-                var ia = a.Tag as ProofreadingIssue;
-                var ib = b.Tag as ProofreadingIssue;
-                if (ia != null && ib != null)
-                    return ia.SegmentNumber.CompareTo(ib.SegmentNumber);
-                return 0;
-            });
-
-            int yPos = 4;
-            foreach (var card in allCards)
-            {
-
-                card.Location = new Point(4, yPos);
-
-                // Prompt log cards manage their own height – skip LayoutCard for them
-                if (card.Tag is PromptLogEntry)
-                {
-                    // Just update width to match panel
-                    var pw = _resultsPanel.ClientSize.Width
-                        - SystemInformation.VerticalScrollBarWidth - 24;
-                    if (pw < 100) pw = 300;
-                    card.Width = pw;
-                    yPos += card.Height + 4;
-                    continue;
-                }
-
-                // Find controls inside card by Tag
-                Label lblSegNum = null;
-                Control txtDesc = null, txtEvidence = null, txtSugg = null;
-                foreach (Control child in card.Controls)
-                {
-                    if (child is Label lbl && lbl.Font.Bold)
-                        lblSegNum = lbl;
-                    else if (child is TextBox tb && (string)tb.Tag == "desc")
-                        txtDesc = tb;
-                    else if (child is TextBox te && (string)te.Tag == "evidence")
-                        txtEvidence = te;
-                    else if (child is TextBox ts && (string)ts.Tag == "sugg")
-                        txtSugg = ts;
-                }
-
-                if (lblSegNum != null && txtDesc != null)
-                    LayoutCard(card, lblSegNum, txtDesc, txtEvidence, txtSugg);
-
-                yPos += card.Height + 4;
-            }
-
-            _resultsPanel.ResumeLayout(true);
+            Arrange();
         }
     }
 }

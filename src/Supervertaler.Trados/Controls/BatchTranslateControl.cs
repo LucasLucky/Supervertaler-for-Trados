@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Drawing;
 using System.Windows.Forms;
 using Supervertaler.Trados.Core;
@@ -404,8 +405,10 @@ namespace Supervertaler.Trados.Controls
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Font = bodyFont,
             };
-            _cmbPrompt.Items.Add("(None \u2013 default)");
+            _cmbPrompt.Items.Add(BuiltInItem);
             _cmbPrompt.SelectedIndex = 0;
+            _promptTip = new ToolTip { AutoPopDelay = 20000, InitialDelay = 300 };
+            UpdatePromptTip();
             Controls.Add(_lblPromptLabel);
             Controls.Add(_cmbPrompt);
 
@@ -822,6 +825,8 @@ namespace Supervertaler.Trados.Controls
             _lnkOpenBackupFolder.Visible = isTranslateMode;
             RepositionPreviewPromptLink();
 
+            UpdatePromptTip();
+
             // Notify listeners to refresh prompt dropdown
             BatchModeChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -1103,20 +1108,77 @@ namespace Supervertaler.Trados.Controls
                 || c.StartsWith(filter + "/", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// The dropdown's first item: no library prompt, the built-in instructions
+        /// alone. It said "(None \u2013 default)", which read as the Default
+        /// prompt and was not (see Core/BatchPromptChoice).
+        /// </summary>
+        private const string BuiltInItem = "(Built-in instructions only)";
+
+        private ToolTip _promptTip;
+
+        /// <summary>What the prompt list's items mean, for the mode it is in. The
+        /// first item said nothing about itself, and the shipped default prompt
+        /// was the last of a long list (Michael, 16 Oct 2026).</summary>
+        private void UpdatePromptTip()
+        {
+            if (_promptTip == null || _cmbPrompt == null) return;
+            var proofread = _currentMode == BatchMode.Proofread;
+            _promptTip.SetToolTip(_cmbPrompt, proofread
+                ? "The prompt from your Library that is sent with Supervertaler's own proofreading\r\n" +
+                  "instructions.\r\n\r\n" +
+                  "\u2022 (Built-in instructions only) \u2013 no Library prompt: the built-in checks alone\r\n" +
+                  "   (accuracy, completeness, terminology, grammar, number formatting).\r\n" +
+                  "\u2022 Default Proofreading Prompt \u2013 used until you choose another prompt: it\r\n" +
+                  "   reports only errors it can point to, cites the segments behind a consistency\r\n" +
+                  "   claim and proposes no other terminology without evidence.\r\n" +
+                  "\u2022 Your own prompts follow. A \u2714 marks the prompt set as active for this\r\n" +
+                  "   project in the Prompt Manager."
+                : "The prompt from your Library that is sent with Supervertaler's own translation\r\n" +
+                  "instructions.\r\n\r\n" +
+                  "\u2022 (Built-in instructions only) \u2013 no Library prompt: the built-in instructions\r\n" +
+                  "   alone (inline tags, numbers, the output rules), with your termbase, translation\r\n" +
+                  "   memory matches and memory bank as set in AI Settings.\r\n" +
+                  "\u2022 Default Translation Prompt \u2013 used until you choose another prompt: a\r\n" +
+                  "   general-purpose prompt (fluent, faithful, consistent terminology, matching\r\n" +
+                  "   register).\r\n" +
+                  "\u2022 Your own prompts follow. A \u2714 marks the prompt set as active for this\r\n" +
+                  "   project in the Prompt Manager.");
+        }
+
+        /// <summary>The prompts in list order: the mode's shipped prompts first,
+        /// then the rest as the Library has them. Stable, so each group keeps its
+        /// own order.</summary>
+        private static IEnumerable<PromptTemplate> ShippedFirst(List<PromptTemplate> prompts, string categoryFilter)
+        {
+            Func<PromptTemplate, bool> shipped = p => p != null && p.IsDefault
+                && (string.IsNullOrEmpty(categoryFilter) || CategoryBelongsTo(p.Category, categoryFilter));
+            return prompts.Where(shipped).Concat(prompts.Where(p => !shipped(p)));
+        }
+
+        /// <param name="selectedRelativePath">The stored choice: a prompt's path,
+        /// "" for none made, or <see cref="BatchPromptChoice.BuiltInOnly"/> for the
+        /// built-in instructions chosen on purpose.</param>
+        /// <param name="fallbackPath">Shown when no choice was made and no prompt
+        /// is named after the project: the mode's shipped default prompt.</param>
         public void SetPrompts(List<PromptTemplate> prompts, string selectedRelativePath,
-            string categoryFilter = null, string projectName = null, string activePromptPath = null)
+            string categoryFilter = null, string projectName = null, string activePromptPath = null,
+            string fallbackPath = null)
         {
             _activePromptPath = activePromptPath;
+            // A deliberate "built-in only" is a choice: no prompt is guessed in its place.
+            bool builtInChosen = selectedRelativePath == BatchPromptChoice.BuiltInOnly;
             _cmbPrompt.Items.Clear();
-            _cmbPrompt.Items.Add("(None \u2013 default)");
+            _cmbPrompt.Items.Add(BuiltInItem);
             _promptList.Clear();
 
             int selectedIdx = 0;
             int projectMatchIdx = 0;
             int activeIdx = 0;
+            int fallbackIdx = 0;
             if (prompts != null)
             {
-                foreach (var p in prompts)
+                foreach (var p in ShippedFirst(prompts, categoryFilter))
                 {
                     // Is this the active prompt for the project?
                     // Marker-tolerant (#100): the remembered path may predate a
@@ -1140,6 +1202,9 @@ namespace Supervertaler.Trados.Controls
                         selectedIdx = _cmbPrompt.Items.Count - 1;
                     }
 
+                    if (fallbackIdx == 0 && PromptPaths.Match(p.RelativePath, fallbackPath))
+                        fallbackIdx = _cmbPrompt.Items.Count - 1;
+
                     // Track first prompt whose name contains the project name (fallback)
                     if (projectMatchIdx == 0 && !string.IsNullOrEmpty(projectName) &&
                         p.Name.IndexOf(projectName, StringComparison.OrdinalIgnoreCase) >= 0)
@@ -1162,8 +1227,10 @@ namespace Supervertaler.Trados.Controls
             // it is a guess, and a guess must not outrank a choice.
             if (activeIdx > 0)
                 selectedIdx = activeIdx;
-            else if (selectedIdx == 0 && projectMatchIdx > 0)
+            else if (selectedIdx == 0 && !builtInChosen && projectMatchIdx > 0)
                 selectedIdx = projectMatchIdx;
+            else if (selectedIdx == 0 && !builtInChosen && fallbackIdx > 0)
+                selectedIdx = fallbackIdx;
 
             _cmbPrompt.SelectedIndex = selectedIdx;
 
@@ -1232,7 +1299,10 @@ namespace Supervertaler.Trados.Controls
         public string GetSelectedPromptPath()
         {
             var prompt = GetSelectedPrompt();
-            return prompt?.RelativePath ?? "";
+            if (prompt != null) return prompt.RelativePath ?? "";
+            // The first item is a choice, stored as such: "" means "never
+            // chosen", which runs the mode's shipped default (Core/BatchPromptChoice).
+            return BatchPromptChoice.BuiltInOnly;
         }
 
         /// <summary>

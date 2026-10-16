@@ -444,7 +444,11 @@ namespace Supervertaler.Trados
                     relativePath = settings?.AiSettings?.SelectedPromptPath;
                 }
 
-                if (string.IsNullOrEmpty(relativePath))
+                // Only a prompt the translator CHOSE is written to. Not the shipped
+                // Default Translation Prompt a run falls back to when none is chosen
+                // (Core/BatchPromptChoice): the plugin refreshes that file on update,
+                // and a term added there would be lost or would block the refresh.
+                if (string.IsNullOrEmpty(relativePath) || relativePath == BatchPromptChoice.BuiltInOnly)
                     return null;
 
                 var fullPath = Path.Combine(UserDataPath.PromptLibraryDir, relativePath);

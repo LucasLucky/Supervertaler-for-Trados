@@ -256,6 +256,138 @@ namespace Supervertaler.Trados.Core
             }
         }
 
+        // ─── A pair as the proofreader reads it ──────────────
+
+        /// <summary>
+        /// A segment pair as the proofreader is shown it, and as Apply on the
+        /// Reports tab checks it has not changed since: both sides in numbered
+        /// placeholders, and the target's tags numbered as the SOURCE tags they
+        /// stand for (see <see cref="SerializeAlignedTo"/>), so that a corrected
+        /// target that keeps them rebuilds with the source's own tags.
+        ///
+        /// <para>Line and paragraph separators (U+2028/9) in the source become
+        /// spaces, as every prompt sends a source. The target keeps them: its
+        /// text is what a correction is written back over, and a separator
+        /// turned into a space here would come back as a space.</para>
+        ///
+        /// Throws when a side cannot be read; the caller decides what that means.
+        /// </summary>
+        public static void ToProofreadText(ISegment source, ISegment target,
+            out string sourceText, out string targetText)
+        {
+            var sourceSer = Serialize(source);
+            sourceText = (sourceSer.SerializedText ?? "").Replace("\u2028", " ").Replace("\u2029", " ");
+            targetText = target != null ? SerializeAlignedTo(target, sourceSer.TagMap) : "";
+        }
+
+        /// <summary>
+        /// Serializes <paramref name="segment"/> (a target) in the placeholders
+        /// <see cref="Serialize"/> writes, but numbering each tag as the source tag
+        /// with the same Trados tag id - the id Studio's Tag Verifier pairs them
+        /// by. Serialising a target on its own numbers its tags in its own order,
+        /// so a target that moves a tag ahead of another reads &lt;t1&gt; for what
+        /// the source calls &lt;t2&gt;, and a correction that keeps the target's
+        /// numbers would rebuild with the wrong source tag.
+        ///
+        /// <para>A tag the source has twice is taken in order. A tag the source
+        /// does not have gets a number above all of the source's, so it can never
+        /// pass for one of them. Tags whose id is blank (locked content and the
+        /// like) are matched by kind, in order.</para>
+        /// </summary>
+        public static string SerializeAlignedTo(ISegment segment, Dictionary<int, TagInfo> sourceTagMap)
+        {
+            if (segment == null) return "";
+
+            var numbers = new Dictionary<string, Queue<int>>(StringComparer.Ordinal);
+            int highest = 0;
+            if (sourceTagMap != null)
+            {
+                foreach (var kv in sourceTagMap.OrderBy(k => k.Key))
+                {
+                    var key = AlignKey(kv.Value?.OriginalMarkup);
+                    if (!numbers.TryGetValue(key, out var queue))
+                        numbers[key] = queue = new Queue<int>();
+                    queue.Enqueue(kv.Key);
+                    if (kv.Key > highest) highest = kv.Key;
+                }
+            }
+
+            var sb = new StringBuilder();
+            SerializeAlignedContainer(segment, sb, numbers, ref highest);
+            return sb.ToString();
+        }
+
+        private static void SerializeAlignedContainer(IAbstractMarkupDataContainer container,
+            StringBuilder sb, Dictionary<string, Queue<int>> numbers, ref int highest)
+        {
+            // The same walk as SerializeContainer, branch for branch: what counts
+            // as a tag, and what is skipped, must not differ between the two sides.
+            foreach (var item in container)
+            {
+                if (item is IText textItem)
+                {
+                    sb.Append(textItem.Properties.Text);
+                }
+                else if (item is ITagPair tagPair)
+                {
+                    int n = SourceNumberFor(tagPair, numbers, ref highest);
+                    sb.Append("<t").Append(n).Append('>');
+                    SerializeAlignedContainer(tagPair, sb, numbers, ref highest);
+                    sb.Append("</t").Append(n).Append('>');
+                }
+                else if (item is IPlaceholderTag placeholder)
+                {
+                    sb.Append("<t").Append(SourceNumberFor(placeholder, numbers, ref highest)).Append("/>");
+                }
+                else if (item is IRevisionMarker revision)
+                {
+                    if (revision.Properties.RevisionType != RevisionType.Delete)
+                        SerializeAlignedContainer(revision, sb, numbers, ref highest);
+                }
+                else if (item is ICommentMarker comment)
+                {
+                    SerializeAlignedContainer(comment, sb, numbers, ref highest);
+                }
+                else if (item is IAbstractMarkupDataContainer nested)
+                {
+                    int n = SourceNumberFor(item, numbers, ref highest);
+                    sb.Append("<t").Append(n).Append('>');
+                    SerializeAlignedContainer(nested, sb, numbers, ref highest);
+                    sb.Append("</t").Append(n).Append('>');
+                }
+                else
+                {
+                    sb.Append("<t").Append(SourceNumberFor(item, numbers, ref highest)).Append("/>");
+                }
+            }
+        }
+
+        private static int SourceNumberFor(IAbstractMarkupData item,
+            Dictionary<string, Queue<int>> numbers, ref int highest)
+        {
+            if (numbers.TryGetValue(AlignKey(item), out var queue) && queue.Count > 0)
+                return queue.Dequeue();
+            return ++highest;
+        }
+
+        /// <summary>What a source tag and its target counterpart have in common:
+        /// kind and Trados tag id, or kind alone when the id is blank.</summary>
+        private static string AlignKey(IAbstractMarkupData item)
+        {
+            string id = null;
+            try
+            {
+                if (item is ITagPair tp) id = tp.StartTagProperties?.TagId.Id;
+                else if (item is IPlaceholderTag ph) id = ph.Properties?.TagId.Id;
+            }
+            catch { id = null; }
+
+            string kind = item is ITagPair ? "pair"
+                : item is IPlaceholderTag ? "ph"
+                : item?.GetType().Name ?? "?";
+            return kind + ":" + (id ?? "");
+        }
+
         // ─── Line-break Detection ────────────────────────────
 
         /// <summary>

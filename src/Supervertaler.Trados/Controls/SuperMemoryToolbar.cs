@@ -6,9 +6,10 @@ using Supervertaler.Trados.Core;
 namespace Supervertaler.Trados.Controls
 {
     /// <summary>
-    /// Thin toolbar strip for SuperMemory operations.
-    /// Sits below the context strip in the Chat tab.
-    /// Two buttons: Process Inbox and Health Check, plus an inbox count label.
+    /// Thin toolbar strip for SuperMemory: the active memory bank, its report,
+    /// its folder and the tracked-changes harvest. Sits above the AI Assistant
+    /// panel's tabs (it was inside the Chat tab until 18.20.200), because the
+    /// active bank feeds every AI feature, not only the chat.
     /// </summary>
     public class SuperMemoryToolbar : Panel
     {
@@ -180,9 +181,9 @@ namespace Supervertaler.Trados.Controls
 
             var tip = new ToolTip { AutoPopDelay = 8000 };
             tip.SetToolTip(_cmbMemoryBank,
-                "Active memory bank." + Environment.NewLine +
-                "Switching is immediate - the next chat turn reads from" + Environment.NewLine +
-                "the new bank; chat history is preserved." + Environment.NewLine +
+                "Active memory bank, used by every AI feature: the chat," + Environment.NewLine +
+                "Batch Translate, Proofread, Translate active segment and" + Environment.NewLine +
+                "AutoPrompt. Switching is immediate; chat history is kept." + Environment.NewLine +
                 Environment.NewLine +
                 "_shared is not a project bank: it holds your house" + Environment.NewLine +
                 "defaults and is loaded on top of whichever bank is" + Environment.NewLine +

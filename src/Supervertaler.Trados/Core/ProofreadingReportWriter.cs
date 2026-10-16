@@ -48,6 +48,10 @@ namespace Supervertaler.Trados.Core
             [DataMember] public string ParagraphUnitId;
             [DataMember] public string SegmentId;
             [DataMember] public bool Dismissed;
+            // Apply on the Reports tab. Absent from a report saved before it, and
+            // read back as null/false: such a report simply has nothing to apply.
+            [DataMember] public string CorrectedTarget;
+            [DataMember] public bool Applied;
         }
 
         [DataContract]
@@ -86,7 +90,8 @@ namespace Supervertaler.Trados.Core
                             SegmentIndex = i.SegmentIndex, SegmentNumber = i.SegmentNumber,
                             SourceText = i.SourceText, TargetText = i.TargetText, IsOk = i.IsOk,
                             IssueDescription = i.IssueDescription, Suggestion = i.Suggestion, Evidence = i.Evidence,
-                            ParagraphUnitId = i.ParagraphUnitId, SegmentId = i.SegmentId, Dismissed = i.Dismissed
+                            ParagraphUnitId = i.ParagraphUnitId, SegmentId = i.SegmentId, Dismissed = i.Dismissed,
+                            CorrectedTarget = i.CorrectedTarget, Applied = i.Applied
                         }).ToArray()
                 };
                 Directory.CreateDirectory(ReportsDir);
@@ -136,7 +141,8 @@ namespace Supervertaler.Trados.Core
                         SegmentIndex = s.SegmentIndex, SegmentNumber = s.SegmentNumber,
                         SourceText = s.SourceText, TargetText = s.TargetText, IsOk = s.IsOk,
                         IssueDescription = s.IssueDescription, Suggestion = s.Suggestion, Evidence = s.Evidence,
-                        ParagraphUnitId = s.ParagraphUnitId, SegmentId = s.SegmentId, Dismissed = s.Dismissed
+                        ParagraphUnitId = s.ParagraphUnitId, SegmentId = s.SegmentId, Dismissed = s.Dismissed,
+                        CorrectedTarget = s.CorrectedTarget, Applied = s.Applied
                     });
                 }
                 return report;
@@ -217,8 +223,14 @@ namespace Supervertaler.Trados.Core
                 Field(sb, "Issue", i.IssueDescription);
                 Field(sb, "Suggestion", i.Suggestion);
                 Field(sb, "Evidence", i.Evidence);
-                Field(sb, "Source", i.SourceText);
-                Field(sb, "Target", i.TargetText);
+                // The texts are as the proofreader was shown them, tags as <tN>
+                // placeholders. A Markdown viewer takes <t1> for an HTML tag and
+                // hides it, so they are left out here, as they always were.
+                Field(sb, "Source", SegmentTagHandler.StripTagPlaceholders(i.SourceText ?? ""));
+                Field(sb, "Target", SegmentTagHandler.StripTagPlaceholders(i.TargetText ?? ""));
+                Field(sb, "Correction", i.CorrectedTarget == null ? null
+                    : SegmentTagHandler.StripTagPlaceholders(i.CorrectedTarget)
+                      + (i.Applied ? " (applied)" : ""));
                 sb.AppendLine();
             }
             return sb.ToString();

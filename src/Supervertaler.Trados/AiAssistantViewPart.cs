@@ -33,7 +33,7 @@ namespace Supervertaler.Trados
         Icon = "AssistantIcon"
     )]
     [ViewPartLayout(typeof(EditorController), Dock = DockType.Right, Pinned = false)]
-    public class AiAssistantViewPart : AbstractViewPartController
+    public partial class AiAssistantViewPart : AbstractViewPartController
     {
         private static readonly Lazy<AiAssistantControl> _control =
             new Lazy<AiAssistantControl>(() => new AiAssistantControl());
@@ -335,6 +335,8 @@ namespace Supervertaler.Trados
             reportsControl.ClearResultsRequested += OnClearReports;
             reportsControl.SaveReportRequested += OnSaveReport;   // #105
             reportsControl.IssueDismissed += (s, e) => ProofreadingReportWriter.TrySaveState(_currentReport);   // #105
+            reportsControl.ApplyRequested += OnApplyCorrectionRequested;           // Proofread apply
+            reportsControl.ApplyAllRequested += OnApplyAllCorrectionsRequested;
             TryRestoreReport();   // #105: a document may already be open when the panel initialises
 
             // Wire Import / Export control events (v4.20.7). Export collects
@@ -1880,7 +1882,6 @@ namespace Supervertaler.Trados
                 // Reported on its own, never through tagWarning, which counts as a
                 // tag mismatch.
                 string trackedNote = null;
-                Core.TrackingSuspension suspension = null;
 
                 // How a tracked write was recorded ("word", "tag-only" or
                 // "whole-segment"), and how many tags it replaced without a
@@ -1912,136 +1913,13 @@ namespace Supervertaler.Trados
                 {
                     if (targetText != null)
                     {
-                        // #138: with Track Changes on, write only what changed. Read
-                        // per segment rather than once per call, because the loop
-                        // pumps messages and the translator can toggle it mid-batch.
-                        bool trackWords = Core.TrackingSuspension.IsTracking(_activeDocument) == true;
-
-                        _activeDocument.ProcessSegmentPair(pair, "Supervertaler MCP",
-                            (sp, cancel) =>
-                            {
-                                // The target as it stands, taken before anything below
-                                // clears it. Only needed for a tracked write. Asked of
-                                // the live target, not the clone: Clone() drops a
-                                // revision recorded on a tag itself.
-                                var targetBefore = trackWords ? sp.Target.Clone() as ISegment : null;
-                                bool tagRevisionsBefore = trackWords
-                                    && Core.TrackedTargetMerge.HasTagRevisions(sp.Target);
-                                var acceptedBefore = Core.TrackedTargetMerge.Project(sp.Target, accept: true);
-
-                                // Tag-aware write. NOTE the difference from bilingual
-                                // re-import: that path uses BuildCombinedTagMap, where
-                                // the TARGET wins numbering collisions, because the
-                                // proofreader's <b>/<tN> markers came from the target
-                                // rendering of the exported table.
-                                //
-                                // Here the markers came from get_segments' *source*
-                                // field, and — decisively — Studio's Tag Verifier
-                                // compares the target's underlying tag ids against the
-                                // SOURCE. Letting a stale fuzzy-match target tag win
-                                // therefore cloned a tag carrying the wrong id into the
-                                // target: the verifier reported "Duplicated tag with id
-                                // 'N'" plus "Missing tag with id 'N-1'". Worse, it was
-                                // self-perpetuating — the next write re-serialised that
-                                // same corrupt target and let it win again, so
-                                // rewriting the segment could never heal it.
-                                // Field report: job PROJ-001, segments 498/500/552/559,
-                                // all of the shape "<b>I/O</b> switch … <b>O</b> position".
-                                //
-                                // So: source-authoritative, always.
-                                bool reconstructed = false;
-                                var sourceSer = Core.SegmentTagHandler.Serialize(sp.Source);
-                                var tagMap = sourceSer.TagMap
-                                    ?? new Dictionary<int, Core.TagInfo>();
-
-                                // How many comments this segment carried going in.
-                                // Both write branches clear the target, and comments
-                                // live only there, so without deliberate preservation
-                                // the routine "fix the segment this comment is about"
-                                // edit deletes the comment. Counted before the write
-                                // so the post-write check can prove they survived.
-                                int commentsBefore =
-                                    Core.SegmentTagHandler.CaptureCommentMarkers(sp.Target).Count;
-
-                                var resolved = Core.Export.BilingualTagNamer.ResolveSemanticNames(
-                                    targetText, tagMap);
-
-                                bool hasAnyMarker = tagMap.Count > 0
-                                    || resolved.IndexOf("<t", StringComparison.Ordinal) >= 0;
-                                if (hasAnyMarker)
-                                {
-                                    reconstructed = Core.SegmentTagHandler.ReconstructTarget(
-                                        sp.Target, sp.Source, resolved, tagMap);
-                                }
-
-                                if (!reconstructed)
-                                {
-                                    var plain = Core.SegmentTagHandler.StripTagPlaceholders(targetText);
-                                    plain = System.Text.RegularExpressions.Regex.Replace(
-                                        plain, @"</?(?:bi|b|i|u)>", "",
-                                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-                                    var textTpl = Core.SegmentTagHandler.FindFirstText(sp.Source);
-                                    if (textTpl != null)
-                                    {
-                                        var keptComments =
-                                            Core.SegmentTagHandler.CaptureCommentMarkers(sp.Target);
-                                        sp.Target.Clear();
-                                        var dest = Core.SegmentTagHandler.OpenCommentMarkers(
-                                            sp.Target, keptComments);
-                                        Core.SegmentTagHandler.AppendText(dest, plain, sp.Source, tagMap, textTpl);
-                                    }
-                                }
-
-                                // Post-write audit. Whatever we just built, check that
-                                // the tag ids actually in the target match the source's,
-                                // and report a mismatch in the tool result rather than
-                                // leaving the caller to find it via run_verification.
-                                //
-                                // Audited after BOTH branches, not just after a successful
-                                // reconstruction. The fallback above strips every tag and
-                                // writes plain text, so a source carrying tags ends up with
-                                // a target carrying none - which Studio reports as N missing
-                                // tags. That is exactly the silent lossy write this audit
-                                // exists to stop being silent.
-
-                                // #138: the new target is built; if tracking is on,
-                                // re-express it against the old one as word-level
-                                // revisions. On any refusal the target is left exactly
-                                // as built above, tracking stays on, and Studio records
-                                // its whole-segment change as it always has.
-                                if (targetBefore != null)
-                                    suspension = WriteAsTrackedChanges(sp, targetBefore, tagRevisionsBefore,
-                                        out trackedNote, out revisionMode, out tagsReplaced);
-
-                                unchangedText = Core.TrackedTargetMerge.Project(sp.Target, accept: true)
-                                                == acceptedBefore;
-
-                                Core.EditCapture.CaptureController.NoteProposal(sp, _activeDocument);
-                                tagWarning = DescribeTagIdMismatch(sp.Source, sp.Target);
-
-                                // Comment audit, same principle as the tag audit: a
-                                // write that silently destroys a comment is the worst
-                                // available behaviour, so if preservation did not hold
-                                // the caller is told rather than left to discover it
-                                // by re-parsing the saved file.
-                                if (!Core.SegmentTagHandler.CommentsPreserved(sp.Target, commentsBefore))
-                                {
-                                    var lost = commentsBefore == 1
-                                        ? "1 comment on this segment was"
-                                        : commentsBefore + " comments on this segment were";
-                                    tagWarning = (tagWarning == null ? "" : tagWarning + " ")
-                                        + lost + " not preserved by this write – re-add with "
-                                        + "add_comment (get_comments to confirm).";
-                                }
-                            });
-
-                        // #138: Studio has applied the write; tracking goes back on
-                        // NOW, before anything else runs. The loop pumps messages
-                        // every few segments, and a translator typing while it is off
-                        // would make edits no reviewer can see. Idempotent - the
-                        // finally below covers the path where the write throws.
-                        suspension?.Dispose();
+                        var written = WriteSegmentTarget(pair, targetText, "Supervertaler MCP",
+                            semanticTagNames: true);
+                        tagWarning = written.TagWarning;
+                        trackedNote = written.TrackedNote;
+                        revisionMode = written.RevisionMode;
+                        tagsReplaced = written.TagsReplaced;
+                        unchangedText = written.UnchangedText;
                     }
 
                     // An explicitly requested status is always honoured; only the
@@ -2104,12 +1982,6 @@ namespace Supervertaler.Trados
                             item.LockedAfter = false;
                         }
                     }
-                }
-                finally
-                {
-                    // #138: whatever happened above, the translator's editor is
-                    // never left with Track Changes switched off.
-                    suspension?.Dispose();
                 }
             }
 
@@ -2196,6 +2068,200 @@ namespace Supervertaler.Trados
             }
 
             return response;
+        }
+
+        /// <summary>What <see cref="WriteSegmentTarget"/> did, for the caller to report.</summary>
+        private sealed class SegmentTargetWrite
+        {
+            /// <summary>Tag ids that do not match the source, or comments the write
+            /// lost; null when neither.</summary>
+            public string TagWarning;
+
+            /// <summary>#138: why a tracked write was recorded as one whole-segment
+            /// change; null when it was not.</summary>
+            public string TrackedNote;
+
+            /// <summary>"word", "tag-only" or "whole-segment" for a tracked write;
+            /// null when Track Changes was off.</summary>
+            public string RevisionMode;
+
+            /// <summary>Tags the tracked write replaced without a revision.</summary>
+            public int TagsReplaced;
+
+            /// <summary>#138: the target reads exactly as it did (accepted view,
+            /// tags included).</summary>
+            public bool UnchangedText;
+        }
+
+        /// <summary>
+        /// Writes <paramref name="targetText"/> - a translation in numbered tag
+        /// placeholders - into <paramref name="pair"/>'s target, rebuilding the
+        /// tags from the SOURCE, and, with Track Changes on in the document, as
+        /// word-level revisions against the target it replaces (#138). Shared by
+        /// update_segments and Apply on the Reports tab, so that a write the
+        /// translator asks for is made one way whichever door it comes in by.
+        /// UI thread. Throws when Studio refuses the write; Track Changes is never
+        /// left switched off, whatever happens.
+        /// </summary>
+        /// <param name="undoName">What Studio calls the edit (its undo history).</param>
+        /// <param name="semanticTagNames">Also read &lt;b&gt;/&lt;i&gt;/&lt;u&gt;
+        /// markers as the source's formatting tags (update_segments: an MCP client
+        /// may write them). False where the text can only hold &lt;tN&gt;, so a
+        /// literal "&lt;b&gt;" in a translation stays text.</param>
+        private SegmentTargetWrite WriteSegmentTarget(ISegmentPair pair, string targetText,
+            string undoName, bool semanticTagNames)
+        {
+            var written = new SegmentTargetWrite();
+            Core.TrackingSuspension suspension = null;
+            try
+            {
+                // #138: with Track Changes on, write only what changed. Read
+                // per segment rather than once per call, because a batch pumps
+                // messages and the translator can toggle it mid-batch.
+                bool trackWords = Core.TrackingSuspension.IsTracking(_activeDocument) == true;
+
+                _activeDocument.ProcessSegmentPair(pair, undoName,
+                    (sp, cancel) =>
+                    {
+                        // The target as it stands, taken before anything below
+                        // clears it. Only needed for a tracked write. Asked of
+                        // the live target, not the clone: Clone() drops a
+                        // revision recorded on a tag itself.
+                        var targetBefore = trackWords ? sp.Target.Clone() as ISegment : null;
+                        bool tagRevisionsBefore = trackWords
+                            && Core.TrackedTargetMerge.HasTagRevisions(sp.Target);
+                        var acceptedBefore = Core.TrackedTargetMerge.Project(sp.Target, accept: true);
+
+                        // Tag-aware write. NOTE the difference from bilingual
+                        // re-import: that path uses BuildCombinedTagMap, where
+                        // the TARGET wins numbering collisions, because the
+                        // proofreader's <b>/<tN> markers came from the target
+                        // rendering of the exported table.
+                        //
+                        // Here the markers came from get_segments' *source*
+                        // field, and — decisively — Studio's Tag Verifier
+                        // compares the target's underlying tag ids against the
+                        // SOURCE. Letting a stale fuzzy-match target tag win
+                        // therefore cloned a tag carrying the wrong id into the
+                        // target: the verifier reported "Duplicated tag with id
+                        // 'N'" plus "Missing tag with id 'N-1'". Worse, it was
+                        // self-perpetuating — the next write re-serialised that
+                        // same corrupt target and let it win again, so
+                        // rewriting the segment could never heal it.
+                        // Field report: job PROJ-001, segments 498/500/552/559,
+                        // all of the shape "<b>I/O</b> switch … <b>O</b> position".
+                        //
+                        // So: source-authoritative, always. (Apply on the Reports
+                        // tab sends the target in the source's numbering for the
+                        // same reason - SegmentTagHandler.SerializeAlignedTo.)
+                        bool reconstructed = false;
+                        var sourceSer = Core.SegmentTagHandler.Serialize(sp.Source);
+                        var tagMap = sourceSer.TagMap
+                            ?? new Dictionary<int, Core.TagInfo>();
+
+                        // How many comments this segment carried going in.
+                        // Both write branches clear the target, and comments
+                        // live only there, so without deliberate preservation
+                        // the routine "fix the segment this comment is about"
+                        // edit deletes the comment. Counted before the write
+                        // so the post-write check can prove they survived.
+                        int commentsBefore =
+                            Core.SegmentTagHandler.CaptureCommentMarkers(sp.Target).Count;
+
+                        var resolved = semanticTagNames
+                            ? Core.Export.BilingualTagNamer.ResolveSemanticNames(targetText, tagMap)
+                            : targetText;
+
+                        bool hasAnyMarker = tagMap.Count > 0
+                            || resolved.IndexOf("<t", StringComparison.Ordinal) >= 0;
+                        if (hasAnyMarker)
+                        {
+                            reconstructed = Core.SegmentTagHandler.ReconstructTarget(
+                                sp.Target, sp.Source, resolved, tagMap);
+                        }
+
+                        if (!reconstructed)
+                        {
+                            var plain = Core.SegmentTagHandler.StripTagPlaceholders(targetText);
+                            if (semanticTagNames)
+                                plain = System.Text.RegularExpressions.Regex.Replace(
+                                    plain, @"</?(?:bi|b|i|u)>", "",
+                                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                            var textTpl = Core.SegmentTagHandler.FindFirstText(sp.Source);
+                            if (textTpl != null)
+                            {
+                                var keptComments =
+                                    Core.SegmentTagHandler.CaptureCommentMarkers(sp.Target);
+                                sp.Target.Clear();
+                                var dest = Core.SegmentTagHandler.OpenCommentMarkers(
+                                    sp.Target, keptComments);
+                                Core.SegmentTagHandler.AppendText(dest, plain, sp.Source, tagMap, textTpl);
+                            }
+                        }
+
+                        // Post-write audit. Whatever we just built, check that
+                        // the tag ids actually in the target match the source's,
+                        // and report a mismatch in the tool result rather than
+                        // leaving the caller to find it via run_verification.
+                        //
+                        // Audited after BOTH branches, not just after a successful
+                        // reconstruction. The fallback above strips every tag and
+                        // writes plain text, so a source carrying tags ends up with
+                        // a target carrying none - which Studio reports as N missing
+                        // tags. That is exactly the silent lossy write this audit
+                        // exists to stop being silent.
+
+                        // #138: the new target is built; if tracking is on,
+                        // re-express it against the old one as word-level
+                        // revisions. On any refusal the target is left exactly
+                        // as built above, tracking stays on, and Studio records
+                        // its whole-segment change as it always has.
+                        if (targetBefore != null)
+                        {
+                            suspension = WriteAsTrackedChanges(sp, targetBefore, tagRevisionsBefore,
+                                out var trackedNote, out var revisionMode, out var tagsReplaced);
+                            written.TrackedNote = trackedNote;
+                            written.RevisionMode = revisionMode;
+                            written.TagsReplaced = tagsReplaced;
+                        }
+
+                        written.UnchangedText = Core.TrackedTargetMerge.Project(sp.Target, accept: true)
+                                                == acceptedBefore;
+
+                        Core.EditCapture.CaptureController.NoteProposal(sp, _activeDocument);
+                        written.TagWarning = DescribeTagIdMismatch(sp.Source, sp.Target);
+
+                        // Comment audit, same principle as the tag audit: a
+                        // write that silently destroys a comment is the worst
+                        // available behaviour, so if preservation did not hold
+                        // the caller is told rather than left to discover it
+                        // by re-parsing the saved file.
+                        if (!Core.SegmentTagHandler.CommentsPreserved(sp.Target, commentsBefore))
+                        {
+                            var lost = commentsBefore == 1
+                                ? "1 comment on this segment was"
+                                : commentsBefore + " comments on this segment were";
+                            written.TagWarning = (written.TagWarning == null ? "" : written.TagWarning + " ")
+                                + lost + " not preserved by this write – re-add with "
+                                + "add_comment (get_comments to confirm).";
+                        }
+                    });
+
+                // #138: Studio has applied the write; tracking goes back on
+                // NOW, before anything else runs. A batch pumps messages every
+                // few segments, and a translator typing while it is off would
+                // make edits no reviewer can see. Idempotent - the finally below
+                // covers the path where the write throws.
+                suspension?.Dispose();
+            }
+            finally
+            {
+                // #138: whatever happened above, the translator's editor is
+                // never left with Track Changes switched off.
+                suspension?.Dispose();
+            }
+            return written;
         }
 
         /// <summary>
@@ -7968,8 +8034,10 @@ namespace Supervertaler.Trados
 
                 var categoryFilter = proofread ? "Proofread" : "Translate";
                 var projectName = TermLensEditorViewPart.GetCurrentProjectName();
+                // No prompt chosen for the mode: its shipped default (Core/BatchPromptChoice).
                 _control.Value.BatchTranslateControl.SetPrompts(
-                    prompts, selectedPath, categoryFilter, projectName, activePromptPath);
+                    prompts, selectedPath, categoryFilter, projectName, activePromptPath,
+                    BatchPromptChoice.DefaultPath(prompts, proofread));
             });
         }
 
@@ -8007,8 +8075,11 @@ namespace Supervertaler.Trados
                     var proofread = mode == BatchMode.Proofread;
                     var normalisedActive = string.IsNullOrEmpty(activePath) ? null : activePath;
                     // A prompt made active for the OTHER mode is not this dropdown's
-                    // business: repopulate from the stored state instead.
-                    if (normalisedActive != null && IsProofreadPrompt(normalisedActive) != proofread)
+                    // business: repopulate from the stored state instead. "Built-in
+                    // only" (a prompt turned off) names no mode, so the stored state
+                    // is the safe answer for it in either.
+                    if (normalisedActive == BatchPromptChoice.BuiltInOnly
+                        || (normalisedActive != null && IsProofreadPrompt(normalisedActive) != proofread))
                     {
                         PopulateBatchPromptDropdown();
                         return;
@@ -8019,7 +8090,8 @@ namespace Supervertaler.Trados
                     var projectName = TermLensEditorViewPart.GetCurrentProjectName();
 
                     _control.Value.BatchTranslateControl.SetPrompts(
-                        prompts, selectedPath, categoryFilter, projectName, normalisedActive);
+                        prompts, selectedPath, categoryFilter, projectName, normalisedActive,
+                        BatchPromptChoice.DefaultPath(prompts, proofread));
                 }
                 catch
                 {
@@ -8046,8 +8118,12 @@ namespace Supervertaler.Trados
 
         private string ResolveCustomPromptContent(string sourceLang, string targetLang, bool proofread = false)
         {
-            var selectedPath = _settings?.AiSettings?.GetBatchPrompt(proofread);
-            if (string.IsNullOrEmpty(selectedPath) || _promptLibrary == null)
+            if (_promptLibrary == null) return null;
+            // A prompt never chosen is the mode's shipped default; "built-in only"
+            // is none (Core/BatchPromptChoice).
+            var selectedPath = BatchPromptChoice.Effective(
+                _settings?.AiSettings?.GetBatchPrompt(proofread), proofread, _promptLibrary.GetAllPrompts());
+            if (string.IsNullOrEmpty(selectedPath))
                 return null;
 
             // Marker-tolerant (#100): the stored path may predate a rename.
@@ -13223,21 +13299,32 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         continue;
                     }
 
-                    var targetText = pair.Target != null
-                        ? SegmentTagHandler.GetFinalText(pair.Target) : "";
+                    // Both sides with their tags, the target's numbered as the
+                    // source's: the proofreader's Corrected line comes back with
+                    // them, and Apply on the Reports tab compares the segment
+                    // against these exact strings before writing. They used to be
+                    // plain text, so the batch showed "WARNING!" without the <t1>
+                    // that # DOCUMENT CONTENT showed around it. Line separators in
+                    // the source become spaces there (see SendChatMessage).
+                    string sourceText, targetText;
+                    try
+                    {
+                        SegmentTagHandler.ToProofreadText(pair.Source, pair.Target, out sourceText, out targetText);
+                    }
+                    catch
+                    {
+                        index++;
+                        continue;   // a segment that cannot be read is not proofread
+                    }
 
                     // Skip segments with empty target – nothing to proofread
-                    if (string.IsNullOrWhiteSpace(targetText))
+                    if (string.IsNullOrWhiteSpace(SegmentTagHandler.StripTagPlaceholders(targetText)))
                     {
                         index++;
                         continue;
                     }
 
-                    var sourceText = pair.Source != null
-                        ? SegmentTagHandler.GetFinalText(pair.Source) : "";
-                    // Strip Unicode line/paragraph separators – see comment in SendChatMessage
-                    sourceText = sourceText.Replace("\u2028", " ").Replace("\u2029", " ");
-                    if (string.IsNullOrWhiteSpace(sourceText))
+                    if (string.IsNullOrWhiteSpace(SegmentTagHandler.StripTagPlaceholders(sourceText)))
                     {
                         index++;
                         continue;
@@ -14951,7 +15038,10 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 try
                 {
                     var lib = TermLensEditorViewPart.GetPromptLibrary();
-                    var sel = aiSettings.SelectedPromptPath;
+                    // The same rule as the panel: never chosen = the Default
+                    // Translation Prompt, built-in only = none (Core/BatchPromptChoice).
+                    var sel = lib == null ? null
+                        : BatchPromptChoice.Effective(aiSettings.SelectedPromptPath, false, lib.GetAllPrompts());
                     if (!string.IsNullOrEmpty(sel) && lib != null)
                     {
                         var p = PromptPaths.Find(lib, sel);   // marker-tolerant (#100)
@@ -15492,9 +15582,19 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             {
                 foreach (var pair in _activeDocument.SegmentPairs)
                 {
-                    // #97: the proofreader sees its segments as <tN>; its context must match.
-                    var sourceText = SegmentTagHandler.ToModelText(pair.Source);
-                    var targetText = SegmentTagHandler.ToModelText(pair.Target);
+                    // #97: the proofreader sees its segments as <tN>; its context must
+                    // match - down to the target's tags, numbered as the source's, as
+                    // the batch numbers them (CollectProofreadSegments).
+                    string sourceText, targetText;
+                    try
+                    {
+                        SegmentTagHandler.ToProofreadText(pair.Source, pair.Target, out sourceText, out targetText);
+                    }
+                    catch
+                    {
+                        sourceText = SegmentTagHandler.ToModelText(pair.Source);
+                        targetText = SegmentTagHandler.ToModelText(pair.Target);
+                    }
                     segments.Add((sourceText, targetText));
                 }
             }
@@ -15880,6 +15980,9 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 _batchTranslator.Completed -= OnBatchCompleted;
                 _batchTranslator = null;
             }
+
+            // Stop an Apply all on the Reports tab before the panel goes
+            StopApplyAll();
 
             // Cancel any running proofreading
             _proofreadCts?.Cancel();

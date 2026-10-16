@@ -14,6 +14,16 @@ namespace Supervertaler.Trados.Models
         public string IssueDescription { get; set; }
         public string Suggestion { get; set; }
         public string Evidence { get; set; }          // Specific source segments cited by the model (terminology consistency etc.)
+
+        /// <summary>The proofreader's whole target with the fix made, in the
+        /// placeholders of <see cref="SourceText"/> and <see cref="TargetText"/>
+        /// (both as the proofreader was shown them), or null when it gave none or
+        /// it reads as the target already does. What Apply writes.</summary>
+        public string CorrectedTarget { get; set; }
+
+        /// <summary>Apply wrote <see cref="CorrectedTarget"/> into the segment. An
+        /// applied issue is also <see cref="Dismissed"/>: it is dealt with.</summary>
+        public bool Applied { get; set; }
         public object SegmentPairRef { get; set; }   // ISegmentPair or string[] for navigation
         public string ParagraphUnitId { get; set; }
         public string SegmentId { get; set; }

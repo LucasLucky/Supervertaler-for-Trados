@@ -1477,7 +1477,11 @@ namespace Supervertaler.Trados.Settings
                             var disabled = new HashSet<long>(_settings.DisabledTermbaseIds ?? new List<long>());
                             var writeIds = new HashSet<long>(_settings.WriteTermbaseIds ?? new List<long>());
 
-                            foreach (var tb in _termbases)
+                            // Shown by name, whatever their stored priority: GetTermbases
+                            // orders by ranking first, so a termbase just added went to
+                            // the bottom of the list. Only the display is sorted; rows are
+                            // found by their Tag, never by position.
+                            foreach (var tb in _termbases.OrderBy(t => t.Name ?? "", StringComparer.CurrentCultureIgnoreCase))
                             {
                                 bool isRead = !disabled.Contains(tb.Id);
                                 bool isWrite = writeIds.Contains(tb.Id);
