@@ -1074,6 +1074,76 @@ namespace Supervertaler.Trados.Core
             }
         }
 
+        // ─── Editor text (SuperVoice) ───────────────────────
+
+        /// <summary>What kind of tag a <see cref="TagMark"/> stands for.</summary>
+        public enum TagMarkKind { Open, Close, Standalone }
+
+        /// <summary>Where one tag sits in <see cref="GetEditorText"/>'s string.</summary>
+        public struct TagMark
+        {
+            public int At;
+            public TagMarkKind Kind;
+        }
+
+        /// <summary>
+        /// A segment's text as Studio's editor counts it: every text node in
+        /// order, tags taking no characters. The offsets in Studio's selection
+        /// (<c>CursorPosition</c>) index this string, and SuperVoice relies on that:
+        /// it finds a word here, then checks that Studio's search landed on the
+        /// same offset.
+        ///
+        /// <para>Not <c>segment.ToString()</c>, which writes each tag as markup -
+        /// "&lt;cf bold=True&gt;Figure 5&lt;/cf&gt; shows" - so in a tagged segment
+        /// every offset after a tag was out by the tag's length. Every voice
+        /// selection there was refused as "inside another word", and the number
+        /// popup numbered "cf", "bold" and "True" as words (2026-10-16).
+        /// <see cref="StripTagPlaceholders"/> does not help: it removes our own
+        /// &lt;t1&gt; placeholders, not Studio's markup.</para>
+        ///
+        /// <para>Tracked deletions are kept, as ToString kept them, because they
+        /// are on screen. Whether Studio's cursor counts them has not been
+        /// measured. Locked content contributes no text and is reported as a
+        /// standalone tag.</para>
+        ///
+        /// <para><paramref name="tags"/>, when given, receives where each tag sits,
+        /// in order, so the number popup can show the tags without numbering
+        /// them.</para>
+        /// </summary>
+        public static string GetEditorText(ISegment segment, List<TagMark> tags = null)
+        {
+            if (segment == null) return "";
+            var sb = new StringBuilder();
+            AppendEditorText(segment, sb, tags);
+            return sb.ToString();
+        }
+
+        private static void AppendEditorText(IAbstractMarkupDataContainer container, StringBuilder sb, List<TagMark> tags)
+        {
+            foreach (var item in container)
+            {
+                if (item is IText textItem)
+                {
+                    sb.Append(textItem.Properties?.Text);
+                }
+                else if (item is ITagPair pair)
+                {
+                    tags?.Add(new TagMark { At = sb.Length, Kind = TagMarkKind.Open });
+                    AppendEditorText(pair, sb, tags);
+                    tags?.Add(new TagMark { At = sb.Length, Kind = TagMarkKind.Close });
+                }
+                else if (item is IAbstractMarkupDataContainer nested)
+                {
+                    // Tracked changes and commented spans: their text is the segment's.
+                    AppendEditorText(nested, sb, tags);
+                }
+                else if (item is IAbstractTag || item is ILockedContent)
+                {
+                    tags?.Add(new TagMark { At = sb.Length, Kind = TagMarkKind.Standalone });
+                }
+            }
+        }
+
         /// <summary>
         /// Collects revision metadata (distinct authors, latest revision date)
         /// from a segment's tracked changes. Returns false when the segment

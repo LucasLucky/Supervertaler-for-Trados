@@ -1907,7 +1907,7 @@ namespace Supervertaler.Trados
                 }
 
                 var selected = sel.ToString() ?? "";
-                var plain = SegmentTagHandler.StripTagPlaceholders(pair.Target?.ToString() ?? "");
+                var plain = SegmentTagHandler.GetEditorText(pair.Target);
                 var start = (int)sel.From.CursorPosition;
 
                 var widened = false;
@@ -1992,7 +1992,7 @@ namespace Supervertaler.Trados
             var pair = doc?.ActiveSegmentPair;
             if (doc == null || pair == null) return false;
 
-            var plain = SegmentTagHandler.StripTagPlaceholders(pair.Target?.ToString() ?? "");
+            var plain = SegmentTagHandler.GetEditorText(pair.Target);
             var at = plain.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
             if (at < 0) return false;
 
@@ -2088,7 +2088,10 @@ namespace Supervertaler.Trados
 
         /// <summary>
         /// Where the target selection currently starts, or -1 when that cannot be
-        /// read. Plain-text offset: inline tags cost zero characters, measured.
+        /// read. Plain-text offset: inline tags cost zero characters, measured -
+        /// so whatever it is compared with must come from
+        /// <see cref="SegmentTagHandler.GetEditorText"/>, never ToString(), which
+        /// writes the tags out as markup (2026-10-16).
         /// </summary>
         /// <summary>
         /// #127: the SIDE matters. Reading Target after a source search compares the
@@ -2279,7 +2282,7 @@ namespace Supervertaler.Trados
 
                 // Capture the selected words BEFORE anything moves, so the selection
                 // can be put back once focus is where it belongs.
-                var plain = SegmentTagHandler.StripTagPlaceholders(pair.Target?.ToString() ?? "");
+                var plain = SegmentTagHandler.GetEditorText(pair.Target);
                 var f = (int)(sel.Target.From?.CursorPosition ?? -1);
                 var u = (int)(sel.Target.UpTo?.CursorPosition ?? -1);
                 var selStart = Math.Min(f, u);
@@ -2419,8 +2422,7 @@ namespace Supervertaler.Trados
                 if (spoken.Length == 0) return;
 
                 var side = inSource ? "source" : "target";
-                var plain = SegmentTagHandler.StripTagPlaceholders(
-                    (inSource ? pair.Source?.ToString() : pair.Target?.ToString()) ?? "");
+                var plain = SegmentTagHandler.GetEditorText(inSource ? pair.Source : pair.Target);
                 var found = VoiceControl.PhraseMatcher.Find(plain, spoken);
                 if (found == null)
                 {
@@ -2710,8 +2712,7 @@ namespace Supervertaler.Trados
                 var doc = inst?._activeDocument;
                 var pair = doc?.ActiveSegmentPair;
                 if (doc == null || pair == null) return;
-                var plain = SegmentTagHandler.StripTagPlaceholders(
-                    (inSource ? pair.Source?.ToString() : pair.Target?.ToString()) ?? "");
+                var plain = SegmentTagHandler.GetEditorText(inSource ? pair.Source : pair.Target);
                 var span = Controls.NumberPopupForm.Span(from, to, plain);
                 if (span == null)
                 {
@@ -2791,8 +2792,10 @@ namespace Supervertaler.Trados
                     VoiceControl.VoiceControlManager.Instance?.Announce("open a segment first");
                     return;
                 }
-                var plain = SegmentTagHandler.StripTagPlaceholders(
-                    (inSource ? pair.Source?.ToString() : pair.Target?.ToString()) ?? "");
+                // The tags come along so the popup can show where they are - as
+                // markers, not as numbered words.
+                var tags = new List<SegmentTagHandler.TagMark>();
+                var plain = SegmentTagHandler.GetEditorText(inSource ? pair.Source : pair.Target, tags);
                 var words = NumberedWordsOf(plain);
                 if (words.Count == 0)
                 {
@@ -2815,7 +2818,7 @@ namespace Supervertaler.Trados
                 var title = reason == null
                     ? (inSource ? "Source words - say a number" : "Target words - say a number")
                     : reason.Split(new[] { " - " }, 2, StringSplitOptions.None)[0] + " - say its number";
-                Controls.NumberPopupForm.ShowFor(inSource, title, words, plain);
+                Controls.NumberPopupForm.ShowFor(inSource, title, words, plain, tags);
                 VoiceControl.VoiceControlManager.Instance?.SetNumberPopup(words.Count);
                 Core.DiagnosticLog.WriteAlways("VoiceSelect",
                     "numbers shown: " + words.Count + (inSource ? " source" : " target") + " words, "
@@ -2885,7 +2888,7 @@ namespace Supervertaler.Trados
         /// </summary>
         private static List<string> VoiceWordsOf(string segmentText)
         {
-            return SegmentTagHandler.StripTagPlaceholders(segmentText ?? "")
+            return (segmentText ?? "")
                 // Hyphens and slashes SPLIT. A compound is spoken as its parts -
                 // "night-vision device" is said "night vision device" - and the
                 // recogniser has no way to return a hyphen. Before this, the
@@ -2968,8 +2971,8 @@ namespace Supervertaler.Trados
 
                 // #128: the numbers belong to the segment they were made for.
                 if (Controls.NumberPopupForm.IsOpen) VoiceHideNumbers();
-                mgr.SetSegmentWords(VoiceWordsOf(pair?.Target?.ToString()));
-                var sourceWords = VoiceWordsOf(pair?.Source?.ToString());
+                mgr.SetSegmentWords(VoiceWordsOf(SegmentTagHandler.GetEditorText(pair?.Target)));
+                var sourceWords = VoiceWordsOf(SegmentTagHandler.GetEditorText(pair?.Source));
                 // #127: the source's words go to a different grammar, used only by the
                 // source-language model. They must NOT join the command grammar - the
                 // command model cannot pronounce them, and Vosk drops them silently.

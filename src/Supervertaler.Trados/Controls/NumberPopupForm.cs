@@ -54,6 +54,14 @@ namespace Supervertaler.Trados.Controls
         private static readonly Color FootnoteColor = Color.FromArgb(120, 140, 170);
         private static readonly Color UnhearableBack = Color.FromArgb(255, 243, 208);   // the NT chip yellow
         private static readonly Color HintColor = Color.FromArgb(110, 110, 110);
+        /// <summary>
+        /// Tags, in the sentence layout: a small purple marker where each one sits,
+        /// close to the purple Studio draws them in. Shown so the translator can
+        /// match the popup against the editor; deliberately not numbered, and not
+        /// spelled out. Studio's own rendering - "&lt;cf bold=True&gt;" - got
+        /// numbered as three words and buried the sentence (2026-10-16).
+        /// </summary>
+        private static readonly Color TagColor = Color.FromArgb(150, 80, 160);
 
         internal const string StyleSentence = "sentence";
         internal const string StyleChips = "chips";
@@ -69,6 +77,7 @@ namespace Supervertaler.Trados.Controls
         }
 
         private List<Word> _words = new List<Word>();
+        private List<SegmentTagHandler.TagMark> _tags = new List<SegmentTagHandler.TagMark>();
         private string _plain = "";
         private string _title_ = "";
         private bool _inSource;
@@ -187,12 +196,14 @@ namespace Supervertaler.Trados.Controls
         /// <summary>
         /// Shows the popup for one side of the segment. <paramref name="plain"/> is
         /// the side's plain text, which the sentence layout reproduces verbatim -
-        /// the words carry offsets into it.
+        /// the words carry offsets into it, and so do <paramref name="tags"/>.
         /// </summary>
-        public static void ShowFor(bool inSource, string title, List<Word> words, string plain)
+        public static void ShowFor(bool inSource, string title, List<Word> words, string plain,
+                                   List<SegmentTagHandler.TagMark> tags)
         {
             if (_instance == null || _instance.IsDisposed) _instance = new NumberPopupForm();
-            _instance.Populate(inSource, title, words ?? new List<Word>(), plain ?? "");
+            _instance.Populate(inSource, title, words ?? new List<Word>(), plain ?? "",
+                               tags ?? new List<SegmentTagHandler.TagMark>());
             _instance.PositionNear(Cursor.Position);
             if (!_instance.Visible) _instance.Show();
             else _instance.Invalidate();
@@ -235,14 +246,16 @@ namespace Supervertaler.Trados.Controls
                 s.Save();
             }
             catch { }
-            Populate(_inSource, _title_, _words, _plain);
+            Populate(_inSource, _title_, _words, _plain, _tags);
         }
 
-        private void Populate(bool inSource, string title, List<Word> words, string plain)
+        private void Populate(bool inSource, string title, List<Word> words, string plain,
+                              List<SegmentTagHandler.TagMark> tags)
         {
             _inSource = inSource;
             _words = words;
             _plain = plain;
+            _tags = tags;
             _title_ = title;
             _title.Text = title ?? (inSource ? "Source words" : "Target words");
             // Names the OTHER layout - the one a click switches to.
@@ -255,7 +268,7 @@ namespace Supervertaler.Trados.Controls
 
             _body.SuspendLayout();
             foreach (Control c in _body.Controls.Cast<Control>().ToList()) { _body.Controls.Remove(c); c.Dispose(); }
-            int contentH = Style == StyleChips ? PopulateChips(words) : PopulateSentence(words, plain);
+            int contentH = Style == StyleChips ? PopulateChips(words) : PopulateSentence(words, plain, tags);
             _body.ResumeLayout();
 
             // Size to content, capped to a share of the screen; past the cap the
@@ -274,7 +287,7 @@ namespace Supervertaler.Trados.Controls
         /// punctuation and spacing between words are the segment's own. Returns the
         /// content height.
         /// </summary>
-        private int PopulateSentence(List<Word> words, string plain)
+        private int PopulateSentence(List<Word> words, string plain, List<SegmentTagHandler.TagMark> tags)
         {
             var rtb = new RichTextBox
             {
@@ -305,18 +318,17 @@ namespace Supervertaler.Trados.Controls
             rtb.Width = _body.ClientSize.Width;
             var handle = rtb.Handle;   // forces creation
 
-            int pos = 0;
-            for (int n = 0; n < words.Count; n++)
+            var tagFont = new Font("Segoe UI", UiScale.FontSize(8f));
+            foreach (var r in SentenceRuns(words, plain, tags))
             {
-                var w = words[n];
-                if (w.Start > pos && w.Start <= plain.Length)
-                    Append(rtb, plain.Substring(pos, w.Start - pos), textFont, Color.Black, Color.White, 0);
-                Append(rtb, w.Text, textFont, Color.Black, w.Unhearable ? UnhearableBack : Color.White, 0);
-                Append(rtb, (n + 1).ToString(), numFont, FootnoteColor, Color.White, raise);
-                pos = Math.Min(plain.Length, w.Start + w.Text.Length);
+                switch (r.Kind)
+                {
+                    case RunKind.Word: Append(rtb, r.Text, textFont, Color.Black, r.Unhearable ? UnhearableBack : Color.White, 0); break;
+                    case RunKind.Number: Append(rtb, r.Text, numFont, FootnoteColor, Color.White, raise); break;
+                    case RunKind.Tag: Append(rtb, r.Text, tagFont, TagColor, Color.White, 0); break;
+                    default: Append(rtb, r.Text, textFont, Color.Black, Color.White, 0); break;
+                }
             }
-            if (pos < plain.Length)
-                Append(rtb, plain.Substring(pos), textFont, Color.Black, Color.White, 0);
             rtb.Select(0, 0);
 
             if (textHeight <= 0)
@@ -327,6 +339,75 @@ namespace Supervertaler.Trados.Controls
                 textHeight = rtb.GetPositionFromCharIndex(last).Y + textFont.Height;
             }
             return Math.Max(UiScale.Pixels(30), textHeight + textFont.Height / 2);
+        }
+
+        internal enum RunKind { Text, Word, Number, Tag }
+
+        /// <summary>One styled piece of the sentence layout.</summary>
+        internal struct Run
+        {
+            public RunKind Kind;
+            public string Text;
+            public bool Unhearable;
+        }
+
+        /// <summary>
+        /// The sentence layout as a list of pieces: the segment's own text, each
+        /// word followed by its number, and a marker wherever a tag sits. A tag at
+        /// a word's start is drawn before the word, one at its end after the
+        /// word's number, and one inside a word inside it - so the markers stand
+        /// where Studio shows the tags. Kept apart from the drawing so it can be
+        /// checked without a window.
+        /// </summary>
+        internal static List<Run> SentenceRuns(List<Word> words, string plain, List<SegmentTagHandler.TagMark> tags)
+        {
+            var runs = new List<Run>();
+            plain = plain ?? "";
+            tags = tags ?? new List<SegmentTagHandler.TagMark>();
+            int pos = 0, t = 0;
+
+            // The text from pos up to `upto`, with the tags that fall before it -
+            // and at it too, when `tagsAtEnd` - drawn where they sit.
+            void Emit(int upto, bool tagsAtEnd, RunKind kind, bool unhearable)
+            {
+                upto = Math.Max(pos, Math.Min(upto, plain.Length));
+                while (t < tags.Count && (tags[t].At < upto || (tagsAtEnd && tags[t].At == upto)))
+                {
+                    var at = Math.Max(pos, tags[t].At);
+                    if (at > pos)
+                        runs.Add(new Run { Kind = kind, Text = plain.Substring(pos, at - pos), Unhearable = unhearable });
+                    pos = at;
+                    runs.Add(new Run { Kind = RunKind.Tag, Text = TagGlyph(tags[t].Kind) });
+                    t++;
+                }
+                if (upto > pos)
+                    runs.Add(new Run { Kind = kind, Text = plain.Substring(pos, upto - pos), Unhearable = unhearable });
+                pos = upto;
+            }
+
+            for (int n = 0; n < words.Count; n++)
+            {
+                var w = words[n];
+                Emit(w.Start, true, RunKind.Text, false);
+                Emit(w.Start + w.Text.Length, false, RunKind.Word, w.Unhearable);
+                runs.Add(new Run { Kind = RunKind.Number, Text = (n + 1).ToString() });
+            }
+            Emit(plain.Length, true, RunKind.Text, false);
+            return runs;
+        }
+
+        /// <summary>
+        /// Opening and closing tags point at what they enclose, as Studio's
+        /// partial-tag display does; a standalone tag is a dot of its own.
+        /// </summary>
+        private static string TagGlyph(SegmentTagHandler.TagMarkKind kind)
+        {
+            switch (kind)
+            {
+                case SegmentTagHandler.TagMarkKind.Open: return "\u25B8";    // ▸
+                case SegmentTagHandler.TagMarkKind.Close: return "\u25C2";   // ◂
+                default: return "\u25C6";                                    // ◆
+            }
         }
 
         private static void Append(RichTextBox rtb, string text, Font font, Color fore, Color back, int offset)
