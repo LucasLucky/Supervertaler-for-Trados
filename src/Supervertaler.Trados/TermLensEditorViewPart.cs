@@ -1780,7 +1780,10 @@ namespace Supervertaler.Trados
         /// Starts a lightweight timer that checks every 2 seconds whether the
         /// set of enabled MultiTerm termbases in the Trados project has changed
         /// (e.g. user toggled the Enabled checkbox in Project Settings → Termbases).
-        /// DetectTermbases() reads an in-memory object – no file I/O or DB access.
+        /// DetectTermbases() reads an in-memory object – no DB access, and one
+        /// File.Exists per termbase. Measured 2026-10-16 outside Studio on the
+        /// example project: 0.18 ms a tick (median; 0.5 ms worst of 500), so the
+        /// poll is cheap. What was not cheap was its logging - see DetectTermbases.
         /// </summary>
         private void StartMultiTermConfigTimer()
         {

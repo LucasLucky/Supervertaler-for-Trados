@@ -29,11 +29,21 @@ namespace Supervertaler.Trados.Core
         /// Enumerates file-based termbases from the active project's termbase
         /// configuration and resolves source/target language index names.
         /// Returns empty list if no project is open or no termbases are configured.
+        ///
+        /// <para>Runs every 2 s from TermLens's config poll, so each call reports
+        /// its outcome in exactly ONE <see cref="DiagnosticLog.LogIfChanged"/> line,
+        /// written only when it differs from the last. Two lines per call would
+        /// alternate in LogIfChanged's one-message-per-category memory and both be
+        /// written every tick. #99 made the "no termbases" outcome edge-triggered;
+        /// the "returning N termbase(s)" and "could not map" outcomes still wrote
+        /// every tick, and were 38% of an 8 MB log (2026-10-16).</para>
         /// </summary>
         public static List<MultiTermTermbaseConfig> DetectTermbases(
             IStudioDocument activeDocument)
         {
             var result = new List<MultiTermTermbaseConfig>();
+            string configured = null;
+            Exception threw = null;
             if (activeDocument == null)
             {
                 DiagnosticLog.LogIfChanged("MultiTerm", "DetectTermbases: activeDocument is null → 0 termbases.");
@@ -57,7 +67,7 @@ namespace Supervertaler.Trados.Core
                     DiagnosticLog.LogIfChanged("MultiTerm", "DetectTermbases: project termbase configuration has no termbases → 0 termbases.");
                     return result;
                 }
-                DiagnosticLog.LogIfChanged("MultiTerm", $"DetectTermbases: project has {tbConfig.Termbases.Count} termbase(s) in its configuration, {tbConfig.LanguageIndexes?.Count ?? 0} language index(es).");
+                configured = $"{tbConfig.Termbases.Count} termbase(s) in the project configuration, {tbConfig.LanguageIndexes?.Count ?? 0} language index(es)";
 
                 // Build language index mapping: project language code → termbase index name
                 // e.g. "en-US" → "English", "nl-NL" → "Dutch"
@@ -87,7 +97,7 @@ namespace Supervertaler.Trados.Core
 
                 if (string.IsNullOrEmpty(sourceLocale) || string.IsNullOrEmpty(targetLocale))
                 {
-                    DiagnosticLog.Log("MultiTerm", $"DetectTermbases: could not read active-file locales (source='{sourceLocale}', target='{targetLocale}') → 0 termbases.");
+                    DiagnosticLog.LogIfChanged("MultiTerm", $"DetectTermbases: {configured}; could not read active-file locales (source='{sourceLocale}', target='{targetLocale}') → 0 termbases.");
                     return result;
                 }
 
@@ -106,8 +116,8 @@ namespace Supervertaler.Trados.Core
 
                 if (string.IsNullOrEmpty(sourceIndexName) || string.IsNullOrEmpty(targetIndexName))
                 {
-                    DiagnosticLog.Log("MultiTerm",
-                        $"DetectTermbases: could not map project locales to termbase index names " +
+                    DiagnosticLog.LogIfChanged("MultiTerm",
+                        $"DetectTermbases: {configured}; could not map project locales to termbase index names " +
                         $"(source '{sourceLocale}'→'{sourceIndexName}', target '{targetLocale}'→'{targetIndexName}'). " +
                         $"Available indexes: [{string.Join(", ", langIndexMap.Keys)}] → [{string.Join(", ", langIndexMap.Values)}]. → 0 termbases.");
                     return result;
@@ -190,12 +200,15 @@ namespace Supervertaler.Trados.Core
             }
             catch (Exception ex)
             {
-                DiagnosticLog.Log("MultiTerm", "DetectTermbases threw: " + ex);
+                threw = ex;
             }
 
-            DiagnosticLog.Log("MultiTerm",
-                $"DetectTermbases: returning {result.Count} usable .sdltb/.ttb termbase(s)" +
-                (result.Count > 0 ? " — " + string.Join(", ", result.ConvertAll(c => c.TermbaseName)) : "."));
+            DiagnosticLog.LogIfChanged("MultiTerm",
+                "DetectTermbases: "
+                + (threw != null ? "threw " + threw + "; " : "")
+                + (configured != null ? configured + "; " : "")
+                + $"returning {result.Count} usable .sdltb/.ttb termbase(s)"
+                + (result.Count > 0 ? " — " + string.Join(", ", result.ConvertAll(c => c.TermbaseName)) : "."));
             return result;
         }
 

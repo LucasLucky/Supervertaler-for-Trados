@@ -131,6 +131,11 @@ namespace Supervertaler.Trados.Core
                     + $"{info.Length / (1024 * 1024)} MB and was rolled to "
                     + $"{Path.GetFileName(PreviousLogFilePath)}.{Environment.NewLine}",
                     Encoding.UTF8);
+
+                // A state reported once is in the OLD file now. Forget it, so the
+                // next report of each state starts the new file - a log sent in
+                // for a bug then says which termbases were loaded, not nothing.
+                _lastByCategory.Clear();
             }
             catch { /* a failed rotation must not cost the caller their log line */ }
         }
