@@ -856,7 +856,7 @@ namespace Supervertaler.Trados.Settings
                 if (_dgvTermbases.SelectedRows.Count > 0)
                 {
                     var rowIndex = _dgvTermbases.SelectedRows[0].Index;
-                    if (rowIndex >= 0 && rowIndex < _termbases.Count)
+                    if (rowIndex >= 0 && IsDatabaseRow(_dgvTermbases.Rows[rowIndex]))
                         RenameTermbase(rowIndex);
                 }
             };
@@ -867,7 +867,7 @@ namespace Supervertaler.Trados.Settings
             _dgvTermbases.ContextMenuStrip = termbaseContextMenu;
             _dgvTermbases.CellMouseDown += (s, ev) =>
             {
-                if (ev.Button == MouseButtons.Right && ev.RowIndex >= 0 && ev.RowIndex < _termbases.Count)
+                if (ev.Button == MouseButtons.Right && ev.RowIndex >= 0 && IsDatabaseRow(_dgvTermbases.Rows[ev.RowIndex]))
                 {
                     _dgvTermbases.ClearSelection();
                     _dgvTermbases.Rows[ev.RowIndex].Selected = true;
@@ -1103,7 +1103,7 @@ namespace Supervertaler.Trados.Settings
             var colName = _dgvTermbases.Columns[e.ColumnIndex].Name;
 
             // Prevent toggling Write/Project/Case for MultiTerm rows (read-only)
-            if (e.RowIndex >= _termbases.Count && (colName == "colWrite" || colName == "colProject" || colName == "colCS"))
+            if (!IsDatabaseRow(_dgvTermbases.Rows[e.RowIndex]) && (colName == "colWrite" || colName == "colProject" || colName == "colCS"))
             {
                 _dgvTermbases.CommitEdit(DataGridViewDataErrorContexts.Commit);
                 _dgvTermbases.Rows[e.RowIndex].Cells[colName].Value = false;
@@ -1111,8 +1111,8 @@ namespace Supervertaler.Trados.Settings
             }
 
             // Warn-once when a non-matching termbase is being assigned as Write
-            // or Project. We only check the database termbases (rows < _termbases.Count);
-            // MultiTerm rows already short-circuit above. Untick removes the
+            // or Project. We only check the database termbases (rows tagged
+            // TermbaseInfo); MultiTerm rows already short-circuit above. Untick removes the
             // confirmation so a re-tick re-asks. Read column is exempt –
             // there's no harm in *reading* a non-matching termbase, only in
             // writing into it.
@@ -1247,6 +1247,12 @@ namespace Supervertaler.Trados.Settings
             return true;
         }
 
+        // A row of a Supervertaler (database) termbase, as opposed to a read-only
+        // MultiTerm one. Judged by the row's Tag, never by its position: the user
+        // can sort the grid by a column, and then MultiTerm rows are no longer the
+        // ones after _termbases.Count.
+        private static bool IsDatabaseRow(DataGridViewRow row) => row.Tag is TermbaseInfo;
+
         private void OnColumnHeaderMouseClick(object sender, DataGridViewCellMouseEventArgs e)
         {
             var col = _dgvTermbases.Columns[e.ColumnIndex];
@@ -1263,7 +1269,7 @@ namespace Supervertaler.Trados.Settings
                 // Project is radio-button style – header click clears the selection
                 foreach (DataGridViewRow row in _dgvTermbases.Rows)
                 {
-                    if (skipMultiTerm && row.Index >= _termbases.Count) continue;
+                    if (skipMultiTerm && !IsDatabaseRow(row)) continue;
                     row.Cells[col.Name].Value = false;
                 }
             }
@@ -1273,7 +1279,7 @@ namespace Supervertaler.Trados.Settings
                 bool allChecked = true;
                 foreach (DataGridViewRow row in _dgvTermbases.Rows)
                 {
-                    if (skipMultiTerm && row.Index >= _termbases.Count) continue;
+                    if (skipMultiTerm && !IsDatabaseRow(row)) continue;
                     if (!(row.Cells[col.Name].Value as bool? ?? false))
                     {
                         allChecked = false;
@@ -1284,7 +1290,7 @@ namespace Supervertaler.Trados.Settings
                 bool newValue = !allChecked;
                 foreach (DataGridViewRow row in _dgvTermbases.Rows)
                 {
-                    if (skipMultiTerm && row.Index >= _termbases.Count) continue;
+                    if (skipMultiTerm && !IsDatabaseRow(row)) continue;
 
                     // Skip non-matching termbases when bulk-ticking Write –
                     // each one needs explicit per-termbase confirmation, not a
@@ -1308,7 +1314,7 @@ namespace Supervertaler.Trados.Settings
             if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
 
             // Don't open editor for MultiTerm rows (read-only)
-            if (e.RowIndex >= _termbases.Count) return;
+            if (!IsDatabaseRow(_dgvTermbases.Rows[e.RowIndex])) return;
 
             // Don't open editor when double-clicking checkbox columns
             var colName = _dgvTermbases.Columns[e.ColumnIndex].Name;
