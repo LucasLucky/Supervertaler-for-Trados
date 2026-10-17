@@ -9,6 +9,9 @@
 
 ## [18.20.201 / 19.20.201] – Unreleased
 
+### Added
+- **SuperSearch can now look terms up on JoostdeVree.nl.** The Dutch encyclopedia of building and architecture gives the English for many of its entries, so it works in both directions: search a Dutch term to read its entry, or an English one to find the Dutch entries that give it. It is in the Dutch group of the **Web** picker, switched off like the other Dutch sites; tick it to add it to your searches.
+
 ### Fixed
 - **A copy of Supervertaler installed before RWS approved it is now offered the signed App Store copy.** A build sent to you ahead of its App Store release is not signed by RWS, so Trados Studio warns about an unsigned plug-in every time it starts, and until now nothing told you when the signed copy of that same version came out: you stayed on the early copy until the next release. Once the App Store has the version you are running, the update notice now offers its signed copy, and **Install Update** puts it in place of the early copy, so the warning goes. A copy installed from the App Store is not affected. Early copies are also now named as the App Store names its own, so installing from the App Store later replaces an early copy instead of loading the plugin twice, which stopped Trados Studio from starting.
 - **SuperVoice can now select words in a segment that contains tags.** In a segment with a formatting tag – a figure reference in bold, say – selecting any word after the tag, by saying it or by its number, was refused with "is inside another word – say more words". Segments without tags were not affected. The numbered word list (**numbers**, **source numbers**) also showed the tags' code and numbered parts of it, such as "cf", "bold" and "True", as words, so every number after a tag pointed at the wrong word. The list now numbers only the words and shows each tag as a small purple marker, without a number, where it sits in the segment.

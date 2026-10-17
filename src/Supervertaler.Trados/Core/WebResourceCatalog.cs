@@ -94,6 +94,14 @@ namespace Supervertaler.Trados.Core
             // home page, and LETTER is mandatory — without it the site silently
             // returns the front page instead of results. Verified 2026-08-12.
             R("dfbonline", "💶", "Financiële Begrippenlijst", "https://www.dfbonline.nl/?invoer={query}&LETTER=123", null),
+            // Dutch building and architecture encyclopedia whose entries carry
+            // their English equivalents ("Eng. roof gutter, eaves trough"), so it
+            // answers both NL→EN and EN→NL: the site's Joomla Smart Search is
+            // full-text and finds English terms through those lines. No language
+            // codes in the URL. The form also posts a honeypot field and a
+            // timestamp token, but a plain GET with q alone returns results.
+            // Verified 2026-10-17 with dakgoot, roof gutter and geëmailleerd.
+            R("joostdevree", "🏗️", "JoostdeVree.nl (bouwkunde)", "https://www.joostdevree.nl/component/finder/search?q={query}", null),
 
             // ── EU / terminology ────────────────────────────────────────────
             R("eurlex", "📜", "EUR-Lex", "https://eur-lex.europa.eu/search.html?text={query}&scope=EURLEX&type=quick", null),
