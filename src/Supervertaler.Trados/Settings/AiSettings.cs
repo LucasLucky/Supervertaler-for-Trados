@@ -104,6 +104,16 @@ namespace Supervertaler.Trados.Settings
         [DataMember(Name = "tcMarkersAsComments")]
         public bool TcMarkersAsComments { get; set; }
 
+        /// <summary>
+        /// Whether a proofreading finding added as a Trados comment starts with
+        /// "AI proofreader (model):", naming the model that made it. On by default
+        /// (seeded in OnDeserializing), so the person who gets the file can tell an
+        /// AI's comment from a colleague's; off leaves only the issue and the
+        /// suggestion (Michael, 17 Oct 2026).
+        /// </summary>
+        [DataMember(Name = "proofreadCommentLabel")]
+        public bool ProofreadCommentLabel { get; set; } = true;
+
         [DataMember(Name = "selectedCustomProfileName")]
         public string SelectedCustomProfileName { get; set; } = "";
 
@@ -332,6 +342,7 @@ namespace Supervertaler.Trados.Settings
             ActiveMemoryBankName = UserDataPath.DefaultMemoryBankName;
             SendTmMatchesInBatch = true;
             TmFuzzyMinScore = 70;      // #116: a 0 here would search for anything at all
+            ProofreadCommentLabel = true;
         }
 
         /// <summary>

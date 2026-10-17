@@ -83,6 +83,7 @@ namespace Supervertaler.Trados.Controls
         private Label _lblBatchSize;
         private NumericUpDown _nudBatchSize;
         private CheckBox _chkTcAsComments;
+        private CheckBox _chkProofreadCommentLabel;
         private Label _lblAiTermbases;
 
         // AI Context section – Chat & QuickLauncher only
@@ -661,6 +662,17 @@ namespace Supervertaler.Trados.Controls
                 "Applies to Batch Translate, Translate active segment (Alt+T) and Paste from Clipboard.");
             Span(root, ref row, _chkTcAsComments);
 
+            _chkProofreadCommentLabel = Check("Start Proofread comments with “AI proofreader (model):”");
+            var labelTip = new ToolTip { AutoPopDelay = 20000, InitialDelay = 300 };
+            labelTip.SetToolTip(_chkProofreadCommentLabel,
+                "With “Also add issues as Trados comments” ticked on Batch Operations, each issue the\r\n" +
+                "proofreader finds is added to its segment as a Trados comment.\r\n\r\n" +
+                "Ticked (the default): the comment starts with “AI proofreader” and the model that\r\n" +
+                "found the issue, for example “AI proofreader (Claude Opus 5.5):”, so whoever gets the\r\n" +
+                "file can tell it from a colleague’s comment.\r\n\r\n" +
+                "Unticked: the comment holds only the issue and the suggestion.");
+            Span(root, ref row, _chkProofreadCommentLabel);
+
             // Termbase AI inclusion is now chosen on the Termbases tab (the "AI"
             // column in the termbase grid), so this is just a pointer to that.
             _lblAiTermbases = new Label
@@ -914,6 +926,7 @@ namespace Supervertaler.Trados.Controls
             _nudBatchSize.Value = Math.Max(_nudBatchSize.Minimum,
                 Math.Min(_nudBatchSize.Maximum, settings.BatchSize > 0 ? settings.BatchSize : 20));
             _chkTcAsComments.Checked = settings.TcMarkersAsComments;
+            _chkProofreadCommentLabel.Checked = settings.ProofreadCommentLabel;
         }
 
 
@@ -1010,6 +1023,7 @@ namespace Supervertaler.Trados.Controls
             settings.MonthlyBudgetUsd = (double)_nudMonthlyBudget.Value;
             settings.BatchSize = (int)_nudBatchSize.Value;
             settings.TcMarkersAsComments = _chkTcAsComments.Checked;
+            settings.ProofreadCommentLabel = _chkProofreadCommentLabel.Checked;
             // NOTE: DisabledAiTermbaseIds / AiTermbaseIdsInitialized are now owned by the
             // Termbases tab (the "AI" column in the termbase grid), not this panel.
         }

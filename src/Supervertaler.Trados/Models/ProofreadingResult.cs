@@ -48,6 +48,12 @@ namespace Supervertaler.Trados.Models
         public string DocumentName { get; set; }
         public string SourceLang { get; set; }
         public string TargetLang { get; set; }
+
+        /// <summary>The model that made the report, as its name is shown (e.g.
+        /// "Claude Opus 5.5"): a finding added as a Trados comment names it, at
+        /// the end of the run or when it is applied later. Null for a report saved
+        /// before 18.20.201.</summary>
+        public string Model { get; set; }
     }
 
     public enum BatchMode { Translate, Proofread }

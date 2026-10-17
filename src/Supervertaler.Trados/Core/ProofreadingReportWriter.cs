@@ -66,6 +66,7 @@ namespace Supervertaler.Trados.Core
             [DataMember] public double DurationSeconds;
             [DataMember] public int TotalSegmentsChecked;
             [DataMember] public IssueState[] Issues;
+            [DataMember] public string Model;          // 18.20.201; absent in older files
         }
 
         /// <summary>Writes the report's current state (dismissals included). Never throws.</summary>
@@ -83,6 +84,7 @@ namespace Supervertaler.Trados.Core
                     Timestamp = report.Timestamp.ToString("o"),
                     DurationSeconds = report.Duration.TotalSeconds,
                     TotalSegmentsChecked = report.TotalSegmentsChecked,
+                    Model = report.Model,
                     Issues = (report.Issues ?? new System.Collections.Generic.List<ProofreadingIssue>())
                         .Where(i => i != null)
                         .Select(i => new IssueState
@@ -128,7 +130,8 @@ namespace Supervertaler.Trados.Core
                     SourceLang = state.SourceLang,
                     TargetLang = state.TargetLang,
                     TotalSegmentsChecked = state.TotalSegmentsChecked,
-                    Duration = TimeSpan.FromSeconds(state.DurationSeconds)
+                    Duration = TimeSpan.FromSeconds(state.DurationSeconds),
+                    Model = state.Model
                 };
                 DateTime ts;
                 if (DateTime.TryParse(state.Timestamp, null, System.Globalization.DateTimeStyles.RoundtripKind, out ts))

@@ -1437,6 +1437,8 @@ namespace Supervertaler.Trados.Controls
             _rbTranslate.Enabled = !running;
             _rbProofread.Enabled = !running;
             _chkClipboardMode.Enabled = !running;
+            // Read when the run ends: it must say then what it said at the start.
+            _chkAddComments.Enabled = !running;
             if (_btnCopyToClipboard != null)
                 _btnCopyToClipboard.Enabled = !running;
 

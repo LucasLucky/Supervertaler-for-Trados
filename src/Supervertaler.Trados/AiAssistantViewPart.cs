@@ -12843,7 +12843,11 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
 
                 // Initialize the report
                 var previousReport = _currentReport;
-                var report = new ProofreadingReport();
+                var report = new ProofreadingReport
+                {
+                    // Named in its findings' Trados comments ("AI proofreader (…):").
+                    Model = string.IsNullOrWhiteSpace(model) ? null : (LlmModels.FindModel(model)?.DisplayName ?? model)
+                };
                 _currentReport = report;
 
                 // Start proofreading
@@ -12989,6 +12993,12 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 _control.Value.BatchTranslateControl.ReportProofreadCompleted(
                     e.TotalChecked, e.IssueCount, e.OkCount,
                     e.Elapsed, e.Cancelled);
+
+                // "Also add issues as Trados comments". The box cannot change during
+                // a run, so it reads as it did when the run started. A stopped run
+                // adds what it found.
+                if (_currentReport != null && _control.Value.BatchTranslateControl.AddAsComments)
+                    StartFindingComments(_currentReport);
             });
 
             // Clean up
@@ -15990,8 +16000,10 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 _batchTranslator = null;
             }
 
-            // Stop an Apply all on the Reports tab before the panel goes
+            // Stop an Apply all on the Reports tab, and findings still being
+            // added as comments, before the panel goes
             StopApplyAll();
+            StopFindingComments();
 
             // Cancel any running proofreading
             _proofreadCts?.Cancel();

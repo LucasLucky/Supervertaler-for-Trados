@@ -1285,7 +1285,8 @@ namespace Supervertaler.Trados.Controls
 
         /// <summary>
         /// Apply all's outcome in the footer, in place of the run line until the
-        /// next report; null puts the run line back. The footer shares its row
+        /// next report; null puts the run line back. Also how many findings were
+        /// added as Trados comments after the run. The footer shares its row
         /// with the cost note and is narrow in a docked panel, so the text is cut
         /// with an ellipsis and given whole in the tooltip.
         /// </summary>

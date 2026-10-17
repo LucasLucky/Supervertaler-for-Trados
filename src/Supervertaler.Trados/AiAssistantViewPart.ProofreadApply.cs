@@ -22,6 +22,8 @@ namespace Supervertaler.Trados
     /// word by word, through the same write as update_segments
     /// (<see cref="WriteSegmentTarget"/>); a plain edit when it is off;</item>
     /// <item>a fixed segment is set to Draft;</item>
+    /// <item>with "Also add issues as Trados comments" ticked, the finding goes on
+    /// the segment as a comment too (<see cref="AddFindingComment"/>);</item>
     /// <item>a segment whose source or target no longer reads as it did when it
     /// was checked is refused, and its card says so. So is a correction whose
     /// tags are not the source's.</item>
@@ -118,6 +120,9 @@ namespace Supervertaler.Trados
                 (tracking
                     ? "Track Changes is on, so each fix is recorded as tracked changes."
                     : "Track Changes is off, so the fixes are written as plain edits.") +
+                (_control.Value.BatchTranslateControl.AddAsComments
+                    ? " Each fix also gets its finding as a Trados comment (\"Also add issues as Trados comments\" is ticked on Batch Operations)."
+                    : "") +
                 "\n\nA segment that has changed since it was checked is left alone, and its card says so." +
                 (skipped > 0
                     ? $"\n\n{skipped} open finding{(skipped == 1 ? " has" : "s have")} no correction that can be applied and {(skipped == 1 ? "is" : "are")} skipped."
@@ -383,6 +388,16 @@ namespace Supervertaler.Trados
             // card must not vanish as if all were well.
             if (written.TagWarning != null)
                 note = (note == null ? "" : note + " ") + written.TagWarning;
+
+            // With "Also add issues as Trados comments" ticked, the finding goes on
+            // the segment with its fix, so a reviser accepting or rejecting the
+            // tracked change can see why it was made (Michael, 17 Oct 2026). After
+            // the write, never before: a comment added first would be written over.
+            // One added after the run is still there - the write keeps comments -
+            // and is not added twice.
+            if (_control.Value.BatchTranslateControl.AddAsComments
+                && AddFindingComment(issue, _currentReport?.Model, index, out var commentRefusal) == FindingCommentOutcome.NotAdded)
+                note = (note == null ? "" : note + " ") + "the finding could not be added as a comment: " + commentRefusal;
 
             issue.Applied = true;
             // Dealt with, like a ticked-off card - unless there is something to check.
