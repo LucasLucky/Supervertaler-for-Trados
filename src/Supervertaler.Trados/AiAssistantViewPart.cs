@@ -8261,6 +8261,8 @@ namespace Supervertaler.Trados
                     var label = (projectName ?? "this project") + ", " + (fileName ?? "this document")
                         + ", bank '" + ActiveMemoryBankName + "'";
                     var stem = TranslationBankContext.FileStem(fileName, documentKey);
+                    var chooserTimeout = TranslationBankContext.ChooserTimeoutFor(
+                        ai?.SelectedProvider, ai?.OllamaTimeoutMinutes ?? 0);
 
                     task = Task.Run(() =>
                     {
@@ -8270,7 +8272,7 @@ namespace Supervertaler.Trados
                                 client == null
                                     ? null
                                     : (Func<ArticleSelectionRequest, IList<string>>)(request =>
-                                        TranslationBankContext.ChooseArticles(client, request, TranslationBankContext.ChooserTimeout)),
+                                        TranslationBankContext.ChooseArticles(client, request, chooserTimeout)),
                                 chooserName,
                                 // A fresh reader: _kbReader belongs to the UI thread.
                                 () => new MemoryBankReader(bankDir).LoadContext(projectName, null, sourceLang, targetLang,
@@ -8340,8 +8342,12 @@ namespace Supervertaler.Trados
         {
             var waited = !task.IsCompleted;
             if (waited)
+            {
+                var local = TranslationBankContext.IsLocalServer(_settings?.AiSettings?.SelectedProvider);
                 SafeInvoke(() => log.AppendLog(
-                    "SuperMemory: choosing the parts of the memory bank this document needs (once per document)..."));
+                    "SuperMemory: choosing the parts of the memory bank this document needs (once per document)..."
+                    + (local ? " With a model on this computer, this can take a few minutes." : "")));
+            }
 
             var cancelled = new TaskCompletionSource<bool>();
             using (ct.Register(() => cancelled.TrySetResult(true)))
@@ -11391,7 +11397,10 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 return null;
             }
 
-            return new LlmClient(provider, model, apiKey, baseUrl);
+            // The translator's Timeout setting applies to every call to a local
+            // server, not just the batch runs, which already passed it.
+            return new LlmClient(provider, model, apiKey, baseUrl,
+                ollamaTimeoutMinutes: aiSettings.OllamaTimeoutMinutes);
         }
 
         /// <summary>

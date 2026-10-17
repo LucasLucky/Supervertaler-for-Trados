@@ -42,6 +42,29 @@ namespace Supervertaler.Trados.Core
         /// <summary>How long the article choice may take before every article is kept.</summary>
         internal static readonly TimeSpan ChooserTimeout = TimeSpan.FromSeconds(90);
 
+        /// <summary>
+        /// The time the article choice gets: <see cref="ChooserTimeout"/> for a
+        /// cloud model, the translator's local-server timeout for a model on their
+        /// own machine. 90 seconds is never enough without a graphics card: the
+        /// choice is a ~4,300-token prompt, and gemma4:26b-a4b reads ~16 tokens a
+        /// second on Michael's PC, so it gave up every time and kept every
+        /// article (2026-10-17) - including house rules written for other
+        /// language directions and kinds of text. Michael chose to let it finish:
+        /// it is asked once per document, and with a graphics card it takes
+        /// seconds anyway.
+        /// </summary>
+        internal static TimeSpan ChooserTimeoutFor(string provider, int localTimeoutMinutes)
+        {
+            if (!IsLocalServer(provider)) return ChooserTimeout;
+            return TimeSpan.FromMinutes(localTimeoutMinutes > 0
+                ? localTimeoutMinutes
+                : LlmClient.LocalServerDefaultTimeoutMinutes);
+        }
+
+        /// <summary>Ollama, or an OpenAI-compatible server such as LM Studio.</summary>
+        internal static bool IsLocalServer(string provider) =>
+            provider == LlmModels.ProviderOllama || provider == LlmModels.ProviderCustomOpenAi;
+
         /// <summary>How many extract files are kept - one per document ever translated would grow forever.</summary>
         internal const int KeepFiles = 200;
 
