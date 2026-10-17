@@ -199,7 +199,8 @@ namespace Supervertaler.Trados.Controls
             BackColor = Color.White;
 
             // ─── Tab control (fills entire panel) ────────────────────
-            _tabControl = new TabControl
+            // Outlined: Windows draws the tabs in a grey so light they ran together.
+            _tabControl = new OutlinedTabControl
             {
                 Dock = DockStyle.Fill,
                 Font = new Font("Segoe UI", UiScale.FontSize(8.5f)),
