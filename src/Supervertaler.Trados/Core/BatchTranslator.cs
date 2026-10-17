@@ -187,6 +187,7 @@ namespace Supervertaler.Trados.Core
             int failed = 0;
             int skipped = 0;
             var notTranslated = new List<BatchSegment>(); // collected during the pass; retried if enabled
+            bool promptTooLarge = false; // a local model read too little of it: no retry pass either
 
             // Aggregated prompt log accumulators - combined into one Reports entry at the end
             int aggInputTokens = 0;
@@ -374,7 +375,7 @@ namespace Supervertaler.Trados.Core
                     response = await c.SendPromptAsync(userPrompt, systemPrompt, maxTokens, cancellationToken,
                         feature: PromptLogFeature.BatchTranslate, suppressLog: true, enablePromptCaching: true);
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     return refused;
                 }
@@ -573,8 +574,22 @@ namespace Supervertaler.Trados.Core
                             $" ({batchSw.Elapsed.TotalSeconds:F1}s)",
                             false, sw.Elapsed);
                     }
-                    catch (OperationCanceledException)
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                     {
+                        break;
+                    }
+                    catch (PromptTooLargeException ex)
+                    {
+                        // Every batch carries the same instructions, so on a local
+                        // model each one would be read for minutes and refused in turn.
+                        failed += segments.Count - startIdx;
+                        aggHasError = true;
+                        lastError = ex.Message;
+                        for (int i = startIdx; i < segments.Count; i++) notTranslated.Add(segments[i]);
+                        promptTooLarge = true;
+                        RaiseProgress(endIdx, segments.Count,
+                            $"✗ Stopped at batch {batchNum + 1}: {ex.Message}",
+                            true, sw.Elapsed);
                         break;
                     }
                     catch (Exception ex)
@@ -596,7 +611,7 @@ namespace Supervertaler.Trados.Core
                 // segment that fills in corrects the translated/failed counters
                 // (it was counted as failed in the pass that left it empty).
                 // Local numbering (1..N per chunk) so a subset re-runs cleanly.
-                if (retryUntilComplete)
+                if (retryUntilComplete && !promptTooLarge)
                 {
                     const int maxRetryPasses = 5;
                     var pending = notTranslated;
@@ -662,7 +677,7 @@ namespace Supervertaler.Trados.Core
                                     RaiseProgress(translated, segments.Count, null, false, sw.Elapsed);
                                 }
                             }
-                            catch (OperationCanceledException)
+                            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                             {
                                 for (int i = rs; i < re; i++) stillEmpty.Add(pending[i]);
                                 break;

@@ -223,8 +223,16 @@ namespace Supervertaler.Trados.Core
                             $" ({batchSw.Elapsed.TotalSeconds:F1}s)",
                             false, sw.Elapsed);
                     }
-                    catch (OperationCanceledException)
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                     {
+                        break;
+                    }
+                    catch (PromptTooLargeException ex)
+                    {
+                        // Every batch carries the same instructions: see BatchTranslator.
+                        RaiseProgress(endIdx, segments.Count,
+                            $"✗ Stopped at batch {batchNum + 1}: {ex.Message}",
+                            true, sw.Elapsed);
                         break;
                     }
                     catch (Exception ex)

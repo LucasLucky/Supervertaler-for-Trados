@@ -49,6 +49,7 @@ namespace Supervertaler.Trados.Controls
         // cells of a TableLayoutPanel row collapses it, so the rest reflows.
         private readonly List<Control> _ollamaRows = new List<Control>();
         private readonly List<Control> _customRows = new List<Control>();
+        private readonly List<Control> _localServerRows = new List<Control>(); // Ollama or Custom
 
         // Ollama section
         private TextBox _txtOllamaEndpoint;
@@ -414,31 +415,6 @@ namespace Supervertaler.Trados.Controls
             _ollamaRows.Add(lblOllamaEndpoint);
             _ollamaRows.Add(_txtOllamaEndpoint);
 
-            var lblOllamaTimeout = FieldLabel("Timeout (min):");
-            _nudOllamaTimeout = SmallNud(0, 120, 0, 1);
-            _lblOllamaTimeoutHint = new Label
-            {
-                Text = "0 = auto (3–10 min, based on model size)",
-                AutoSize = true,
-                ForeColor = Color.Gray,
-                Font = HintFont(),
-                Anchor = AnchorStyles.Left,
-                Margin = new Padding(UiScale.Pixels(8), UiScale.Pixels(6), 0, 0)
-            };
-            var ollamaTimeoutHost = new FlowLayoutPanel
-            {
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                FlowDirection = FlowDirection.LeftToRight,
-                WrapContents = false,
-                Margin = Padding.Empty
-            };
-            ollamaTimeoutHost.Controls.Add(_nudOllamaTimeout);
-            ollamaTimeoutHost.Controls.Add(_lblOllamaTimeoutHint);
-            Pair(root, ref row, lblOllamaTimeout, ollamaTimeoutHost);
-            _ollamaRows.Add(lblOllamaTimeout);
-            _ollamaRows.Add(ollamaTimeoutHost);
-
             // ===== Custom OpenAI section (rows shown only when Custom is selected) =====
             var sepCustom = new Label
             {
@@ -505,9 +481,38 @@ namespace Supervertaler.Trados.Controls
             _customRows.Add(lblCustomApiKey);
             _customRows.Add(customKeyHost);
 
+            // ===== Time limit for a server on this computer (Ollama and Custom) =====
+            // Below both sections so it sits last in either. The setting keeps its
+            // Ollama name: it is in users' settings.json under that name.
+            var lblOllamaTimeout = FieldLabel("Timeout (min):");
+            _nudOllamaTimeout = SmallNud(0, 120, 0, 1);
+            _lblOllamaTimeoutHint = new Label
+            {
+                Text = "0 = auto (" + LlmClient.LocalServerDefaultTimeoutMinutes + " min)",
+                AutoSize = true,
+                ForeColor = Color.Gray,
+                Font = HintFont(),
+                Anchor = AnchorStyles.Left,
+                Margin = new Padding(UiScale.Pixels(8), UiScale.Pixels(6), 0, 0)
+            };
+            var ollamaTimeoutHost = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Margin = Padding.Empty
+            };
+            ollamaTimeoutHost.Controls.Add(_nudOllamaTimeout);
+            ollamaTimeoutHost.Controls.Add(_lblOllamaTimeoutHint);
+            Pair(root, ref row, lblOllamaTimeout, ollamaTimeoutHost);
+            _localServerRows.Add(lblOllamaTimeout);
+            _localServerRows.Add(ollamaTimeoutHost);
+
             // Hide provider-specific rows until OnProviderChanged shows the right set.
             foreach (var c in _ollamaRows) c.Visible = false;
             foreach (var c in _customRows) c.Visible = false;
+            foreach (var c in _localServerRows) c.Visible = false;
 
             // ===== AI context (Batch operations, Chat and QuickLauncher) =====
             _lblAiContextHeader = Header("Context layers (Batch operations, Chat and QuickLauncher)");
@@ -1036,6 +1041,7 @@ namespace Supervertaler.Trados.Controls
             bool isCustom = providerKey == LlmModels.ProviderCustomOpenAi;
             foreach (var c in _ollamaRows) c.Visible = isOllama;
             foreach (var c in _customRows) c.Visible = isCustom;
+            foreach (var c in _localServerRows) c.Visible = isOllama || isCustom;
 
             // API key field: hide for Ollama, show for others
             _txtApiKey.Enabled = providerKey != LlmModels.ProviderOllama;
