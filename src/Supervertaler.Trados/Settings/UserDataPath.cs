@@ -207,14 +207,21 @@ namespace Supervertaler.Trados.Settings
 
         private static void SaveConfigString(string key, string value)
         {
-            var dir = Path.GetDirectoryName(ConfigFile);
-            if (dir != null) Directory.CreateDirectory(dir);
-            var existing = File.Exists(ConfigFile) ? File.ReadAllText(ConfigFile, Encoding.UTF8) : "";
+            var existing = File.Exists(ConfigFile) ? Supervertaler.Core.AtomicFile.ReadAllText(ConfigFile) : "";
             var updated = SetJsonString(existing, key, value, Root);
-            var tmp = ConfigFile + ".tmp";
-            File.WriteAllText(tmp, updated, new UTF8Encoding(false));   // no BOM: Workbench (Python) reads this file too
-            if (File.Exists(ConfigFile)) File.Replace(tmp, ConfigFile, null);
-            else File.Move(tmp, ConfigFile);
+            // Swapped in by a rename that works while the other products or a sync
+            // tool are reading the file. File.Replace refused outright whenever it
+            // was open anywhere (it lost project settings and Proofread report
+            // state that way in October 2026). Still throws when the write fails.
+            var bytes = new UTF8Encoding(false).GetBytes(updated);   // no BOM: Workbench (Python) reads this file too
+            string why = null;
+            if (Supervertaler.Core.AtomicFile.Write(ConfigFile, bytes, replaceExisting: true, m => why = m)
+                != Supervertaler.Core.AtomicFile.Outcome.Written)
+                throw new IOException(why ?? (Path.GetFileName(ConfigFile) + " could not be written."));
+
+            // The fixed-name temporary file earlier builds wrote, left behind by
+            // every write File.Replace refused.
+            try { File.Delete(ConfigFile + ".tmp"); } catch { }
         }
 
         /// <summary>

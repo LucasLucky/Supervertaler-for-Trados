@@ -96,13 +96,32 @@ namespace Supervertaler.Trados.Core
                             CorrectedTarget = i.CorrectedTarget, Applied = i.Applied
                         }).ToArray()
                 };
-                Directory.CreateDirectory(ReportsDir);
-                var tmp = StatePath + ".tmp";
-                using (var fs = File.Create(tmp))
-                    new DataContractJsonSerializer(typeof(ReportState)).WriteObject(fs, state);
-                // Replace atomically so a crash mid-write cannot leave a half file.
-                if (File.Exists(StatePath)) File.Replace(tmp, StatePath, null);
-                else File.Move(tmp, StatePath);
+                byte[] bytes;
+                using (var ms = new MemoryStream())
+                {
+                    new DataContractJsonSerializer(typeof(ReportState)).WriteObject(ms, state);
+                    bytes = ms.ToArray();
+                }
+
+                // Swapped in by a rename that works while a scanner or a sync tool
+                // is reading the file, and that a crash cannot leave half done.
+                // File.Replace refused outright whenever the file was open anywhere
+                // ("Unable to remove the file to be replaced", four times between 15
+                // and 17 Oct 2026, twice during Apply), and every card applied or
+                // ticked off since the last good save came back after a restart.
+                Supervertaler.Core.AtomicFile.SweepAbandoned(StatePath, TimeSpan.FromMinutes(10));
+                if (Supervertaler.Core.AtomicFile.Write(StatePath, bytes, replaceExisting: true,
+                        m => DiagnosticLog.Log("Reports", "Report state: " + m))
+                    != Supervertaler.Core.AtomicFile.Outcome.Written)
+                {
+                    LastError = "the report state could not be written; the previous one is unchanged";
+                    return false;
+                }
+
+                // The fixed-name temporary file builds before 18.20.201 wrote, left
+                // behind by every save File.Replace refused.
+                try { File.Delete(StatePath + ".tmp"); } catch { }
+                LastError = null;
                 return true;
             }
             catch (Exception ex)
@@ -120,8 +139,10 @@ namespace Supervertaler.Trados.Core
             {
                 if (!File.Exists(StatePath)) return null;
                 ReportState state;
-                using (var fs = File.OpenRead(StatePath))
-                    state = (ReportState)new DataContractJsonSerializer(typeof(ReportState)).ReadObject(fs);
+                // With delete sharing, so this read never stands in the way of a save,
+                // and waiting out a scanner that has the file for a moment.
+                using (var ms = new MemoryStream(Supervertaler.Core.AtomicFile.ReadAllBytes(StatePath)))
+                    state = (ReportState)new DataContractJsonSerializer(typeof(ReportState)).ReadObject(ms);
                 if (state == null) return null;
                 var report = new ProofreadingReport
                 {
