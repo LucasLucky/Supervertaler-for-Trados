@@ -860,6 +860,41 @@ namespace Supervertaler.Trados.Core
             }
         }
 
+        /// <summary>
+        /// The markup tree of <paramref name="container"/> in one line, for the
+        /// diagnostic log: node kinds and text lengths, never the text itself (a
+        /// client's words do not belong in a log). "T(12) Ins[T(4)] Del[T(5)]
+        /// Cmt[T(30)] Tag[...] Ph".
+        /// </summary>
+        internal static string Shape(IAbstractMarkupDataContainer container)
+        {
+            if (container == null) return "(null)";
+            var sb = new StringBuilder();
+            ShapeInto(container, sb);
+            return sb.Length == 0 ? "(empty)" : sb.ToString().TrimEnd();
+        }
+
+        private static void ShapeInto(IAbstractMarkupDataContainer container, StringBuilder sb)
+        {
+            foreach (var item in container)
+            {
+                if (item is IText t) sb.Append("T(").Append(t.Properties?.Text?.Length ?? 0).Append(") ");
+                else if (item is IRevisionMarker r)
+                {
+                    var type = r.Properties?.RevisionType;
+                    sb.Append(type == RevisionType.Insert ? "Ins[" : type == RevisionType.Delete ? "Del[" : "Rev[");
+                    ShapeInto(r, sb);
+                    sb.Append("] ");
+                }
+                else if (item is ICommentMarker c) { sb.Append("Cmt["); ShapeInto(c, sb); sb.Append("] "); }
+                else if (item is ITagPair pair) { sb.Append("Tag["); ShapeInto(pair, sb); sb.Append("] "); }
+                else if (item is IPlaceholderTag) sb.Append("Ph ");
+                else if (item is ILockedContent) sb.Append("Locked ");
+                else if (item is IAbstractMarkupDataContainer other) { sb.Append(item.GetType().Name).Append('['); ShapeInto(other, sb); sb.Append("] "); }
+                else sb.Append(item?.GetType().Name ?? "null").Append(' ');
+            }
+        }
+
         private static string PlainText(IAbstractMarkupDataContainer container)
         {
             if (container == null) return "";

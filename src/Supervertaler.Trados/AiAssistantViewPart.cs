@@ -2091,6 +2091,14 @@ namespace Supervertaler.Trados
             /// <summary>#138: the target reads exactly as it did (accepted view,
             /// tags included).</summary>
             public bool UnchangedText;
+
+            /// <summary>The accepted view of the target the write built, which the
+            /// live segment must read as afterwards (<see cref="VerifyWriteLanded"/>).</summary>
+            public string AcceptedAfter;
+
+            /// <summary>The target's markup before and after the write, for the
+            /// diagnostic log when Studio does not apply it.</summary>
+            public string ShapeBefore, ShapeAfter;
         }
 
         /// <summary>
@@ -2131,6 +2139,7 @@ namespace Supervertaler.Trados
                         bool tagRevisionsBefore = trackWords
                             && Core.TrackedTargetMerge.HasTagRevisions(sp.Target);
                         var acceptedBefore = Core.TrackedTargetMerge.Project(sp.Target, accept: true);
+                        written.ShapeBefore = Core.TrackedTargetMerge.Shape(sp.Target);
 
                         // Tag-aware write. NOTE the difference from bilingual
                         // re-import: that path uses BuildCombinedTagMap, where
@@ -2226,10 +2235,10 @@ namespace Supervertaler.Trados
                             written.TagsReplaced = tagsReplaced;
                         }
 
-                        written.UnchangedText = Core.TrackedTargetMerge.Project(sp.Target, accept: true)
-                                                == acceptedBefore;
+                        written.AcceptedAfter = Core.TrackedTargetMerge.Project(sp.Target, accept: true);
+                        written.ShapeAfter = Core.TrackedTargetMerge.Shape(sp.Target);
+                        written.UnchangedText = written.AcceptedAfter == acceptedBefore;
 
-                        Core.EditCapture.CaptureController.NoteProposal(sp, _activeDocument);
                         written.TagWarning = DescribeTagIdMismatch(sp.Source, sp.Target);
 
                         // Comment audit, same principle as the tag audit: a
@@ -2254,6 +2263,14 @@ namespace Supervertaler.Trados
                 // make edits no reviewer can see. Idempotent - the finally below
                 // covers the path where the write throws.
                 suspension?.Dispose();
+
+                // Read back once: to check that the write landed, and for
+                // EditCapture, which is told about a proposal only once it is in
+                // the segment. It used to be told from inside the edit, so a write
+                // Studio declined was still recorded as one.
+                var live = ReadLivePair(pair);
+                VerifyWriteLanded(live?.Target, written, trackWords);
+                if (live != null) Core.EditCapture.CaptureController.NoteProposal(live, _activeDocument);
             }
             finally
             {
@@ -2262,6 +2279,69 @@ namespace Supervertaler.Trados
                 suspension?.Dispose();
             }
             return written;
+        }
+
+        /// <summary>
+        /// Throws when the live segment does not read as the write built it.
+        /// Studio's ProcessSegmentPair says nothing when an edit does not land: on
+        /// 18 Oct 2026 update_segments answered ok:true for four segments of the
+        /// example project that stayed exactly as they were, while the segment
+        /// without tracked changes, in the same call, was written. A caller told
+        /// "applied" moves on, so a write that did not happen has to say so.
+        ///
+        /// <para>The cause that day: with Track Changes off (and TQA mode off),
+        /// Studio's editor protects the tracked changes already in a segment -
+        /// FrameworkEditControl sets its revision protection whenever both are
+        /// off - and quietly declines an edit that would replace them, from a
+        /// plugin as from the keyboard. With Track Changes on there is no such
+        /// protection, and the same write is recorded as a tracked change. Michael
+        /// chose (18 Oct) to respect the protection and say so, rather than lift
+        /// it, which would drop changes nobody has reviewed. So this is where that
+        /// refusal is made: only when Studio has actually declined, which needs no
+        /// guess at the protection state.</para>
+        ///
+        /// <para>Compared on the accepted view, as
+        /// <see cref="SegmentTargetWrite.UnchangedText"/> is; a segment that
+        /// cannot be read back is logged and not held against the write.</para>
+        /// </summary>
+        private void VerifyWriteLanded(ISegment live, SegmentTargetWrite written, bool tracked)
+        {
+            if (written.UnchangedText || written.AcceptedAfter == null || live == null) return;
+            if (Core.TrackedTargetMerge.Project(live, accept: true) == written.AcceptedAfter) return;
+
+            bool hadRevisions = written.ShapeBefore != null
+                && (written.ShapeBefore.Contains("Ins[") || written.ShapeBefore.Contains("Del["));
+            Core.DiagnosticLog.Log("Write", "NOT APPLIED by Studio (tracked write: " + tracked
+                + ", tracking now: " + (Core.TrackingSuspension.IsTracking(_activeDocument)?.ToString() ?? "unknown")
+                + "). Before: " + written.ShapeBefore + " | built: " + written.ShapeAfter
+                + " | live after: " + Core.TrackedTargetMerge.Shape(live));
+            throw new InvalidOperationException(hadRevisions && !tracked
+                ? "the segment holds tracked changes that have not been accepted or rejected, and Trados Studio "
+                  + "protects them while Track Changes is off. Accept or reject them, or switch Track Changes on, "
+                  + "and try again. Nothing was written."
+                : "Trados Studio did not apply the change: the segment still reads as it did. Nothing was written.");
+        }
+
+        /// <summary>The segment pair as the document holds it now, read afresh
+        /// (the pair a write was given is a copy, and keeps the old target); null
+        /// when it cannot be found. One paragraph's pairs are copied, not the
+        /// document's.</summary>
+        private ISegmentPair ReadLivePair(ISegmentPair pair)
+        {
+            try
+            {
+                var puId = _activeDocument.GetParentParagraphUnit(pair)?.Properties?.ParagraphUnitId;
+                var segId = pair?.Properties?.Id.Id;
+                if (puId == null || segId == null) return null;
+                foreach (var p in _activeDocument.GetSegmentPairsFromParagraph(puId.Value))
+                    if (p?.Properties != null && p.Properties.Id.Id == segId) return p;
+                Core.DiagnosticLog.Log("Write", "could not find the segment again to check the write");
+            }
+            catch (Exception ex)
+            {
+                Core.DiagnosticLog.Log("Write", "could not read the segment back to check the write: " + ex.Message);
+            }
+            return null;
         }
 
         /// <summary>
