@@ -77,6 +77,10 @@ namespace Supervertaler.Trados.Controls
         // Shared "retry segments left empty" – applies to Translate and the offload
         private CheckBox _chkRetry;
 
+        // Proofread: check the translation alone. Shown in the TM-matches row,
+        // whose two boxes are Translate-only and hidden in Proofread mode.
+        private CheckBox _chkTargetOnly;
+
         // TMX backup
         private CheckBox _chkTmxBackup;
         private LinkLabel _lnkOpenBackupFolder;
@@ -164,6 +168,12 @@ namespace Supervertaler.Trados.Controls
 
         /// <summary>Whether proofreading issues should also be added as Trados comments.</summary>
         public bool AddAsComments => _chkAddComments?.Checked ?? false;
+
+        /// <summary>Whether Proofread checks the translation alone, without sending
+        /// the source (<see cref="Core.ProofreadingPrompt.BuildTargetOnlySystemPrompt"/>).
+        /// Not saved: every Studio session starts with the full check, so a box
+        /// left ticked cannot quietly skip the accuracy check on the next job.</summary>
+        public bool TargetOnly => _currentMode == BatchMode.Proofread && (_chkTargetOnly?.Checked ?? false);
 
         /// <summary>Whether the user wants translated segments auto-backed-up to a TMX file.</summary>
         public bool IsTmxBackupEnabled => _chkTmxBackup?.Checked ?? true;
@@ -308,6 +318,28 @@ namespace Supervertaler.Trados.Controls
                 "Works on empty segments too, not only ones Studio pre-translated.\r\n\r\n" +
                 "Turn this off for a job whose translation memory you do not trust.");
             Controls.Add(_chkSendTmMatches);
+
+            _chkTargetOnly = new CheckBox
+            {
+                Text = "Translation only (no source)",
+                Location = _chkSendTmMatches.Location,
+                AutoSize = true,
+                Font = bodyFont,
+                ForeColor = labelColor,
+                Checked = false,
+                Visible = false   // Proofread mode only
+            };
+            var targetOnlyTip = new ToolTip { AutoPopDelay = 20000, InitialDelay = 300 };
+            targetOnlyTip.SetToolTip(_chkTargetOnly,
+                "Check the translation alone, without sending the source text: a quick final\r\n" +
+                "read after post-editing, for roughly half the tokens of a full check.\r\n\r\n" +
+                "It checks spelling, words left behind while editing, grammar, punctuation,\r\n" +
+                "number formats, spelling that varies across the document, and the memory\r\n" +
+                "bank's language and style rules.\r\n\r\n" +
+                "Without the source it cannot check accuracy, omissions or terminology, so\r\n" +
+                "no termbase is sent either. Untick it for the full check.\r\n\r\n" +
+                "Not remembered: Studio always starts with the full check.");
+            Controls.Add(_chkTargetOnly);
 
             y += Px(24);
 
@@ -808,6 +840,11 @@ namespace Supervertaler.Trados.Controls
 
             // Show/hide mode-specific controls
             _chkAddComments.Visible = _currentMode == BatchMode.Proofread;
+            // TM matches and Retry do nothing in a proofread; the translation-only
+            // box takes their place.
+            _chkSendTmMatches.Visible = _currentMode == BatchMode.Translate;
+            _chkRetry.Visible = _currentMode == BatchMode.Translate;
+            _chkTargetOnly.Visible = _currentMode == BatchMode.Proofread;
 
             // AutoPrompt is a translation-prompt generator – it makes no
             // sense in Proofread mode. Previously we hid it entirely there,
@@ -1439,6 +1476,7 @@ namespace Supervertaler.Trados.Controls
             _chkClipboardMode.Enabled = !running;
             // Read when the run ends: it must say then what it said at the start.
             _chkAddComments.Enabled = !running;
+            _chkTargetOnly.Enabled = !running;
             if (_btnCopyToClipboard != null)
                 _btnCopyToClipboard.Enabled = !running;
 

@@ -53,7 +53,8 @@ namespace Supervertaler.Trados.Core
             CancellationToken cancellationToken,
             string customPromptContent = null,
             List<(string source, string target)> documentSegments = null,
-            string kbContext = null)
+            string kbContext = null,
+            bool targetOnly = false)
         {
             var sw = Stopwatch.StartNew();
             int totalChecked = 0;
@@ -77,7 +78,7 @@ namespace Supervertaler.Trados.Core
             var systemPrompt = ProofreadingPrompt.BuildSystemPrompt(
                 sourceLang, targetLang, termbaseTerms, customPromptContent,
                 includeDoc ? documentSegments : null,
-                includeTermMeta, kbContext);
+                includeTermMeta, kbContext, targetOnly);
 
             // Resolve provider settings
             var provider = aiSettings.SelectedProvider ?? LlmModels.ProviderOpenAi;
@@ -130,7 +131,7 @@ namespace Supervertaler.Trados.Core
                     {
                         var batchSw = Stopwatch.StartNew();
 
-                        var userPrompt = UserPromptFor(segments, startIdx, endIdx);
+                        var userPrompt = UserPromptFor(segments, startIdx, endIdx, targetOnly);
 
                         // Call LLM. enablePromptCaching: the system prompt (instructions + termbase +
                         // memory bank + bilingual document context) is byte-stable across all batches
@@ -153,6 +154,7 @@ namespace Supervertaler.Trados.Core
                         // Apply results
                         int batchIssues = 0;
                         int batchOk = 0;
+                        int batchUnread = 0;
 
                         for (int i = startIdx; i < endIdx; i++)
                         {
@@ -193,6 +195,7 @@ namespace Supervertaler.Trados.Core
                             {
                                 // No result from AI – mark as OK by default
                                 proofResult.IsOk = true;
+                                batchUnread++;
                             }
 
                             SegmentProofread?.Invoke(this, new ProofreadSegmentEventArgs
@@ -222,6 +225,16 @@ namespace Supervertaler.Trados.Core
                             $"{batchOk} OK, {batchIssues} issues" +
                             $" ({batchSw.Elapsed.TotalSeconds:F1}s)",
                             false, sw.Elapsed);
+
+                        // A segment the reply gave no verdict for that could be read
+                        // is counted as OK above, so a reply in a shape the parser
+                        // does not know looked exactly like a clean run (18 Oct 2026:
+                        // 21 of 21, three real issues among them). Say so.
+                        if (batchUnread > 0)
+                            RaiseProgress(endIdx, segments.Count,
+                                $"Batch {batchNum + 1}: no verdict could be read for {batchUnread} of {batchCount} " +
+                                "segments in the AI's reply, so they are shown as OK. Run them again, or try another model.",
+                                true, sw.Elapsed);
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                     {
@@ -266,9 +279,11 @@ namespace Supervertaler.Trados.Core
         /// can cite them against the same numbers in # DOCUMENT CONTENT, and their
         /// tags as placeholders, the target's numbered as the source's
         /// (<see cref="SegmentTagHandler.ToProofreadText"/>), so a Corrected line
-        /// comes back with them.
+        /// comes back with them. <paramref name="targetOnly"/> leaves the
+        /// source out (<see cref="ProofreadingPrompt.BuildTargetOnlySystemPrompt"/>).
         /// </summary>
-        internal static string UserPromptFor(IList<BatchSegment> segments, int startIdx, int endIdx)
+        internal static string UserPromptFor(IList<BatchSegment> segments, int startIdx, int endIdx,
+            bool targetOnly = false)
         {
             var promptSegments = new List<(int number, string source, string target)>(endIdx - startIdx);
             for (int i = startIdx; i < endIdx; i++)
@@ -279,7 +294,7 @@ namespace Supervertaler.Trados.Core
                     target: segments[i].ExistingTarget
                 ));
             }
-            return ProofreadingPrompt.BuildBatchUserPrompt(promptSegments);
+            return ProofreadingPrompt.BuildBatchUserPrompt(promptSegments, targetOnly);
         }
 
         private void RaiseProgress(int current, int total, string message,

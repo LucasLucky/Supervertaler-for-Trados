@@ -490,7 +490,8 @@ namespace Supervertaler.Trados.Controls
             OnControlResize(this, EventArgs.Empty);
 
             // Update footer
-            _footerBase = $"Last run: {report.Timestamp:HH:mm:ss} \u2013 {report.Duration.TotalSeconds:F1}s";
+            _footerBase = $"Last run: {report.Timestamp:HH:mm:ss} \u2013 {report.Duration.TotalSeconds:F1}s"
+                + (report.TargetOnly ? " \u2013 translation only" : "");
             _lblFooter.Text = _footerBase;
             _footerTip.SetToolTip(_lblFooter, "");
             if (_btnSave != null) _btnSave.Enabled = true;   // #105

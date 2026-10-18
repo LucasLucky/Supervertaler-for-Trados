@@ -126,7 +126,9 @@ namespace Supervertaler.Trados.Core
 
         /// <summary>
         /// Builds the full clipboard text for proofreading: system prompt + numbered
-        /// bilingual segment blocks with both source and target filled in.
+        /// bilingual segment blocks with both source and target filled in, or the
+        /// target alone when <paramref name="targetOnly"/>
+        /// (<see cref="ProofreadingPrompt.BuildTargetOnlySystemPrompt"/>).
         /// </summary>
         public static string FormatForProofreading(
             List<BatchSegment> segments,
@@ -136,7 +138,8 @@ namespace Supervertaler.Trados.Core
             List<TermEntry> termbaseTerms = null,
             string customSystemPrompt = null,
             List<(string source, string target)> documentSegments = null,
-            bool includeTermMetadata = true)
+            bool includeTermMetadata = true,
+            bool targetOnly = false)
         {
             var sb = new StringBuilder(segments.Count * 400 + 4096);
 
@@ -146,7 +149,7 @@ namespace Supervertaler.Trados.Core
             var systemPrompt = ProofreadingPrompt.BuildSystemPrompt(
                 sourceLang, targetLang,
                 termbaseTerms, customPromptContent,
-                documentSegments, includeTermMetadata);
+                documentSegments, includeTermMetadata, targetOnly: targetOnly);
 
             sb.AppendLine(systemPrompt);
             sb.AppendLine();
@@ -178,13 +181,15 @@ namespace Supervertaler.Trados.Core
             sb.AppendLine("translatable content are omitted from this batch but still occupy their number.");
             sb.AppendLine("Answer in the format of the OUTPUT CONTRACT above, and cite these same numbers in Evidence lines.");
             sb.AppendLine();
-            sb.AppendLine("**SEGMENTS TO REVIEW (" + segments.Count + " segments):**");
+            sb.AppendLine("**SEGMENTS TO REVIEW (" + segments.Count + " segments" +
+                (targetOnly ? ", translation only" : "") + "):**");
             sb.AppendLine();
 
             foreach (var seg in segments)
             {
                 sb.Append("[SEGMENT ").Append((seg.Index + 1).ToString("D4")).AppendLine("]");
-                sb.Append("Source: ").AppendLine(seg.SourceText);
+                if (!targetOnly)
+                    sb.Append("Source: ").AppendLine(seg.SourceText);
                 sb.Append("Target: ").AppendLine(seg.ExistingTarget ?? "");
                 sb.AppendLine();
             }

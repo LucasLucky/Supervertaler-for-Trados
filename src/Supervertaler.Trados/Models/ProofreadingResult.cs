@@ -54,6 +54,12 @@ namespace Supervertaler.Trados.Models
         /// the end of the run or when it is applied later. Null for a report saved
         /// before 18.20.201.</summary>
         public string Model { get; set; }
+
+        /// <summary>The run checked the translation alone, without sending the
+        /// source (<see cref="Core.ProofreadingPrompt.BuildTargetOnlySystemPrompt"/>):
+        /// a reader of the report needs to know that accuracy and terminology were
+        /// not checked. False for a report saved before 18.20.201.</summary>
+        public bool TargetOnly { get; set; }
     }
 
     public enum BatchMode { Translate, Proofread }

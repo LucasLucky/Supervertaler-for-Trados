@@ -25,12 +25,20 @@ namespace Supervertaler.Trados.Core
         /// <param name="customPromptContent">Optional custom prompt content (already variable-substituted)</param>
         /// <param name="kbContext">Optional SuperMemory block, as Batch Translate sends it
         /// (<see cref="TranslationBankContext"/>); null or blank sends none</param>
+        /// <param name="targetOnly">Check the translation alone: see
+        /// <see cref="BuildTargetOnlySystemPrompt"/>. <paramref name="terms"/> and the
+        /// source side of <paramref name="documentSegments"/> are then not sent.</param>
         public static string BuildSystemPrompt(string sourceLang, string targetLang,
             List<TermEntry> terms = null, string customPromptContent = null,
             List<(string source, string target)> documentSegments = null,
             bool includeTermMetadata = true,
-            string kbContext = null)
+            string kbContext = null,
+            bool targetOnly = false)
         {
+            if (targetOnly)
+                return BuildTargetOnlySystemPrompt(sourceLang, targetLang, customPromptContent,
+                    documentSegments, kbContext);
+
             var hasBank = !string.IsNullOrWhiteSpace(kbContext);
             var sb = new StringBuilder(4096);
 
@@ -187,6 +195,131 @@ namespace Supervertaler.Trados.Core
         }
 
         /// <summary>
+        /// The system prompt for a check of the translation alone, without its
+        /// source: a quick final read after post-editing, asked for by an agency
+        /// reviser (16 Oct 2026) as a cheaper pass than the full check. The source
+        /// is roughly half of every segment and half of the document context.
+        ///
+        /// <para>What it can check is what reads wrong in the target language on
+        /// its own: typos, words doubled or left behind while editing, grammar,
+        /// punctuation, number formats, spelling that varies across the document,
+        /// and the memory bank's language and style rules. What it cannot check is
+        /// everything that needs the source (accuracy, omissions, additions, the
+        /// choice of term), and the prompt says so in as many words: a model asked
+        /// to proofread a translation otherwise guesses at the source and reports
+        /// what it guessed.</para>
+        ///
+        /// <para>No termbase. An entry pairs a source term with a target term, so
+        /// whether one is used rightly needs the source, even for a forbidden term:
+        /// "apparatus" can be wrong for "inrichting" and right for "apparaat". The
+        /// verdict format is the full check's
+        /// (<see cref="OutputContract.ProofreadTargetOnlyText"/>), so the parser and
+        /// Apply are unchanged. Each finding still carries its source on our side,
+        /// for Apply's checks; it is only never sent.</para>
+        /// </summary>
+        internal static string BuildTargetOnlySystemPrompt(string sourceLang, string targetLang,
+            string customPromptContent, List<(string source, string target)> documentSegments,
+            string kbContext)
+        {
+            var hasBank = !string.IsNullOrWhiteSpace(kbContext);
+            var sb = new StringBuilder(4096);
+
+            sb.AppendLine("You are an expert " + targetLang + " proofreader. The texts below are translations from " +
+                sourceLang + ". You are given the translations only, not the " + sourceLang + " source.");
+            sb.AppendLine();
+            sb.AppendLine("**YOUR TASK**: Read each translated segment below as a final check after editing, and identify errors in the " +
+                targetLang + " text.");
+            sb.AppendLine();
+
+            sb.AppendLine("**CHECK FOR THE FOLLOWING ISSUES**:");
+            sb.AppendLine("1. **Spelling** – Misspelled words and typos.");
+            sb.AppendLine("2. **Editing leftovers** – Words doubled, left behind or half replaced while the text was edited, so that a sentence no longer runs.");
+            sb.AppendLine("3. **Grammar** – Agreement, verb forms, word order, articles and prepositions.");
+            sb.AppendLine("4. **Punctuation & spacing** – Missing, doubled or wrong punctuation and spaces.");
+            sb.AppendLine("5. **Number Formatting** – Numbers, dates and measurements written as " + targetLang + " requires.");
+            sb.AppendLine("6. **Consistency** – The same word or name spelled, capitalised or hyphenated differently in different segments.");
+            sb.AppendLine();
+
+            AppendLanguageSpecificChecks(sb, targetLang);
+
+            sb.AppendLine("**IMPORTANT RULES**:");
+            sb.AppendLine("- Answer in the format set out in the OUTPUT CONTRACT at the end of these instructions.");
+            // The point of this mode, and the one a model gets wrong unprompted.
+            sb.AppendLine("- Without the source you cannot check accuracy, omissions, additions or the choice of terms. Do not report them, and do not guess at what the source says: a segment that reads correctly in " +
+                targetLang + " is OK.");
+            // The selected prompt was most likely written for the full check: the
+            // shipped Default Proofreading Prompt asks for source queries and for
+            // source segment citations. It still carries the translator's other
+            // rules, so it is sent, and this says which half to follow.
+            sb.AppendLine("- Any instruction below that relies on the source text (comparing with it, citing source segments, raising source queries) does not apply to this check. Follow the rest.");
+            sb.AppendLine("- Be concise but specific in your descriptions.");
+            sb.AppendLine("- Do NOT flag stylistic preferences unless they are clear errors.");
+
+            // The memory bank, as in the full check (see BuildSystemPrompt), less
+            // what needs the source: most term decisions say which target word
+            // renders which source word.
+            if (hasBank)
+                sb.AppendLine("- The # SUPERMEMORY section below holds the client's decisions and the translator's standing rules for this work. Check every translation against its language and style rules, and against any term decision you can judge from the translation alone, such as a word it says never to use in any context. A translation that departs from such a rule is an ISSUE even where it would otherwise pass as a matter of style. Name the rule it breaks in the Issue line. Where a rule depends on what the source says, or the memory bank says nothing about a point, it gives no grounds for an issue.");
+
+            sb.AppendLine("- Segment numbers in your verdicts and any Evidence citations refer to the document-absolute numbers shown in [SEGMENT XXXX] headers and in # DOCUMENT CONTENT – NOT to within-batch positions.");
+
+            // The target's tags are numbered as the source's (ToProofreadText), so
+            // they can start anywhere; Apply still checks a correction against the
+            // source's tags. Whether a tag is missing or misplaced needs the source.
+            sb.AppendLine("- Segments show their inline tags as numbered placeholders: <t1>...</t1> around formatted text, <t2/> for a standalone code. The numbers need not start at 1 or run in order. Tags are formatting, not words: keep every one exactly as written and where it is, and do not report them.");
+
+            if (!string.IsNullOrWhiteSpace(customPromptContent))
+            {
+                sb.AppendLine();
+                sb.AppendLine();
+                sb.AppendLine("# CUSTOM INSTRUCTIONS");
+                sb.AppendLine();
+                sb.Append(customPromptContent);
+            }
+
+            if (hasBank)
+            {
+                sb.AppendLine();
+                sb.AppendLine();
+                sb.Append(kbContext.TrimEnd());
+            }
+
+            // The target side only, and only the segments that have one: an
+            // untranslated segment would be its number and nothing else.
+            var translated = new StringBuilder();
+            for (int i = 0; documentSegments != null && i < documentSegments.Count; i++)
+            {
+                var target = documentSegments[i].target;
+                if (string.IsNullOrWhiteSpace(SegmentTagHandler.StripTagPlaceholders(target ?? "")))
+                    continue;
+                translated.Append("[SEGMENT ").Append((i + 1).ToString("D4")).AppendLine("]");
+                translated.AppendLine(target);
+                translated.AppendLine();
+            }
+            if (translated.Length > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine();
+                sb.AppendLine("# DOCUMENT CONTENT");
+                sb.AppendLine("The following is the translation of the whole document, without the source. Use it to");
+                sb.AppendLine("check whether a spelling, capitalisation or form you are about to flag is used the same");
+                sb.AppendLine("way elsewhere, and to cite segments in Evidence lines. Do not raise a consistency");
+                sb.AppendLine("concern you have not confirmed against this document.");
+                sb.AppendLine();
+                sb.AppendLine("Segment numbers below are document-absolute and match the [SEGMENT XXXX] numbers in");
+                sb.AppendLine("the batch you are reviewing. Segments not yet translated are left out.");
+                sb.AppendLine();
+                sb.Append(translated);
+            }
+
+            sb.AppendLine();
+            sb.AppendLine();
+            sb.Append(OutputContract.ProofreadTargetOnlyText);
+
+            return sb.ToString().TrimEnd();
+        }
+
+        /// <summary>
         /// Appends language-specific quality checks based on the target language.
         /// </summary>
         private static void AppendLanguageSpecificChecks(StringBuilder sb, string targetLang)
@@ -225,17 +358,22 @@ namespace Supervertaler.Trados.Core
         /// <summary>
         /// Builds the user prompt with numbered source-target segment pairs for batch proofreading.
         /// </summary>
-        public static string BuildBatchUserPrompt(List<(int number, string source, string target)> segments)
+        /// <param name="targetOnly">Leave the Source lines out
+        /// (<see cref="BuildTargetOnlySystemPrompt"/>).</param>
+        public static string BuildBatchUserPrompt(List<(int number, string source, string target)> segments,
+            bool targetOnly = false)
         {
-            var sb = new StringBuilder(segments.Count * 300);
+            var sb = new StringBuilder(segments.Count * (targetOnly ? 150 : 300));
 
-            sb.AppendLine("**SEGMENTS TO REVIEW (" + segments.Count + " segments):**");
+            sb.AppendLine("**SEGMENTS TO REVIEW (" + segments.Count + " segments" +
+                (targetOnly ? ", translation only" : "") + "):**");
             sb.AppendLine();
 
             foreach (var seg in segments)
             {
                 sb.AppendLine("[SEGMENT " + seg.number.ToString("D4") + "]");
-                sb.AppendLine("Source: " + seg.source);
+                if (!targetOnly)
+                    sb.AppendLine("Source: " + seg.source);
                 sb.AppendLine("Target: " + seg.target);
                 sb.AppendLine();
             }
@@ -277,6 +415,14 @@ namespace Supervertaler.Trados.Core
             // The corrected translation (core OutputContract.ProofreadText). Its text
             // starts after the colon, spaces trimmed, and may be empty on this line.
             var correctedPattern = new Regex(@"^\s*Corrected\s*:[ \t]*(.*)$", RegexOptions.IgnoreCase);
+            // A header alone on its line, with the verdict on the next line that is
+            // not blank: "[SEGMENT 0026]", then "ISSUE". Claude Sonnet 5.5 answered
+            // every segment that way in a live test (18 Oct 2026), copying the layout
+            // of the segments it was given, and not one verdict was read: every
+            // segment counted as OK, and the three issues it had found never reached
+            // the Reports tab.
+            var headerOnlyPattern = new Regex(@"^\s*\[SEGMENT\s+(\d+)\]\s*$", RegexOptions.IgnoreCase);
+            var verdictOnlyPattern = new Regex(@"^\s*(OK|ISSUE|PASS|WARNING|FAIL|✓|✗|⚠)\s*$", RegexOptions.IgnoreCase);
 
             int currentNumber = -1;
             bool currentIsOk = true;
@@ -314,14 +460,49 @@ namespace Supervertaler.Trados.Core
                 // multi-line Corrected it would be written as a hard return.
                 var line = lines[i].TrimEnd('\r');
                 var segMatch = segmentPattern.Match(line);
-
+                string headerNumber = null, headerVerdict = null;
                 if (segMatch.Success)
+                {
+                    headerNumber = segMatch.Groups[1].Value;
+                    headerVerdict = segMatch.Groups[2].Value;
+                }
+                else
+                {
+                    var headerOnly = headerOnlyPattern.Match(line);
+                    if (headerOnly.Success)
+                    {
+                        int next = i + 1;
+                        while (next < lines.Length && lines[next].Trim().Length == 0) next++;
+                        var verdictLine = next < lines.Length
+                            ? verdictOnlyPattern.Match(lines[next].TrimEnd('\r'))
+                            : Match.Empty;
+                        if (verdictLine.Success)
+                        {
+                            headerNumber = headerOnly.Groups[1].Value;
+                            headerVerdict = verdictLine.Groups[1].Value;
+                            i = next;
+                        }
+                        else
+                        {
+                            // A header with no verdict to be read. It still ends the
+                            // verdict before it, whose Corrected line would otherwise
+                            // take it in as a line of the translation.
+                            Flush();
+                            currentNumber = -1;
+                            corrected = null;
+                            correctedOpen = false;
+                            continue;
+                        }
+                    }
+                }
+
+                if (headerNumber != null)
                 {
                     // Flush previous segment if any
                     Flush();
 
-                    currentNumber = int.Parse(segMatch.Groups[1].Value);
-                    var verdict = segMatch.Groups[2].Value.Trim().ToUpperInvariant();
+                    currentNumber = int.Parse(headerNumber);
+                    var verdict = headerVerdict.Trim().ToUpperInvariant();
 
                     currentIsOk = verdict == "OK" || verdict == "PASS" || verdict == "\u2713";
                     currentIssue = null;

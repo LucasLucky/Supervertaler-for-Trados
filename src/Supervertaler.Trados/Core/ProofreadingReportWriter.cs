@@ -67,6 +67,7 @@ namespace Supervertaler.Trados.Core
             [DataMember] public int TotalSegmentsChecked;
             [DataMember] public IssueState[] Issues;
             [DataMember] public string Model;          // 18.20.201; absent in older files
+            [DataMember] public bool TargetOnly;       // 18.20.201; absent (false) in older files
         }
 
         /// <summary>Writes the report's current state (dismissals included). Never throws.</summary>
@@ -85,6 +86,7 @@ namespace Supervertaler.Trados.Core
                     DurationSeconds = report.Duration.TotalSeconds,
                     TotalSegmentsChecked = report.TotalSegmentsChecked,
                     Model = report.Model,
+                    TargetOnly = report.TargetOnly,
                     Issues = (report.Issues ?? new System.Collections.Generic.List<ProofreadingIssue>())
                         .Where(i => i != null)
                         .Select(i => new IssueState
@@ -152,7 +154,8 @@ namespace Supervertaler.Trados.Core
                     TargetLang = state.TargetLang,
                     TotalSegmentsChecked = state.TotalSegmentsChecked,
                     Duration = TimeSpan.FromSeconds(state.DurationSeconds),
-                    Model = state.Model
+                    Model = state.Model,
+                    TargetOnly = state.TargetOnly
                 };
                 DateTime ts;
                 if (DateTime.TryParse(state.Timestamp, null, System.Globalization.DateTimeStyles.RoundtripKind, out ts))
@@ -226,6 +229,8 @@ namespace Supervertaler.Trados.Core
             sb.Append("- Run: ").Append(report.Timestamp.ToString("yyyy-MM-dd HH:mm:ss"))
               .Append(" (").Append(report.Duration.TotalSeconds.ToString("F1")).AppendLine(" s)");
             sb.Append("- Segments checked: ").Append(report.TotalSegmentsChecked).AppendLine();
+            if (report.TargetOnly)
+                sb.AppendLine("- Checked: the translation only, without the source (no accuracy or terminology check)");
             sb.Append("- Issues: ").Append(report.IssueCount).AppendLine();
             sb.AppendLine();
 

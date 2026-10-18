@@ -11000,15 +11000,22 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 // Fallback-served MultiTerm termbases only answer per-segment lookups, so
                 // terms for segments the user never visited would silently miss the prompt
                 // (#38). Query them for this batch before assembling the term list.
-                TermLensEditorViewPart.PrewarmFallbackTermsFor(segments.Select(sg => sg.SourceText));
+                // A translation-only proofread sends no termbase (as the API run).
+                var targetOnly = batchControl.TargetOnly;
+                if (!targetOnly)
+                    TermLensEditorViewPart.PrewarmFallbackTermsFor(segments.Select(sg => sg.SourceText));
 
                 var allTerms = TermLensEditorViewPart.GetCurrentTermbaseTerms();
                 var aiCfgB = aiSettings ?? new AiSettings();
                 var structureMode = ApplyStructureMarkers(_activeDocument, segments, aiCfgB, out var structureNote);   // #109
                 if (structureNote != null) batchControl.AppendLog(structureNote);
-                var termbaseTerms = allTerms.Where(t => aiCfgB.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
-                WarnIfNoAiTermbases(batchControl, allTerms.Count, termbaseTerms.Count);
-                termbaseTerms = TermsForPrompt(termbaseTerms, segments.Select(sg => sg.SourceText), batchControl);   // #102
+                var termbaseTerms = new List<TermEntry>();
+                if (!targetOnly)
+                {
+                    termbaseTerms = allTerms.Where(t => aiCfgB.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
+                    WarnIfNoAiTermbases(batchControl, allTerms.Count, termbaseTerms.Count);
+                    termbaseTerms = TermsForPrompt(termbaseTerms, segments.Select(sg => sg.SourceText), batchControl);   // #102
+                }
 
                 // Persist the prompt dropdown selection before resolving
                 var selectedPromptPath = batchControl.GetSelectedPromptPath();
@@ -11039,7 +11046,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         ClipboardRelay.FormatForProofreading(
                             segments, sourceLang, targetLang,
                             customPromptContent, termbaseTerms, customSystemPrompt,
-                            bilingualDocSegments, includeTermMeta));
+                            bilingualDocSegments, includeTermMeta, targetOnly));
                     return;
                 }
 
@@ -12274,15 +12281,22 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 // Fallback-served MultiTerm termbases only answer per-segment lookups, so
                 // terms for segments the user never visited would silently miss the prompt
                 // (#38). Query them for this batch before assembling the term list.
-                TermLensEditorViewPart.PrewarmFallbackTermsFor(segments.Select(sg => sg.SourceText));
+                // A translation-only proofread sends no termbase (as the run).
+                var targetOnly = batchControl.TargetOnly;
+                if (!targetOnly)
+                    TermLensEditorViewPart.PrewarmFallbackTermsFor(segments.Select(sg => sg.SourceText));
 
                 var allTerms = TermLensEditorViewPart.GetCurrentTermbaseTerms();
                 var aiCfgB = aiSettings ?? new AiSettings();
                 var structureMode = ApplyStructureMarkers(_activeDocument, segments, aiCfgB, out var structureNote);   // #109
                 if (structureNote != null) batchControl.AppendLog(structureNote);
-                var termbaseTerms = allTerms.Where(t => aiCfgB.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
-                WarnIfNoAiTermbases(batchControl, allTerms.Count, termbaseTerms.Count);
-                termbaseTerms = TermsForPrompt(termbaseTerms, segments.Select(sg => sg.SourceText), batchControl);   // #102
+                var termbaseTerms = new List<TermEntry>();
+                if (!targetOnly)
+                {
+                    termbaseTerms = allTerms.Where(t => aiCfgB.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
+                    WarnIfNoAiTermbases(batchControl, allTerms.Count, termbaseTerms.Count);
+                    termbaseTerms = TermsForPrompt(termbaseTerms, segments.Select(sg => sg.SourceText), batchControl);   // #102
+                }
 
                 var selectedPromptPath = batchControl.GetSelectedPromptPath();
                 var proofreadRun = batchControl.CurrentMode == BatchMode.Proofread;
@@ -12311,7 +12325,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         promptText = ClipboardRelay.FormatForProofreading(
                             segments, sourceLang, targetLang,
                             customPromptContent, termbaseTerms, customSystemPrompt,
-                            bilingualDocSegments, includeTermMeta);
+                            bilingualDocSegments, includeTermMeta, targetOnly);
                     }
                     else
                     {
@@ -12325,7 +12339,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
 
                         var proofSystemPrompt = ProofreadingPrompt.BuildSystemPrompt(
                             sourceLang, targetLang, termbaseTerms, customPromptContent,
-                            bilingualDocSegments, includeTermMeta, kbContext);
+                            bilingualDocSegments, includeTermMeta, kbContext, targetOnly);
 
                         var batchSize = aiSettings != null && aiSettings.BatchSize > 0
                             ? aiSettings.BatchSize : 20;
@@ -12335,7 +12349,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                             + Environment.NewLine + Environment.NewLine
                             + "════════ USER MESSAGE ════════"
                             + Environment.NewLine + Environment.NewLine
-                            + BatchProofreader.UserPromptFor(segments, 0, previewCount);
+                            + BatchProofreader.UserPromptFor(segments, 0, previewCount, targetOnly);
 
                         if (segments.Count > previewCount)
                         {
@@ -12444,8 +12458,8 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             Controls.BatchTranslateControl batchControl, AiSettings aiSettings,
             int segmentCount, string promptText)
         {
-            var modeLabel = batchControl.CurrentMode == BatchMode.Proofread
-                ? "proofreading" : "translation";
+            var modeLabel = batchControl.CurrentMode == BatchMode.Translate ? "translation"
+                : batchControl.TargetOnly ? "proofreading, translation only" : "proofreading";
             var title = $"Prompt preview \u2013 {modeLabel} ({segmentCount} segments)";
             // The scope is split into several requests, and this shows ONE of
             // them. Saying so at the top matters: the request carries ~50 of the
@@ -12464,12 +12478,18 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                   + "every request; only the numbered list at the end changes. "
                 : "";
 
-            var headerText = scopeNote +
-                "This is exactly what will be sent to the AI: the assembled system prompt " +
-                "(including the active custom prompt, termbase entries, the memory bank when " +
-                "SuperMemory is on and you are not in Clipboard Mode, language-specific " +
-                "checks, and the full bilingual document context for proofread), followed by " +
-                "the numbered segment list. No LLM call is made by this preview.";
+            var headerText = scopeNote + (batchControl.TargetOnly
+                ? "This is exactly what will be sent to the AI: the assembled system prompt " +
+                  "(including the active custom prompt, the memory bank when SuperMemory is on " +
+                  "and you are not in Clipboard Mode, language-specific checks, and the " +
+                  "translation of the whole document), followed by the numbered segment list. " +
+                  "Translation only: no source text and no termbase entries are sent. " +
+                  "No LLM call is made by this preview."
+                : "This is exactly what will be sent to the AI: the assembled system prompt " +
+                  "(including the active custom prompt, termbase entries, the memory bank when " +
+                  "SuperMemory is on and you are not in Clipboard Mode, language-specific " +
+                  "checks, and the full bilingual document context for proofread), followed by " +
+                  "the numbered segment list. No LLM call is made by this preview.");
 
             using (var dlg = new Controls.PromptPreviewDialog(title, headerText, promptText))
             {
@@ -12809,17 +12829,26 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     return;
                 }
 
+                // "Translation only (no source)": the source is not sent, and nor is the
+                // termbase, whose entries need it (ProofreadingPrompt.BuildTargetOnlySystemPrompt).
+                // Read once, here: the box is locked for the run.
+                var targetOnly = batchControl.TargetOnly;
+
                 // Get termbase terms for prompt injection (filtered by AI-disabled list)
                 // Fallback-served MultiTerm termbases only answer per-segment lookups, so
                 // terms for segments the user never visited would silently miss the prompt
                 // (#38). Query them for this batch before assembling the term list.
-                TermLensEditorViewPart.PrewarmFallbackTermsFor(segments.Select(sg => sg.SourceText));
+                var termbaseTerms = new List<TermEntry>();
+                if (!targetOnly)
+                {
+                    TermLensEditorViewPart.PrewarmFallbackTermsFor(segments.Select(sg => sg.SourceText));
 
-                var allTerms = TermLensEditorViewPart.GetCurrentTermbaseTerms();
-                var aiCfgC = _settings?.AiSettings ?? new AiSettings();
-                var termbaseTerms = allTerms.Where(t => aiCfgC.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
-                WarnIfNoAiTermbases(batchControl, allTerms.Count, termbaseTerms.Count);
-                termbaseTerms = TermsForPrompt(termbaseTerms, segments.Select(sg => sg.SourceText), batchControl);   // #102
+                    var allTerms = TermLensEditorViewPart.GetCurrentTermbaseTerms();
+                    var aiCfgC = _settings?.AiSettings ?? new AiSettings();
+                    termbaseTerms = allTerms.Where(t => aiCfgC.IsTermbaseAiEnabled(t.TermbaseId)).ToList();
+                    WarnIfNoAiTermbases(batchControl, allTerms.Count, termbaseTerms.Count);
+                    termbaseTerms = TermsForPrompt(termbaseTerms, segments.Select(sg => sg.SourceText), batchControl);   // #102
+                }
 
                 // Resolve custom prompt from library selection
                 var selectedPromptPath = batchControl.GetSelectedPromptPath();
@@ -12832,7 +12861,8 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 // Collect FULL bilingual document context (source + target for every
                 // segment in the document, no truncation). The proofreader needs both
                 // sides to verify cross-document target consistency – source-only
-                // context can't catch "rendered as X here, Y there" claims.
+                // context can't catch "rendered as X here, Y there" claims. A
+                // translation-only check sends the target side of it alone.
                 List<(string source, string target)> docSegments = null;
                 if (aiSettings.IncludeDocumentContext)
                 {
@@ -12846,7 +12876,8 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 var report = new ProofreadingReport
                 {
                     // Named in its findings' Trados comments ("AI proofreader (…):").
-                    Model = string.IsNullOrWhiteSpace(model) ? null : (LlmModels.FindModel(model)?.DisplayName ?? model)
+                    Model = string.IsNullOrWhiteSpace(model) ? null : (LlmModels.FindModel(model)?.DisplayName ?? model),
+                    TargetOnly = targetOnly
                 };
                 _currentReport = report;
 
@@ -12855,7 +12886,10 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 batchControl.AppendLog(
                     $"Starting proofreading: {segments.Count} segments, provider={provider}, model={model}, " +
                     $"batch size={batchSize}" +
-                    (docSegments != null ? $", bilingual context: {docSegments.Count} segments" : ", no document context"));
+                    (targetOnly ? ", translation only (no source, no termbase)" : "") +
+                    (docSegments == null ? ", no document context"
+                        : targetOnly ? ", document context: the translation only"
+                        : $", bilingual context: {docSegments.Count} segments"));
 
                 // SuperMemory: the block Batch Translate sends for this document, and the
                 // same cached task, so a document already translated reuses its bank
@@ -12898,7 +12932,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                             segments, sourceLang, targetLang,
                             aiSettings, termbaseTerms, batchSize, ct,
                             customPromptContent,
-                            docSegments, kbContext);
+                            docSegments, kbContext, targetOnly);
                     }
                     catch (OperationCanceledException)
                     {
