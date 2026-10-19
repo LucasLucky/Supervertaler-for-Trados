@@ -6690,19 +6690,20 @@ namespace Supervertaler.Trados
 
                     // Work from the CONCATENATED TEXT NODES, not pair.Target.ToString().
                     // ToString() renders the markup too (<cf size=8> and friends), so the
-                    // "expected" string carried tag syntax the per-node simulation below
+                    // "expected" string carried tag syntax the per-node simulation
                     // could never reproduce – and every segment containing any tag was
                     // rejected as tag-spanning, however safely the match sat inside a
                     // single text node. Confirmed live: "Overzicht aansluitingen" inside
                     // one <t1>…</t1> wrapper was refused while the same phrase in untagged
                     // segments was replaced. Both sides of the comparison must be the same
                     // kind of string for the check to mean anything.
-                    var iTexts = new List<IText>();
-                    FindReplaceCollectTexts(pair.Target, iTexts);
-                    var currentTarget = string.Concat(iTexts.Select(t => t.Properties.Text ?? ""));
-                    var expected = FindReplacePerform(currentTarget, find, replace,
+                    // Only the nodes of the ACCEPTED view: text inside a tracked deletion
+                    // is not searched, shown in before/after, or changed.
+                    Func<string, string> perform = s => FindReplacePerform(s, find, replace,
                         req.CaseSensitive, req.Regex, req.WholeWord);
-                    if (expected == currentTarget) continue; // no match here
+                    var plan = Core.TargetTextReplace.Plan(pair.Target, perform,
+                        out var currentTarget, out var expected);
+                    if (plan == Core.TargetTextReplace.Outcome.NoMatch) continue;
 
                     var segId = pair.Properties?.Id.Id ?? "";
                     var id = puId + ":" + segId;
@@ -6722,13 +6723,9 @@ namespace Supervertaler.Trados
 
                     // Tag-boundary safety: replacing across the whole plain text must give
                     // the same result as replacing inside each text node separately. When
-                    // it does not, the match really does straddle a tag boundary and only
-                    // a manual edit is safe. (iTexts was collected above, with the plain
-                    // text this compares against.)
-                    var simulated = string.Concat(iTexts.Select(t =>
-                        FindReplacePerform(t.Properties.Text ?? "", find, replace,
-                            req.CaseSensitive, req.Regex, req.WholeWord)));
-                    if (iTexts.Count == 0 || simulated != expected)
+                    // it does not, the match really does straddle a tag, a comment or a
+                    // tracked change, and only a manual edit is safe.
+                    if (plan == Core.TargetTextReplace.Outcome.SpansMarkup)
                     {
                         response.SkippedTagSpanning.Add(fileName != null ? $"{fileName}:{segId}" : segId);
                         continue;
@@ -6748,19 +6745,7 @@ namespace Supervertaler.Trados
                         try
                         {
                             Core.SegmentWriteCheck.ProcessChecked(_activeDocument, pair, "Supervertaler MCP",
-                                (sp, cancel) =>
-                                {
-                                    var liveTexts = new List<IText>();
-                                    FindReplaceCollectTexts(sp.Target, liveTexts);
-                                    foreach (var t in liveTexts)
-                                    {
-                                        var oldVal = t.Properties.Text ?? "";
-                                        var newVal = FindReplacePerform(oldVal, find, replace,
-                                            req.CaseSensitive, req.Regex, req.WholeWord);
-                                        if (!string.Equals(oldVal, newVal, StringComparison.Ordinal))
-                                            t.Properties.Text = newVal;
-                                    }
-                                });
+                                (sp, cancel) => Core.TargetTextReplace.Apply(sp.Target, perform));
                         }
                         catch (Core.SegmentWriteDeclinedException declined)
                         {
@@ -6824,7 +6809,7 @@ namespace Supervertaler.Trados
             response.Note = $"{(req.DryRun ? "Preview: " : "")}{verb} {response.SegmentsChanged} segment(s).";
             if (response.SkippedTagSpanning.Count > 0)
                 response.Note += $" {response.SkippedTagSpanning.Count} segment(s) skipped because the match " +
-                    "straddles inline formatting/tags – those need a manual edit in Studio.";
+                    "straddles inline formatting/tags, a comment or a tracked change – those need a manual edit in Studio.";
             if (response.NotWritten != null && response.NotWritten.Count > 0)
                 response.Note += $" {response.NotWritten.Count} segment(s) NOT written (listed in notWritten): "
                     + notWrittenReason + " Tell the user rather than retrying.";
@@ -6843,16 +6828,6 @@ namespace Supervertaler.Trados
             if (req.DryRun && response.SegmentsChanged > 0)
                 response.Note += " Nothing was written – call again with dryRun=false to apply.";
             return response;
-        }
-
-        private static void FindReplaceCollectTexts(IAbstractMarkupDataContainer container, List<IText> sink)
-        {
-            if (container == null) return;
-            foreach (var item in container)
-            {
-                if (item is IText t) sink.Add(t);
-                else if (item is IAbstractMarkupDataContainer inner) FindReplaceCollectTexts(inner, sink);
-            }
         }
 
         /// <summary>Text replacement matching SuperSearch's PerformReplace:

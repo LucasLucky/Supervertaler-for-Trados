@@ -448,11 +448,62 @@ namespace Supervertaler.Trados.Core
         }
 
         /// <summary>
-        /// Gets the plain text content of an XML node, stripping inline tags.
+        /// Gets the plain text content of an XML node, stripping inline tags,
+        /// as it reads with its tracked changes accepted.
         /// </summary>
         private static string GetInnerText(XmlNode node)
         {
-            return node?.InnerText?.Trim() ?? "";
+            return AcceptedText(node).Trim();
+        }
+
+        /// <summary>
+        /// The text of an SDLXLIFF node as it reads with its tracked changes
+        /// accepted: what InnerText gives, without the text of tracked deletions
+        /// (<c>&lt;mrk mtype="x-sdl-deleted"&gt;</c>). Inserted text
+        /// (<c>x-sdl-added</c>) and commented text stay. Until 201 SuperSearch
+        /// read InnerText, so it found, showed and replaced deleted words.
+        /// </summary>
+        internal static string AcceptedText(XmlNode node)
+        {
+            return string.Concat(AcceptedTextNodes(node).Select(n => n.Value));
+        }
+
+        /// <summary>The text nodes <see cref="AcceptedText"/> joins, in document
+        /// order: the node's own, so a replace can edit them in place.</summary>
+        internal static List<XmlNode> AcceptedTextNodes(XmlNode node)
+        {
+            var sink = new List<XmlNode>();
+            CollectAcceptedTextNodes(node, sink);
+            return sink;
+        }
+
+        private static void CollectAcceptedTextNodes(XmlNode node, List<XmlNode> sink)
+        {
+            if (node == null) return;
+            foreach (XmlNode child in node.ChildNodes)
+            {
+                switch (child.NodeType)
+                {
+                    // The node types InnerText joins.
+                    case XmlNodeType.Text:
+                    case XmlNodeType.CDATA:
+                    case XmlNodeType.Whitespace:
+                    case XmlNodeType.SignificantWhitespace:
+                        sink.Add(child);
+                        break;
+                    case XmlNodeType.Element:
+                        if (!IsTrackedDeletion(child)) CollectAcceptedTextNodes(child, sink);
+                        break;
+                }
+            }
+        }
+
+        /// <summary>A tracked deletion in SDLXLIFF:
+        /// <c>&lt;mrk mtype="x-sdl-deleted" sdl:revid="…"&gt;</c>.</summary>
+        private static bool IsTrackedDeletion(XmlNode node)
+        {
+            return node is XmlElement e && e.LocalName == "mrk"
+                && e.GetAttribute("mtype") == "x-sdl-deleted";
         }
 
         private static bool IsMatch(string text, string query, string queryLower, Regex regex, bool caseSensitive)
