@@ -446,6 +446,18 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "tmPairs", Order = 11, EmitDefaultValue = false)] public List<BridgeTextPair> TmPairs { get; set; }
         [DataMember(Name = "currentDefaultPrompt", Order = 12, EmitDefaultValue = false)] public string CurrentDefaultPrompt { get; set; }
         [DataMember(Name = "note", Order = 13, EmitDefaultValue = false)] public string Note { get; set; }
+        /// <summary>A document of several files: each file, in document order,
+        /// with its segment count. Studio numbers each file's segments from 1,
+        /// and sourceText is then headed and numbered the same way. Absent for
+        /// a one-file document.</summary>
+        [DataMember(Name = "files", Order = 14, EmitDefaultValue = false)] public List<BridgePromptContextFile> Files { get; set; }
+    }
+
+    [DataContract]
+    public class BridgePromptContextFile
+    {
+        [DataMember(Name = "name", Order = 0)] public string Name { get; set; }
+        [DataMember(Name = "segments", Order = 1)] public int Segments { get; set; }
     }
 
     // ─── MCP endpoint types (v1: /project, /segments, /tm-search, /term-lookup) ──

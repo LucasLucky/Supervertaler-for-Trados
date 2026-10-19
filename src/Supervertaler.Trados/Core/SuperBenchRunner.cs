@@ -22,7 +22,7 @@ namespace Supervertaler.Trados.Core
         public List<TermEntry> TermbaseTerms = new List<TermEntry>();
         public int BatchSize = 20;
         public string CustomPromptContent, CustomSystemPrompt;
-        public List<string> DocSegments;
+        public List<DocumentSegment> DocSegments;
         public string KbContext;
         /// <summary>One line for the report: which prompt, how many terms, context on or off.</summary>
         public string SettingsSummary;
@@ -303,9 +303,10 @@ namespace Supervertaler.Trados.Core
                 var s = inputs.AiSettings;
                 systemPrompt = TranslationPrompt.BuildSystemPrompt(inputs.SourceLang, inputs.TargetLang,
                     inputs.CustomPromptContent, inputs.TermbaseTerms, inputs.CustomSystemPrompt,
-                    s != null && s.IncludeDocumentContext ? inputs.DocSegments : null,
+                    null,
                     s != null && s.DocumentContextMaxSegments > 0 ? s.DocumentContextMaxSegments : 500,
-                    s == null || s.IncludeTermMetadata, inputs.KbContext);
+                    s == null || s.IncludeTermMetadata, inputs.KbContext,
+                    numberedSegments: s != null && s.IncludeDocumentContext ? inputs.DocSegments : null);
             }
             catch { systemPrompt = ""; }
             var sourceText = string.Join("\n", inputs.Segments.Select(x => x.SourceText));

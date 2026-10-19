@@ -27,7 +27,7 @@ namespace Supervertaler.Trados.Core
             string customPromptContent = null,
             List<TermEntry> termbaseTerms = null,
             string customSystemPrompt = null,
-            List<string> documentSegments = null,
+            IList<Supervertaler.Core.DocumentSegment> documentSegments = null,
             int maxDocumentSegments = 500,
             bool includeTermMetadata = true,
             Supervertaler.Core.StructureContextMode structureContext = Supervertaler.Core.StructureContextMode.Off)
@@ -38,8 +38,8 @@ namespace Supervertaler.Trados.Core
             var systemPrompt = TranslationPrompt.BuildSystemPrompt(
                 sourceLang, targetLang,
                 customPromptContent, termbaseTerms, customSystemPrompt,
-                documentSegments, maxDocumentSegments, includeTermMetadata,
-                kbContext: null, structureContext: structureContext);
+                null, maxDocumentSegments, includeTermMetadata,
+                kbContext: null, structureContext: structureContext, numberedSegments: documentSegments);
 
             sb.AppendLine(systemPrompt);
             sb.AppendLine();

@@ -177,7 +177,7 @@ namespace Supervertaler.Trados.Core
             CancellationToken cancellationToken,
             string customPromptContent = null,
             string customSystemPrompt = null,
-            List<string> documentSegments = null,
+            IList<DocumentSegment> documentSegments = null,
             string kbContext = null,
             bool retryUntilComplete = false,
             StructureContextMode structureContext = StructureContextMode.Off)
@@ -783,7 +783,7 @@ namespace Supervertaler.Trados.Core
         internal static string SystemPromptFor(int segmentCount,
             string sourceLang, string targetLang,
             string customPromptContent, List<TermEntry> termbaseTerms, string customSystemPrompt,
-            List<string> documentSegments, int maxDocumentSegments, bool includeTermMetadata,
+            IList<DocumentSegment> documentSegments, int maxDocumentSegments, bool includeTermMetadata,
             string kbContext, StructureContextMode structureContext)
         {
             var prompt = TranslationPrompt.BuildSystemPrompt(
@@ -791,8 +791,8 @@ namespace Supervertaler.Trados.Core
                 customPromptContent,
                 TermsTravelWithTheSegment(segmentCount) ? null : termbaseTerms,
                 customSystemPrompt,
-                documentSegments, maxDocumentSegments, includeTermMetadata,
-                kbContext, structureContext);
+                null, maxDocumentSegments, includeTermMetadata,
+                kbContext, structureContext, numberedSegments: documentSegments);
 
             // Last, after the prompt, the bank, the terms and the document, so no
             // prompt can switch it off and nothing after it can soften it: the
