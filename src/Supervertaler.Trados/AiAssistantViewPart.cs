@@ -7645,10 +7645,12 @@ namespace Supervertaler.Trados
                 var sb = new System.Text.StringBuilder();
                 DocumentContent.AppendNumbered(sb, included, skipBlank: true, documentFiles: files);
                 response.SourceText = sb.ToString().TrimEnd();
+                var counts = all.Where(seg => seg.File != null)
+                    .GroupBy(seg => seg.File).ToDictionary(g => g.Key, g => g.Count());
                 response.Files = files.Select(f => new BridgePromptContextFile
                 {
                     Name = f,
-                    Segments = all.Count(seg => seg.File == f)
+                    Segments = counts[f]
                 }).ToList();
                 note = (note == null ? "" : note + " ") +
                     $"This document is made up of {files.Count} files, and Studio numbers the segments of each file from 1: " +
