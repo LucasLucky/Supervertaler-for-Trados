@@ -1247,6 +1247,11 @@ namespace Supervertaler.Trados.Core
         /// <summary>Segments whose pre-existing confirmation status was restored after the write.</summary>
         [DataMember(Name = "statusRestored", Order = 10)] public int StatusRestored { get; set; }
         [DataMember(Name = "note", Order = 11, EmitDefaultValue = false)] public string Note { get; set; }
+        /// <summary>Segments that matched but that Studio did not let us change -
+        /// tracked changes it protects while Track Changes is off (SegmentWriteCheck).
+        /// Not counted in segmentsChanged.</summary>
+        [DataMember(Name = "notWritten", Order = 12, EmitDefaultValue = false)]
+        public List<string> NotWritten { get; set; }
     }
 
     [DataContract]

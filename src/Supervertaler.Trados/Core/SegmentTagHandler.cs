@@ -478,30 +478,66 @@ namespace Supervertaler.Trados.Core
         /// to — delete its own comments one segment at a time, silently, with
         /// the write still reporting success. Field report: job QLEV-008-BE,
         /// segment 50, verified gone from the saved SDLXLIFF.
+        ///
+        /// <para>Two kinds of marker are left out, because carrying them across
+        /// made comments multiply (example project, 18 Oct 2026: one comment
+        /// shown three times after two tracked writes). A comment inside text
+        /// deleted with Track Changes stays with that deletion, which Studio
+        /// keeps until someone accepts or rejects it; Studio's own whole-segment
+        /// tracked change puts the comment in both the deleted and the inserted
+        /// copy, so capturing the deleted one gave the new text a second marker.
+        /// And a marker carrying exactly the comments of one already captured is
+        /// that comment again: dropping it also heals a segment that already
+        /// shows a duplicate, at its next write.</para>
         /// </summary>
         public static List<ICommentMarker> CaptureCommentMarkers(IAbstractMarkupDataContainer container)
         {
             var list = new List<ICommentMarker>();
-            CollectCommentMarkers(container, list);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            CollectCommentMarkers(container, list, seen);
             return list;
         }
 
         private static void CollectCommentMarkers(
-            IAbstractMarkupDataContainer container, List<ICommentMarker> list)
+            IAbstractMarkupDataContainer container, List<ICommentMarker> list, HashSet<string> seen)
         {
             if (container == null) return;
             foreach (var item in container)
             {
+                if (item is IRevisionMarker revision
+                    && revision.Properties?.RevisionType == RevisionType.Delete)
+                    continue;
+
                 if (item is ICommentMarker marker)
                 {
-                    list.Add(marker);
-                    CollectCommentMarkers(marker, list);
+                    if (seen.Add(CommentsKey(marker)))
+                        list.Add(marker);
+                    CollectCommentMarkers(marker, list, seen);
                 }
                 else if (item is IAbstractMarkupDataContainer nested)
                 {
-                    CollectCommentMarkers(nested, list);
+                    CollectCommentMarkers(nested, list, seen);
                 }
             }
+        }
+
+        /// <summary>What a comment marker says, for telling a repeat from a
+        /// different comment: every comment's text, author, date and
+        /// severity.</summary>
+        private static string CommentsKey(ICommentMarker marker)
+        {
+            var sb = new StringBuilder();
+            var comments = marker?.Comments;
+            if (comments == null) return "";
+            for (int i = 0; i < comments.Count; i++)
+            {
+                var c = comments.GetItem(i);
+                if (c == null) continue;
+                sb.Append(c.Text).Append('\u0001').Append(c.Author).Append('\u0001')
+                  .Append(c.DateSpecified ? c.Date.ToString("o") : "").Append('\u0001')
+                  .Append(c.Severity).Append('\u0002');
+            }
+            return sb.ToString();
         }
 
         /// <summary>

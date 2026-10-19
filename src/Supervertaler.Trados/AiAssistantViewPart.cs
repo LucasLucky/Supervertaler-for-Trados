@@ -2093,7 +2093,7 @@ namespace Supervertaler.Trados
             public bool UnchangedText;
 
             /// <summary>The accepted view of the target the write built, which the
-            /// live segment must read as afterwards (<see cref="VerifyWriteLanded"/>).</summary>
+            /// live segment must read as afterwards (<see cref="Core.SegmentWriteCheck"/>).</summary>
             public string AcceptedAfter;
 
             /// <summary>The target's markup before and after the write, for the
@@ -2268,8 +2268,13 @@ namespace Supervertaler.Trados
                 // EditCapture, which is told about a proposal only once it is in
                 // the segment. It used to be told from inside the edit, so a write
                 // Studio declined was still recorded as one.
-                var live = ReadLivePair(pair);
-                VerifyWriteLanded(live?.Target, written, trackWords);
+                var live = Core.SegmentWriteCheck.ReadLivePair(_activeDocument, pair);
+                if (!written.UnchangedText)
+                {
+                    var declined = Core.SegmentWriteCheck.Declined(_activeDocument, live?.Target,
+                        written.AcceptedAfter, written.ShapeBefore, written.ShapeAfter, trackWords);
+                    if (declined != null) throw new Core.SegmentWriteDeclinedException(declined);
+                }
                 if (live != null) Core.EditCapture.CaptureController.NoteProposal(live, _activeDocument);
             }
             finally
@@ -2279,69 +2284,6 @@ namespace Supervertaler.Trados
                 suspension?.Dispose();
             }
             return written;
-        }
-
-        /// <summary>
-        /// Throws when the live segment does not read as the write built it.
-        /// Studio's ProcessSegmentPair says nothing when an edit does not land: on
-        /// 18 Oct 2026 update_segments answered ok:true for four segments of the
-        /// example project that stayed exactly as they were, while the segment
-        /// without tracked changes, in the same call, was written. A caller told
-        /// "applied" moves on, so a write that did not happen has to say so.
-        ///
-        /// <para>The cause that day: with Track Changes off (and TQA mode off),
-        /// Studio's editor protects the tracked changes already in a segment -
-        /// FrameworkEditControl sets its revision protection whenever both are
-        /// off - and quietly declines an edit that would replace them, from a
-        /// plugin as from the keyboard. With Track Changes on there is no such
-        /// protection, and the same write is recorded as a tracked change. Michael
-        /// chose (18 Oct) to respect the protection and say so, rather than lift
-        /// it, which would drop changes nobody has reviewed. So this is where that
-        /// refusal is made: only when Studio has actually declined, which needs no
-        /// guess at the protection state.</para>
-        ///
-        /// <para>Compared on the accepted view, as
-        /// <see cref="SegmentTargetWrite.UnchangedText"/> is; a segment that
-        /// cannot be read back is logged and not held against the write.</para>
-        /// </summary>
-        private void VerifyWriteLanded(ISegment live, SegmentTargetWrite written, bool tracked)
-        {
-            if (written.UnchangedText || written.AcceptedAfter == null || live == null) return;
-            if (Core.TrackedTargetMerge.Project(live, accept: true) == written.AcceptedAfter) return;
-
-            bool hadRevisions = written.ShapeBefore != null
-                && (written.ShapeBefore.Contains("Ins[") || written.ShapeBefore.Contains("Del["));
-            Core.DiagnosticLog.Log("Write", "NOT APPLIED by Studio (tracked write: " + tracked
-                + ", tracking now: " + (Core.TrackingSuspension.IsTracking(_activeDocument)?.ToString() ?? "unknown")
-                + "). Before: " + written.ShapeBefore + " | built: " + written.ShapeAfter
-                + " | live after: " + Core.TrackedTargetMerge.Shape(live));
-            throw new InvalidOperationException(hadRevisions && !tracked
-                ? "the segment holds tracked changes that have not been accepted or rejected, and Trados Studio "
-                  + "protects them while Track Changes is off. Accept or reject them, or switch Track Changes on, "
-                  + "and try again. Nothing was written."
-                : "Trados Studio did not apply the change: the segment still reads as it did. Nothing was written.");
-        }
-
-        /// <summary>The segment pair as the document holds it now, read afresh
-        /// (the pair a write was given is a copy, and keeps the old target); null
-        /// when it cannot be found. One paragraph's pairs are copied, not the
-        /// document's.</summary>
-        private ISegmentPair ReadLivePair(ISegmentPair pair)
-        {
-            try
-            {
-                var puId = _activeDocument.GetParentParagraphUnit(pair)?.Properties?.ParagraphUnitId;
-                var segId = pair?.Properties?.Id.Id;
-                if (puId == null || segId == null) return null;
-                foreach (var p in _activeDocument.GetSegmentPairsFromParagraph(puId.Value))
-                    if (p?.Properties != null && p.Properties.Id.Id == segId) return p;
-                Core.DiagnosticLog.Log("Write", "could not find the segment again to check the write");
-            }
-            catch (Exception ex)
-            {
-                Core.DiagnosticLog.Log("Write", "could not read the segment back to check the write: " + ex.Message);
-            }
-            return null;
         }
 
         /// <summary>
@@ -5729,10 +5671,20 @@ namespace Supervertaler.Trados
             string failure = "the segment could not be edited";
             var levelBefore = pair.Properties?.ConfirmationLevel;
 
-            _activeDocument.ProcessSegmentPair(pair, "Supervertaler MCP", (sp, cancel) =>
+            try
             {
-                failure = WrapRangeInCommentMarker(sp.Target, on, occurrence, text, severity);
-            });
+                // Checked, comments included: Studio declines an edit of a segment
+                // whose tracked changes it protects, and a comment edit changes no
+                // text for the plain check to see.
+                Core.SegmentWriteCheck.ProcessChecked(_activeDocument, pair, "Supervertaler MCP", (sp, cancel) =>
+                {
+                    failure = WrapRangeInCommentMarker(sp.Target, on, occurrence, text, severity);
+                }, comments: true);
+            }
+            catch (Core.SegmentWriteDeclinedException declined)
+            {
+                return declined.Message;
+            }
 
             if (failure == null) RestoreConfirmationLevel(pair, levelBefore);
             return failure;
@@ -6123,20 +6075,27 @@ namespace Supervertaler.Trados
                 string failure = null;
                 bool updated = false;
                 var levelBefore = pair.Properties?.ConfirmationLevel;
-                _activeDocument.ProcessSegmentPair(pair, "Supervertaler MCP",
-                    (sp, cancel) =>
-                    {
-                        var comments = EnumerateSegmentComments(sp);
-                        if (req.CommentIndex < 0 || req.CommentIndex >= comments.Count)
+                try
+                {
+                    Core.SegmentWriteCheck.ProcessChecked(_activeDocument, pair, "Supervertaler MCP",
+                        (sp, cancel) =>
                         {
-                            failure = $"comment index {req.CommentIndex} out of range – this segment has " +
-                                      $"{comments.Count} comment(s); call get_comments first";
-                            return;
-                        }
-                        if (hasText) comments[req.CommentIndex].Text = req.Text;
-                        if (hasSeverity) comments[req.CommentIndex].Severity = newSeverity;
-                        updated = true;
-                    });
+                            var comments = EnumerateSegmentComments(sp);
+                            if (req.CommentIndex < 0 || req.CommentIndex >= comments.Count)
+                            {
+                                failure = $"comment index {req.CommentIndex} out of range – this segment has " +
+                                          $"{comments.Count} comment(s); call get_comments first";
+                                return;
+                            }
+                            if (hasText) comments[req.CommentIndex].Text = req.Text;
+                            if (hasSeverity) comments[req.CommentIndex].Severity = newSeverity;
+                            updated = true;
+                        }, comments: true);
+                }
+                catch (Core.SegmentWriteDeclinedException declined)
+                {
+                    return new BridgeResultResponse { Ok = false, Error = "comment not updated: " + declined.Message };
+                }
                 if (updated) RestoreConfirmationLevel(pair, levelBefore);   // #132
 
                 if (!updated)
@@ -6196,7 +6155,9 @@ namespace Supervertaler.Trados
                 string failure = null;
                 int removed = 0;
                 var levelBefore = pair.Properties?.ConfirmationLevel;
-                _activeDocument.ProcessSegmentPair(pair, "Supervertaler MCP",
+                // Checked, comments included (see AddRangeComment); a declined
+                // delete reaches the catch below with its reason.
+                Core.SegmentWriteCheck.ProcessChecked(_activeDocument, pair, "Supervertaler MCP",
                     (sp, cancel) =>
                     {
                         var comments = EnumerateSegmentComments(sp);
@@ -6217,7 +6178,7 @@ namespace Supervertaler.Trados
                         var target = req.All ? null : comments[req.CommentIndex];
                         removed = RemoveCommentObjects(sp.Source, target)
                                 + RemoveCommentObjects(sp.Target, target);
-                    });
+                    }, comments: true);
                 if (removed > 0) RestoreConfirmationLevel(pair, levelBefore);   // #132
 
                 if (removed == 0)
@@ -6700,6 +6661,7 @@ namespace Supervertaler.Trados
             // "has it actually changed?" guard never fires in the first place.
             var pendingStatus =
                 new List<KeyValuePair<ISegmentPair, Sdl.Core.Globalization.ConfirmationLevel>>();
+            string notWrittenReason = null;   // why the first declined segment was declined
 
             foreach (var pair in _activeDocument.SegmentPairs)
             {
@@ -6772,6 +6734,48 @@ namespace Supervertaler.Trados
                         continue;
                     }
 
+                    if (!req.DryRun)
+                    {
+                        // Read the status before the edit: ProcessSegmentPair is
+                        // what demotes it, so this is the only chance to know
+                        // what to put back.
+                        var levelBefore = pair.Properties?.ConfirmationLevel
+                            ?? Sdl.Core.Globalization.ConfirmationLevel.Unspecified;
+
+                        // Checked: a segment whose tracked changes Studio protects
+                        // is declined without a word, and used to be counted as
+                        // changed. Counted only once it has.
+                        try
+                        {
+                            Core.SegmentWriteCheck.ProcessChecked(_activeDocument, pair, "Supervertaler MCP",
+                                (sp, cancel) =>
+                                {
+                                    var liveTexts = new List<IText>();
+                                    FindReplaceCollectTexts(sp.Target, liveTexts);
+                                    foreach (var t in liveTexts)
+                                    {
+                                        var oldVal = t.Properties.Text ?? "";
+                                        var newVal = FindReplacePerform(oldVal, find, replace,
+                                            req.CaseSensitive, req.Regex, req.WholeWord);
+                                        if (!string.Equals(oldVal, newVal, StringComparison.Ordinal))
+                                            t.Properties.Text = newVal;
+                                    }
+                                });
+                        }
+                        catch (Core.SegmentWriteDeclinedException declined)
+                        {
+                            if (response.NotWritten == null) response.NotWritten = new List<string>();
+                            response.NotWritten.Add(fileName != null ? $"{fileName}:{segId}" : segId);
+                            notWrittenReason = notWrittenReason ?? declined.Message;
+                            continue;
+                        }
+                        BridgeRecordWrite(id); // coverage: this segment was written this session
+
+                        pendingStatus.Add(
+                            new KeyValuePair<ISegmentPair, Sdl.Core.Globalization.ConfirmationLevel>(
+                                pair, preserveStatus ? levelBefore : forcedLevel));
+                    }
+
                     response.SegmentsChanged++;
                     if (response.Changes.Count < 100)
                     {
@@ -6783,35 +6787,6 @@ namespace Supervertaler.Trados
                             Before = currentTarget.Length > 200 ? currentTarget.Substring(0, 200) + "…" : currentTarget,
                             After = expected.Length > 200 ? expected.Substring(0, 200) + "…" : expected
                         });
-                    }
-
-                    if (!req.DryRun)
-                    {
-                        // Read the status before the edit: ProcessSegmentPair is
-                        // what demotes it, so this is the only chance to know
-                        // what to put back.
-                        var levelBefore = pair.Properties?.ConfirmationLevel
-                            ?? Sdl.Core.Globalization.ConfirmationLevel.Unspecified;
-
-                        _activeDocument.ProcessSegmentPair(pair, "Supervertaler MCP",
-                            (sp, cancel) =>
-                            {
-                                var liveTexts = new List<IText>();
-                                FindReplaceCollectTexts(sp.Target, liveTexts);
-                                foreach (var t in liveTexts)
-                                {
-                                    var oldVal = t.Properties.Text ?? "";
-                                    var newVal = FindReplacePerform(oldVal, find, replace,
-                                        req.CaseSensitive, req.Regex, req.WholeWord);
-                                    if (!string.Equals(oldVal, newVal, StringComparison.Ordinal))
-                                        t.Properties.Text = newVal;
-                                }
-                            });
-                        BridgeRecordWrite(id); // coverage: this segment was written this session
-
-                        pendingStatus.Add(
-                            new KeyValuePair<ISegmentPair, Sdl.Core.Globalization.ConfirmationLevel>(
-                                pair, preserveStatus ? levelBefore : forcedLevel));
                     }
                 }
                 catch (Exception ex)
@@ -6850,6 +6825,9 @@ namespace Supervertaler.Trados
             if (response.SkippedTagSpanning.Count > 0)
                 response.Note += $" {response.SkippedTagSpanning.Count} segment(s) skipped because the match " +
                     "straddles inline formatting/tags – those need a manual edit in Studio.";
+            if (response.NotWritten != null && response.NotWritten.Count > 0)
+                response.Note += $" {response.NotWritten.Count} segment(s) NOT written (listed in notWritten): "
+                    + notWrittenReason + " Tell the user rather than retrying.";
             if (response.SkippedLocked > 0)
                 response.Note += $" {response.SkippedLocked} locked segment(s) skipped.";
             if (!req.DryRun && response.StatusRestored > 0)
@@ -10769,7 +10747,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     var pair = e.SegmentPairRef as ISegmentPair;
                     if (pair == null) { e.WriteSucceeded = false; return; }
 
-                    void Write(string translation) => doc.ProcessSegmentPair(pair, "Supervertaler",
+                    void Write(string translation) => Core.SegmentWriteCheck.ProcessChecked(doc, pair, "Supervertaler",
                         (sp, cancel) =>
                         {
                             // Tagged segments: reconstruct with full tag handling
@@ -12717,7 +12695,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                                 if (comment != null && !TryAddTcComment(_activeDocument, pair, comment))
                                     Write(BatchTranslator.InlineComment(toWrite, comment));
 
-                                void Write(string translation) => _activeDocument.ProcessSegmentPair(pair, "Supervertaler",
+                                void Write(string translation) => Core.SegmentWriteCheck.ProcessChecked(_activeDocument, pair, "Supervertaler",
                                     (sp, cancel) =>
                                     {
                                         if (seg.HasTags && seg.TagMap != null && seg.TagMap.Count > 0)
@@ -14506,7 +14484,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     // Capture replacements for use inside the delegate
                     var replacements = transform.Replacements;
 
-                    instance._activeDocument.ProcessSegmentPair(pair, "Supervertaler",
+                    Core.SegmentWriteCheck.ProcessChecked(instance._activeDocument, pair, "Supervertaler",
                         (sp, cancel) =>
                         {
                             foreach (var item in sp.Target.AllSubItems)
@@ -15259,7 +15237,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 if (e.Comment != null && !TryAddTcComment(doc, pair, e.Comment))
                     Write(BatchTranslator.InlineComment(e.Translation, e.Comment));
 
-                void Write(string translation) => doc.ProcessSegmentPair(pair, "Supervertaler", (sp, cancel) =>
+                void Write(string translation) => Core.SegmentWriteCheck.ProcessChecked(doc, pair, "Supervertaler", (sp, cancel) =>
                 {
                     if (e.HasTags && e.TagMap != null && e.TagMap.Count > 0)
                     {
@@ -15294,6 +15272,11 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             {
                 e.WriteSucceeded = false;
                 BridgeLog.Write($"Translate segment write error: {ex.Message}");
+                // The translator reports no write failure of its own, so this path
+                // would otherwise end in silence. UI thread (called through ui.Send).
+                if (ex is Core.SegmentWriteDeclinedException)
+                    MessageBox.Show("The translation was not written: " + ex.Message,
+                        "Supervertaler – Translate segment", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
@@ -15423,10 +15406,12 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                                 "AutoTagger", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                             return;
                         }
-                        bool ok = WriteAutoTaggedTarget(doc, pair, finalMarker, tagMap);
+                        bool ok = WriteAutoTaggedTarget(doc, pair, finalMarker, tagMap, out var declined);
                         BridgeLog.Write(ok ? "AutoTagger: tags placed." : "AutoTagger: write failed.");
                         if (!ok)
-                            MessageBox.Show("AutoTagger could not write the tagged target.",
+                            MessageBox.Show(declined != null
+                                    ? "AutoTagger could not write the tagged target: " + declined
+                                    : "AutoTagger could not write the tagged target.",
                                 "AutoTagger", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     };
 
@@ -15446,13 +15431,15 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         /// Returns true when ReconstructTarget succeeded. Unlike the batch path it does
         /// NOT fall back to plain text – AutoTagger must never strip the existing tags.
         /// </summary>
-        private static bool WriteAutoTaggedTarget(IStudioDocument doc, ISegmentPair pair, string markerText, Dictionary<int, TagInfo> tagMap)
+        private static bool WriteAutoTaggedTarget(IStudioDocument doc, ISegmentPair pair, string markerText, Dictionary<int, TagInfo> tagMap,
+            out string declined)
         {
+            declined = null;
             try
             {
                 if (pair == null || doc == null) return false;
                 bool wrote = false;
-                doc.ProcessSegmentPair(pair, "Supervertaler", (sp, cancel) =>
+                Core.SegmentWriteCheck.ProcessChecked(doc, pair, "Supervertaler", (sp, cancel) =>
                 {
                     wrote = SegmentTagHandler.ReconstructTarget(sp.Target, sp.Source, markerText, tagMap);
                 });
@@ -15461,6 +15448,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             catch (Exception ex)
             {
                 BridgeLog.Write($"AutoTagger write error: {ex.Message}");
+                if (ex is Core.SegmentWriteDeclinedException) declined = ex.Message;
                 return false;
             }
         }
@@ -16941,7 +16929,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         }
                         try
                         {
-                            _activeDocument.ProcessSegmentPair(pair, "Supervertaler",
+                            Core.SegmentWriteCheck.ProcessChecked(_activeDocument, pair, "Supervertaler",
                                 (sp, cancel) =>
                                 {
                                     // v4.20.7-tag: try the tag-aware reconstruction

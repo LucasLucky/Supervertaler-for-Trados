@@ -820,6 +820,10 @@ namespace Supervertaler.Trados.Core
                     case ActiveReplaceOutcome.Error:
                         SafeInvoke(() => _control.SetStatus("Replace failed – the segment couldn't be modified."));
                         return;
+                    case ActiveReplaceOutcome.Declined:
+                        SafeInvoke(() => _control.SetStatus(
+                            "Not replaced – the segment holds tracked changes that Trados Studio protects while Track Changes is off. Accept or reject them, or switch Track Changes on."));
+                        return;
                 }
 
                 result.TargetText = newTarget;
@@ -892,6 +896,7 @@ namespace Supervertaler.Trados.Core
             int replacedCount = 0;
             int errorCount = 0;
             int skippedTagSpan = 0;
+            int protectedCount = 0;   // tracked changes Studio protects (SegmentWriteCheck)
 
             foreach (var group in fileGroups)
             {
@@ -927,6 +932,10 @@ namespace Supervertaler.Trados.Core
                             {
                                 errorCount++;
                             }
+                            else if (outcome == ActiveReplaceOutcome.Declined)
+                            {
+                                protectedCount++;
+                            }
                         }
                         catch { errorCount++; }
                     }
@@ -951,6 +960,7 @@ namespace Supervertaler.Trados.Core
                 _control.SetResults(_lastResults);
                 var statusMsg = $"Replaced {replacedCount} segment(s)";
                 if (skippedTagSpan > 0) statusMsg += $", skipped {skippedTagSpan} (match spans inline tags)";
+                if (protectedCount > 0) statusMsg += $", not replaced in {protectedCount} (tracked changes Studio protects while Track Changes is off: accept or reject them first)";
                 if (errorCount > 0) statusMsg += $" ({errorCount} error(s))";
                 if (fileGroups.Any(g => !string.Equals(g.Key, activeFilePath, StringComparison.OrdinalIgnoreCase)))
                     statusMsg += ". Non-active files were modified on disk – reopen to see changes.";
@@ -1067,7 +1077,9 @@ namespace Supervertaler.Trados.Core
         /// a destructive flatten-and-rewrite (and the caller should report
         /// "skipped, would lose formatting" rather than counting a success).
         /// </summary>
-        private enum ActiveReplaceOutcome { Replaced, NoMatch, SpansInlineTags, Error }
+        // Declined: Studio did not apply the edit (SegmentWriteCheck) - the
+        // segment holds tracked changes it protects while Track Changes is off.
+        private enum ActiveReplaceOutcome { Replaced, NoMatch, SpansInlineTags, Error, Declined }
 
         /// <summary>
         /// Replaces text in the active segment pair while preserving inline
@@ -1114,7 +1126,7 @@ namespace Supervertaler.Trados.Core
             // Safe to apply.
             try
             {
-                _activeDocument.ProcessSegmentPair(pair, "Supervertaler", (sp, cancel) =>
+                SegmentWriteCheck.ProcessChecked(_activeDocument, pair, "Supervertaler", (sp, cancel) =>
                 {
                     var liveTexts = new List<IText>();
                     CollectTextsDepthFirst(sp.Target, liveTexts);
@@ -1128,6 +1140,10 @@ namespace Supervertaler.Trados.Core
                 });
                 newFlatTarget = expected;
                 return ActiveReplaceOutcome.Replaced;
+            }
+            catch (SegmentWriteDeclinedException)
+            {
+                return ActiveReplaceOutcome.Declined;
             }
             catch
             {
