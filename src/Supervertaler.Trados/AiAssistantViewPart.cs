@@ -2228,7 +2228,7 @@ namespace Supervertaler.Trados
                         // its whole-segment change as it always has.
                         if (targetBefore != null)
                         {
-                            suspension = WriteAsTrackedChanges(sp, targetBefore, tagRevisionsBefore,
+                            suspension = Core.TrackedWrite.Rewrite(_activeDocument, sp.Target, targetBefore, tagRevisionsBefore,
                                 out var trackedNote, out var revisionMode, out var tagsReplaced);
                             written.TrackedNote = trackedNote;
                             written.RevisionMode = revisionMode;
@@ -2452,7 +2452,7 @@ namespace Supervertaler.Trados
                     if ((origin?.OriginalTranslationHash ?? "") != (u.HashSeen ?? "")) { unstamped++; continue; }
                     if (origin == null)
                     {
-                        factory = factory ?? CreateDocumentItemFactory();
+                        factory = factory ?? Core.SegmentTagHandler.CreateDocumentItemFactory();
                         origin = factory?.CreateTranslationOrigin();
                         if (origin == null) { unstamped++; continue; }
                         props.TranslationOrigin = origin;
@@ -2553,99 +2553,6 @@ namespace Supervertaler.Trados
                 // An audit that throws must never fail the write it is auditing.
                 return null;
             }
-        }
-
-        /// <summary>
-        /// #138: replaces the freshly built target in <paramref name="sp"/> with the
-        /// same text expressed as word-level revisions against
-        /// <paramref name="targetBefore"/>, and switches Track Changes off so Studio
-        /// applies them as they are instead of wrapping them in its own
-        /// whole-segment revision.
-        ///
-        /// <para>Returns the suspension the caller must dispose the moment the write
-        /// has been applied. Returns null, with a reason in
-        /// <paramref name="note"/>, whenever it declines - and in that case it has
-        /// changed nothing: the target is still exactly what the ordinary write
-        /// built, and tracking is still on.</para>
-        ///
-        /// <para>The order is deliberate. The merge is built and self-checked on a
-        /// detached copy first; tracking is switched off only once there is a
-        /// verified result to write; and the target is replaced only once tracking
-        /// is known to be off. No failure along the way can leave a text change
-        /// untracked. Tags the merge had to replace to line the two targets up
-        /// are the one deliberate exception, counted in
-        /// <paramref name="tagsReplaced"/>.</para>
-        ///
-        /// <para><paramref name="revisionMode"/> says how the write was recorded:
-        /// "word" (word-level revisions, possibly none), "tag-only" (only tags
-        /// changed, so no revision at all) or "whole-segment".</para>
-        /// </summary>
-        private Core.TrackingSuspension WriteAsTrackedChanges(
-            ISegmentPair sp, ISegment targetBefore, bool tagRevisionsBefore,
-            out string note, out string revisionMode, out int tagsReplaced)
-        {
-            note = null;
-            revisionMode = "whole-segment";
-            tagsReplaced = 0;
-            if (tagRevisionsBefore)
-            {
-                note = "tracked as a whole-segment change (the segment already carries tracked changes).";
-                return null;
-            }
-
-            var factory = CreateDocumentItemFactory();
-            var props = factory?.PropertiesFactory;
-            if (props == null)
-            {
-                note = "tracked as a whole-segment change (revision markers could not be created).";
-                return null;
-            }
-
-            // One insertion and one deletion per segment, shared by every marker
-            // in it - the shape Studio documents for one edit spanning several
-            // markers, and the shape the issue's reference output used.
-            var author = Core.TrackingSuspension.EditingUser(_activeDocument);
-            var now = DateTime.Now;
-            var ins = props.CreateRevisionProperties(RevisionType.Insert);
-            ins.Author = author;
-            ins.Date = now;
-            var del = props.CreateRevisionProperties(RevisionType.Delete);
-            del.Author = author;
-            del.Date = now;
-
-            var refusal = Core.TrackedTargetMerge.TryMerge(targetBefore, sp.Target, factory, ins, del,
-                out var replaced, out var textRevised);
-            if (refusal != null)
-            {
-                note = "tracked as a whole-segment change (" + refusal + ").";
-                return null;
-            }
-
-            var suspension = Core.TrackingSuspension.TurnOff(_activeDocument);
-            if (suspension == null)
-            {
-                note = "tracked as a whole-segment change (Track Changes could not be switched for the write).";
-                return null;
-            }
-
-            // From here the suspension exists but the caller does not have it yet,
-            // so a throw would lose it and leave Track Changes off for the rest of
-            // the session. Restore it here, then rethrow rather than return: if the
-            // clear succeeded and the move did not, the target is half-replaced,
-            // and throwing out of the callback is what stops Studio writing it.
-            try
-            {
-                sp.Target.Clear();
-                targetBefore.MoveAllItemsTo(sp.Target);
-            }
-            catch
-            {
-                suspension.Dispose();
-                throw;
-            }
-            revisionMode = !textRevised && replaced > 0 ? "tag-only" : "word";
-            tagsReplaced = replaced;
-            return suspension;
         }
 
         /// <summary>Document the pu→file map was last built for. The map itself
@@ -5745,49 +5652,6 @@ namespace Supervertaler.Trados
             }
         }
 
-        /// <summary>
-        /// The concrete factory lives in Sdl.FileTypeSupport.Framework.Implementation,
-        /// which Studio does NOT allow a third-party plugin to reference: a
-        /// compile-time reference made the whole plugin fail validation on load
-        /// ("Assembly reference is not public", 2026-09-13). The assembly is loaded in
-        /// Studio's process regardless, and the validator checks the manifest's
-        /// references, not what runs - so it is reached by name at runtime. Null when
-        /// a future Studio moves or renames it, in which case range comments refuse
-        /// cleanly rather than the plugin failing to load.
-        /// </summary>
-        private static IDocumentItemFactory CreateDocumentItemFactory()
-        {
-            try
-            {
-                const string asmName = "Sdl.FileTypeSupport.Framework.Implementation";
-                Type type = null;
-                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-                {
-                    if (!asm.GetName().Name.Equals(asmName, StringComparison.OrdinalIgnoreCase)) continue;
-                    type = asm.GetType("Sdl.FileTypeSupport.Framework.Bilingual.DocumentItemFactory", false);
-                    if (type != null) break;
-                }
-                if (type == null)
-                    type = Type.GetType("Sdl.FileTypeSupport.Framework.Bilingual.DocumentItemFactory, " + asmName, false);
-                if (type == null) return null;
-
-                var factory = Activator.CreateInstance(type) as IDocumentItemFactory;
-                if (factory != null && factory.PropertiesFactory == null)
-                {
-                    var pfType = type.Assembly.GetType("Sdl.FileTypeSupport.Framework.Native.PropertiesFactory", false);
-                    if (pfType != null)
-                        factory.PropertiesFactory = Activator.CreateInstance(pfType)
-                            as Sdl.FileTypeSupport.Framework.NativeApi.IPropertiesFactory;
-                }
-                return factory;
-            }
-            catch (Exception ex)
-            {
-                try { Core.DiagnosticLog.WriteAlways("Comments", "document item factory: " + ex.Message); } catch { }
-                return null;
-            }
-        }
-
         private static string WrapRangeInCommentMarker(IAbstractMarkupDataContainer target, string on,
             int occurrence, string text, Sdl.FileTypeSupport.Framework.NativeApi.Severity severity)
         {
@@ -5865,7 +5729,7 @@ namespace Supervertaler.Trados
             for (int i = firstIndex; i <= lastIndex; i++) items.Add(parent[i]);
 
             // The comment itself, then the marker that carries it.
-            var factory = CreateDocumentItemFactory();
+            var factory = Core.SegmentTagHandler.CreateDocumentItemFactory();
             if (factory == null)
                 return "Studio's document item factory could not be created";
             var propsFactory = factory.PropertiesFactory;
@@ -6556,7 +6420,9 @@ namespace Supervertaler.Trados
         /// Replaces text in segment TARGETS across the open document, using the
         /// same tag-safe per-IText replacement as SuperSearch's Replace All: a
         /// match that straddles an inline tag boundary is skipped (reported)
-        /// rather than corrupting the segment. Supports dry-run (preview),
+        /// rather than corrupting the segment. With Track Changes on, a replace
+        /// is recorded as word-level revisions, as update_segments records a
+        /// rewrite (Core.TrackedWrite). Supports dry-run (preview),
         /// case/whole-word/regex options, and file/status filters. Marshals to
         /// the UI thread.
         /// </summary>
@@ -6662,6 +6528,7 @@ namespace Supervertaler.Trados
             var pendingStatus =
                 new List<KeyValuePair<ISegmentPair, Sdl.Core.Globalization.ConfirmationLevel>>();
             string notWrittenReason = null;   // why the first declined segment was declined
+            int trackedWholeSegment = 0;      // Track Changes on, but not recorded word by word
 
             foreach (var pair in _activeDocument.SegmentPairs)
             {
@@ -6731,6 +6598,7 @@ namespace Supervertaler.Trados
                         continue;
                     }
 
+                    Core.TrackedWrite tracked = null;
                     if (!req.DryRun)
                     {
                         // Read the status before the edit: ProcessSegmentPair is
@@ -6741,11 +6609,14 @@ namespace Supervertaler.Trados
 
                         // Checked: a segment whose tracked changes Studio protects
                         // is declined without a word, and used to be counted as
-                        // changed. Counted only once it has.
+                        // changed. Counted only once it has. With Track Changes
+                        // on, recorded word by word as update_segments records a
+                        // rewrite (#138): until 201 Studio tracked the in-place
+                        // edit, which it records as the whole segment replaced.
                         try
                         {
-                            Core.SegmentWriteCheck.ProcessChecked(_activeDocument, pair, "Supervertaler MCP",
-                                (sp, cancel) => Core.TargetTextReplace.Apply(sp.Target, perform));
+                            tracked = Core.SegmentWriteCheck.ProcessChecked(_activeDocument, pair, "Supervertaler MCP",
+                                (sp, cancel) => Core.TargetTextReplace.Apply(sp.Target, perform), wordLevel: true);
                         }
                         catch (Core.SegmentWriteDeclinedException declined)
                         {
@@ -6762,6 +6633,7 @@ namespace Supervertaler.Trados
                     }
 
                     response.SegmentsChanged++;
+                    if (tracked?.Note != null) trackedWholeSegment++;
                     if (response.Changes.Count < 100)
                     {
                         response.Changes.Add(new BridgeFindReplaceChange
@@ -6770,7 +6642,9 @@ namespace Supervertaler.Trados
                             Number = segId,
                             FileName = fileName,
                             Before = currentTarget.Length > 200 ? currentTarget.Substring(0, 200) + "…" : currentTarget,
-                            After = expected.Length > 200 ? expected.Substring(0, 200) + "…" : expected
+                            After = expected.Length > 200 ? expected.Substring(0, 200) + "…" : expected,
+                            RevisionMode = tracked?.RevisionMode,
+                            Warning = tracked?.Note
                         });
                     }
                 }
@@ -6813,6 +6687,11 @@ namespace Supervertaler.Trados
             if (response.NotWritten != null && response.NotWritten.Count > 0)
                 response.Note += $" {response.NotWritten.Count} segment(s) NOT written (listed in notWritten): "
                     + notWrittenReason + " Tell the user rather than retrying.";
+            if (trackedWholeSegment > 0)
+                response.Note += $" NOTE: Track Changes is on, and {trackedWholeSegment} segment(s) could not be " +
+                    "written as word-level revisions, so each was recorded as one whole-segment change - see the " +
+                    "'warning' on each listed change for why. The text is exactly as replaced; only the granularity " +
+                    "of the revision differs.";
             if (response.SkippedLocked > 0)
                 response.Note += $" {response.SkippedLocked} locked segment(s) skipped.";
             if (!req.DryRun && response.StatusRestored > 0)

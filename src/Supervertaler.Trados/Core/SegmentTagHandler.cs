@@ -1286,6 +1286,51 @@ namespace Supervertaler.Trados.Core
         }
 
         /// <summary>
+        /// Studio's factory for new markup - revision markers, comment markers,
+        /// translation origins. The concrete factory lives in
+        /// Sdl.FileTypeSupport.Framework.Implementation, which Studio does NOT allow
+        /// a third-party plugin to reference: a compile-time reference made the
+        /// whole plugin fail validation on load ("Assembly reference is not
+        /// public", 2026-09-13). The assembly is loaded in Studio's process
+        /// regardless, and the validator checks the manifest's references, not what
+        /// runs - so it is reached by name at runtime. Null when a future Studio
+        /// moves or renames it, in which case range comments and word-level tracked
+        /// writes refuse cleanly rather than the plugin failing to load.
+        /// </summary>
+        internal static IDocumentItemFactory CreateDocumentItemFactory()
+        {
+            try
+            {
+                const string asmName = "Sdl.FileTypeSupport.Framework.Implementation";
+                Type type = null;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (!asm.GetName().Name.Equals(asmName, StringComparison.OrdinalIgnoreCase)) continue;
+                    type = asm.GetType("Sdl.FileTypeSupport.Framework.Bilingual.DocumentItemFactory", false);
+                    if (type != null) break;
+                }
+                if (type == null)
+                    type = Type.GetType("Sdl.FileTypeSupport.Framework.Bilingual.DocumentItemFactory, " + asmName, false);
+                if (type == null) return null;
+
+                var factory = Activator.CreateInstance(type) as IDocumentItemFactory;
+                if (factory != null && factory.PropertiesFactory == null)
+                {
+                    var pfType = type.Assembly.GetType("Sdl.FileTypeSupport.Framework.Native.PropertiesFactory", false);
+                    if (pfType != null)
+                        factory.PropertiesFactory = Activator.CreateInstance(pfType)
+                            as Sdl.FileTypeSupport.Framework.NativeApi.IPropertiesFactory;
+                }
+                return factory;
+            }
+            catch (Exception ex)
+            {
+                try { DiagnosticLog.WriteAlways("Write", "document item factory: " + ex.Message); } catch { }
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Strips all tag placeholders from text, returning only the human-readable content.
         /// Useful for fallback scenarios.
         /// </summary>

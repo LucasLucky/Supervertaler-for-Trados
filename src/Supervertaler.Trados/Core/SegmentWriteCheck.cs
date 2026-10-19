@@ -35,8 +35,15 @@ namespace Supervertaler.Trados.Core
         /// <param name="comments">Compare the target's comments too: for an edit
         /// that changes a comment and not the text, which the text alone would
         /// show as nothing to check.</param>
-        public static void ProcessChecked(IStudioDocument doc, ISegmentPair pair, string undoName,
-            Action<ISegmentPair, CancelEventArgs> edit, bool comments = false)
+        /// <param name="wordLevel">With Track Changes on, record the edit as
+        /// word-level revisions against the target it replaces
+        /// (<see cref="TrackedWrite.Rewrite"/>, as update_segments does) rather
+        /// than as the whole-segment change Studio records for any edit made
+        /// here. Track Changes off: no difference.</param>
+        /// <returns>With <paramref name="wordLevel"/> and Track Changes on, how
+        /// the edit was recorded; otherwise null.</returns>
+        public static TrackedWrite ProcessChecked(IStudioDocument doc, ISegmentPair pair, string undoName,
+            Action<ISegmentPair, CancelEventArgs> edit, bool comments = false, bool wordLevel = false)
         {
             if (doc == null) throw new ArgumentNullException(nameof(doc));
             Func<IAbstractMarkupDataContainer, string> view = comments
@@ -44,19 +51,44 @@ namespace Supervertaler.Trados.Core
                 : c => TrackedTargetMerge.Project(c, accept: true);
             bool tracked = TrackingSuspension.IsTracking(doc) == true;
             string before = null, after = null, shapeBefore = null, shapeAfter = null;
+            TrackedWrite record = null;
+            TrackingSuspension suspension = null;
 
-            doc.ProcessSegmentPair(pair, undoName, (sp, cancel) =>
+            try
             {
-                before = view(sp.Target);
-                shapeBefore = TrackedTargetMerge.Shape(sp.Target);
-                edit(sp, cancel);
-                after = view(sp.Target);
-                shapeAfter = TrackedTargetMerge.Shape(sp.Target);
-            });
+                doc.ProcessSegmentPair(pair, undoName, (sp, cancel) =>
+                {
+                    before = view(sp.Target);
+                    shapeBefore = TrackedTargetMerge.Shape(sp.Target);
+                    // Both asked of the live target before the edit: Clone() drops
+                    // a revision recorded on a tag itself.
+                    var targetBefore = wordLevel && tracked ? sp.Target.Clone() as ISegment : null;
+                    bool tagRevisionsBefore = targetBefore != null && TrackedTargetMerge.HasTagRevisions(sp.Target);
+                    edit(sp, cancel);
+                    // Nothing to record for an edit that changed nothing or was
+                    // cancelled. On a refusal the target stays as the edit left it
+                    // and Studio records its whole-segment change, as before.
+                    if (targetBefore != null && !cancel.Cancel && view(sp.Target) != before)
+                    {
+                        suspension = TrackedWrite.Rewrite(doc, sp.Target, targetBefore, tagRevisionsBefore,
+                            out var note, out var mode, out var replaced);
+                        record = new TrackedWrite { RevisionMode = mode, Note = note, TagsReplaced = replaced };
+                    }
+                    after = view(sp.Target);
+                    shapeAfter = TrackedTargetMerge.Shape(sp.Target);
+                });
+            }
+            finally
+            {
+                // Studio has applied the write, or the edit threw: Track Changes
+                // goes back on now, before the read-back and before the caller
+                // pumps messages, so nothing the translator types goes untracked.
+                suspension?.Dispose();
+            }
 
-            if (after == null || after == before) return;
+            if (after == null || after == before) return record;
             var live = ReadLivePair(doc, pair)?.Target;
-            if (live == null || view(live) == after) return;
+            if (live == null || view(live) == after) return record;
             throw new SegmentWriteDeclinedException(Reason(doc, live, shapeBefore, shapeAfter, tracked));
         }
 

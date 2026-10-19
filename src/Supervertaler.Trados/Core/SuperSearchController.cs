@@ -806,7 +806,7 @@ namespace Supervertaler.Trados.Core
 
                 var outcome = ReplaceInActiveSegmentPair(
                     activePair, e.SearchText, e.ReplaceText,
-                    e.CaseSensitive, e.UseRegex, e.WholeWord, out var newTarget);
+                    e.CaseSensitive, e.UseRegex, e.WholeWord, out var newTarget, out var wholeSegment);
 
                 switch (outcome)
                 {
@@ -830,7 +830,9 @@ namespace Supervertaler.Trados.Core
                 SafeInvoke(() =>
                 {
                     _control.SetResults(_lastResults);
-                    _control.SetStatus("Replaced in 1 segment.");
+                    _control.SetStatus(wholeSegment == null
+                        ? "Replaced in 1 segment."
+                        : "Replaced in 1 segment – " + wholeSegment);
                 });
             }
             catch (Exception ex)
@@ -897,6 +899,8 @@ namespace Supervertaler.Trados.Core
             int errorCount = 0;
             int skippedTagSpan = 0;
             int protectedCount = 0;   // tracked changes Studio protects (SegmentWriteCheck)
+            int wholeSegmentCount = 0;   // Track Changes on, but not recorded word by word
+            var wholeSegmentWhy = new List<string>();
 
             foreach (var group in fileGroups)
             {
@@ -917,12 +921,17 @@ namespace Supervertaler.Trados.Core
 
                             var outcome = ReplaceInActiveSegmentPair(
                                 pair, e.SearchText, e.ReplaceText,
-                                e.CaseSensitive, e.UseRegex, e.WholeWord, out var newTarget);
+                                e.CaseSensitive, e.UseRegex, e.WholeWord, out var newTarget, out var wholeSegment);
 
                             if (outcome == ActiveReplaceOutcome.Replaced)
                             {
                                 result.TargetText = newTarget;
                                 replacedCount++;
+                                if (wholeSegment != null)
+                                {
+                                    wholeSegmentCount++;
+                                    if (!wholeSegmentWhy.Contains(wholeSegment)) wholeSegmentWhy.Add(wholeSegment);
+                                }
                             }
                             else if (outcome == ActiveReplaceOutcome.SpansInlineTags)
                             {
@@ -961,6 +970,9 @@ namespace Supervertaler.Trados.Core
                 var statusMsg = $"Replaced {replacedCount} segment(s)";
                 if (skippedTagSpan > 0) statusMsg += $", skipped {skippedTagSpan} (match spans inline tags or a tracked change)";
                 if (protectedCount > 0) statusMsg += $", not replaced in {protectedCount} (tracked changes Studio protects while Track Changes is off: accept or reject them first)";
+                if (wholeSegmentCount > 0)
+                    statusMsg += $", {wholeSegmentCount} not word by word: "
+                        + string.Join("; ", wholeSegmentWhy.Select(w => w.TrimEnd('.')));
                 if (errorCount > 0) statusMsg += $" ({errorCount} error(s))";
                 if (fileGroups.Any(g => !string.Equals(g.Key, activeFilePath, StringComparison.OrdinalIgnoreCase)))
                     statusMsg += ". Non-active files were modified on disk – reopen to see changes.";
@@ -1091,11 +1103,16 @@ namespace Supervertaler.Trados.Core
         /// <see cref="ActiveReplaceOutcome.SpansInlineTags"/> so the caller can
         /// surface a clear "match spans tags – skipped" message.
         /// </summary>
+        /// <param name="wholeSegment">With Track Changes on, why a replace was
+        /// recorded as one whole-segment change rather than word by word (the
+        /// segment already holds tracked changes, say); null otherwise.</param>
         private ActiveReplaceOutcome ReplaceInActiveSegmentPair(
             ISegmentPair pair, string searchText, string replaceText,
-            bool caseSensitive, bool useRegex, bool wholeWord, out string newFlatTarget)
+            bool caseSensitive, bool useRegex, bool wholeWord, out string newFlatTarget,
+            out string wholeSegment)
         {
             newFlatTarget = null;
+            wholeSegment = null;
             if (pair == null || _activeDocument == null) return ActiveReplaceOutcome.Error;
 
             // Pre-flight on the text as it reads with its tracked changes
@@ -1111,12 +1128,15 @@ namespace Supervertaler.Trados.Core
             if (plan == TargetTextReplace.Outcome.NoMatch) return ActiveReplaceOutcome.NoMatch;
             if (plan == TargetTextReplace.Outcome.SpansMarkup) return ActiveReplaceOutcome.SpansInlineTags;
 
-            // Safe to apply.
+            // Safe to apply. With Track Changes on, recorded word by word, as
+            // update_segments records a rewrite (#138); until 201 Studio tracked
+            // the in-place edit, which it records as the whole segment replaced.
             try
             {
-                SegmentWriteCheck.ProcessChecked(_activeDocument, pair, "Supervertaler",
-                    (sp, cancel) => TargetTextReplace.Apply(sp.Target, perform));
+                var tracked = SegmentWriteCheck.ProcessChecked(_activeDocument, pair, "Supervertaler",
+                    (sp, cancel) => TargetTextReplace.Apply(sp.Target, perform), wordLevel: true);
                 newFlatTarget = expected;
+                wholeSegment = tracked?.Note;
                 return ActiveReplaceOutcome.Replaced;
             }
             catch (SegmentWriteDeclinedException)

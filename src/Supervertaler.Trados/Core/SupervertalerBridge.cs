@@ -1225,6 +1225,15 @@ namespace Supervertaler.Trados.Core
         [DataMember(Name = "fileName", Order = 2, EmitDefaultValue = false)] public string FileName { get; set; }
         [DataMember(Name = "before", Order = 3)] public string Before { get; set; }
         [DataMember(Name = "after", Order = 4)] public string After { get; set; }
+
+        /// <summary>#138: with Track Changes on, how the replace was recorded -
+        /// "word" (only the replaced words are revisions) or "whole-segment"
+        /// (the warning says why), as update_segments reports it. Absent in a
+        /// dry run and when Track Changes was off.</summary>
+        [DataMember(Name = "revisionMode", Order = 5, EmitDefaultValue = false)] public string RevisionMode { get; set; }
+
+        /// <summary>Why a tracked replace was recorded as one whole-segment change.</summary>
+        [DataMember(Name = "warning", Order = 6, EmitDefaultValue = false)] public string Warning { get; set; }
     }
 
     [DataContract]
