@@ -815,7 +815,7 @@ namespace Supervertaler.Trados.Core
                         return;
                     case ActiveReplaceOutcome.SpansInlineTags:
                         SafeInvoke(() => _control.SetStatus(
-                            "Match spans inline tags – skipped to preserve formatting. Edit the segment manually."));
+                            "Match spans inline tags or a tracked change – skipped to preserve them. Edit the segment manually."));
                         return;
                     case ActiveReplaceOutcome.Error:
                         SafeInvoke(() => _control.SetStatus("Replace failed – the segment couldn't be modified."));
@@ -959,7 +959,7 @@ namespace Supervertaler.Trados.Core
             {
                 _control.SetResults(_lastResults);
                 var statusMsg = $"Replaced {replacedCount} segment(s)";
-                if (skippedTagSpan > 0) statusMsg += $", skipped {skippedTagSpan} (match spans inline tags)";
+                if (skippedTagSpan > 0) statusMsg += $", skipped {skippedTagSpan} (match spans inline tags or a tracked change)";
                 if (protectedCount > 0) statusMsg += $", not replaced in {protectedCount} (tracked changes Studio protects while Track Changes is off: accept or reject them first)";
                 if (errorCount > 0) statusMsg += $" ({errorCount} error(s))";
                 if (fileGroups.Any(g => !string.Equals(g.Key, activeFilePath, StringComparison.OrdinalIgnoreCase)))
@@ -1008,39 +1008,17 @@ namespace Supervertaler.Trados.Core
                 }
 
                 var node = segNode ?? targetNode;
-                var currentText = node.InnerText;
-                var newText = PerformReplace(currentText, searchText, replaceText, caseSensitive, useRegex, wholeWord);
-
-                if (newText != currentText)
+                var outcome = ReplaceInSegmentNode(node,
+                    s => PerformReplace(s, searchText, replaceText, caseSensitive, useRegex, wholeWord),
+                    out var newText);
+                if (outcome == TargetTextReplace.Outcome.Replaceable)
                 {
-                    if (node.ChildNodes.Count == 1 && node.FirstChild is XmlText)
-                    {
-                        node.FirstChild.Value = newText;
-                        result.TargetText = newText;
-                        count++;
-                    }
-                    else
-                    {
-                        // The match was found in InnerText (which concatenates
-                        // text across child nodes), but the segment's text is
-                        // split across XmlText siblings separated by inline-tag
-                        // elements. Per-text-node replace only changes nodes
-                        // whose individual value contains the match. Verify
-                        // every match hit a single text node before counting
-                        // and saving – pre-v4.19.56 we'd always count++ and
-                        // save the file even if no text-node value changed,
-                        // making Replace All silently lie about its work.
-                        ReplaceTextInNodes(node, searchText, replaceText, caseSensitive, useRegex, wholeWord);
-                        if (node.InnerText == newText)
-                        {
-                            result.TargetText = newText;
-                            count++;
-                        }
-                        else
-                        {
-                            tagSpanSkipped++;
-                        }
-                    }
+                    result.TargetText = newText;
+                    count++;
+                }
+                else if (outcome == TargetTextReplace.Outcome.SpansMarkup)
+                {
+                    tagSpanSkipped++;
                 }
             }
 
@@ -1050,22 +1028,36 @@ namespace Supervertaler.Trados.Core
             return count;
         }
 
-        private void ReplaceTextInNodes(XmlNode parent, string searchText, string replaceText,
-            bool caseSensitive, bool useRegex, bool wholeWord)
+        /// <summary>
+        /// Replace inside one SDLXLIFF segment's text, as it reads with its
+        /// tracked changes accepted - the on-disk counterpart of
+        /// <see cref="TargetTextReplace"/>: text inside a tracked deletion is
+        /// neither matched nor changed, and the replace is made inside each text
+        /// node, so inline tags stay. When that does not give the same text as
+        /// replacing in the whole text, the match runs across a tag or a tracked
+        /// change: <see cref="TargetTextReplace.Outcome.SpansMarkup"/>, and the
+        /// node is left exactly as it was. (Until 201 the nodes were edited
+        /// first and checked after, so a skipped segment kept a partial replace,
+        /// saved with the file whenever another segment in it was replaced.)
+        /// Only plain text nodes are edited; a match in whitespace between tags
+        /// counts as spanning.
+        /// </summary>
+        internal static TargetTextReplace.Outcome ReplaceInSegmentNode(XmlNode node,
+            Func<string, string> perform, out string after)
         {
-            foreach (XmlNode child in parent.ChildNodes)
-            {
-                if (child is XmlText textNode)
-                {
-                    var newVal = PerformReplace(textNode.Value, searchText, replaceText, caseSensitive, useRegex, wholeWord);
-                    if (newVal != textNode.Value)
-                        textNode.Value = newVal;
-                }
-                else if (child.HasChildNodes)
-                {
-                    ReplaceTextInNodes(child, searchText, replaceText, caseSensitive, useRegex, wholeWord);
-                }
-            }
+            var texts = XliffSearcher.AcceptedTextNodes(node);
+            var before = string.Concat(texts.Select(t => t.Value));
+            after = perform(before);
+            if (after == before) return TargetTextReplace.Outcome.NoMatch;
+
+            var nodeByNode = texts.Select(t => t is XmlText ? perform(t.Value) : t.Value).ToList();
+            if (texts.Count == 0 || string.Concat(nodeByNode) != after)
+                return TargetTextReplace.Outcome.SpansMarkup;
+
+            for (int i = 0; i < texts.Count; i++)
+                if (!string.Equals(texts[i].Value, nodeByNode[i], StringComparison.Ordinal))
+                    texts[i].Value = nodeByNode[i];
+            return TargetTextReplace.Outcome.Replaceable;
         }
 
         // ─── Text Helpers ────────────────────────────────────────
@@ -1089,13 +1081,15 @@ namespace Supervertaler.Trados.Core
         /// placeholder, and formatting span the segment originally contained.
         ///
         /// This helper instead walks the existing target's <see cref="IText"/>
-        /// children and replaces each one's text in-place, so structure is
-        /// preserved. If the search string straddles a tag boundary (no single
-        /// IText contains the full match), the per-IText replace produces a
-        /// flat result that doesn't match what a flat replace would produce –
-        /// in that case we refuse to apply rather than try to be clever, and
-        /// return <see cref="ActiveReplaceOutcome.SpansInlineTags"/> so the
-        /// caller can surface a clear "match spans tags – skipped" message.
+        /// children - those the segment reads, deleted text left out
+        /// (<see cref="TargetTextReplace"/>) - and replaces each one's text
+        /// in-place, so structure is preserved. If the search string straddles
+        /// a tag, comment or tracked-change boundary (no single IText contains
+        /// the full match), the per-IText replace produces a flat result that
+        /// doesn't match what a flat replace would produce – in that case we
+        /// refuse to apply rather than try to be clever, and return
+        /// <see cref="ActiveReplaceOutcome.SpansInlineTags"/> so the caller can
+        /// surface a clear "match spans tags – skipped" message.
         /// </summary>
         private ActiveReplaceOutcome ReplaceInActiveSegmentPair(
             ISegmentPair pair, string searchText, string replaceText,
@@ -1104,40 +1098,24 @@ namespace Supervertaler.Trados.Core
             newFlatTarget = null;
             if (pair == null || _activeDocument == null) return ActiveReplaceOutcome.Error;
 
-            var currentTarget = pair.Target?.ToString() ?? "";
-            var expected = PerformReplace(currentTarget, searchText, replaceText, caseSensitive, useRegex, wholeWord);
-            if (expected == currentTarget) return ActiveReplaceOutcome.NoMatch;
-
-            // Pre-flight: simulate per-IText replacement and see if the
-            // concatenated result matches the flat-replace expectation.
-            // pair.Target.ToString() concatenates IText content depth-first;
-            // if a per-IText replace can't reproduce the same flat output,
-            // the match must straddle a tag boundary.
-            var iTexts = new List<IText>();
-            CollectTextsDepthFirst(pair.Target, iTexts);
-
-            if (iTexts.Count == 0) return ActiveReplaceOutcome.SpansInlineTags;
-
-            var simulated = string.Concat(iTexts.Select(t =>
-                PerformReplace(t.Properties.Text ?? "", searchText, replaceText, caseSensitive, useRegex, wholeWord)));
-
-            if (simulated != expected) return ActiveReplaceOutcome.SpansInlineTags;
+            // Pre-flight on the text as it reads with its tracked changes
+            // accepted (deleted text is neither matched nor changed): replace in
+            // each text node and see if that gives the same as replacing in the
+            // whole text. If not, the match straddles a tag, a comment or a
+            // tracked change. This used to start from pair.Target.ToString(),
+            // which renders tag markup and deleted text too, so it could not
+            // agree with the per-node replace in a segment with any tag.
+            Func<string, string> perform = s =>
+                PerformReplace(s, searchText, replaceText, caseSensitive, useRegex, wholeWord);
+            var plan = TargetTextReplace.Plan(pair.Target, perform, out _, out var expected);
+            if (plan == TargetTextReplace.Outcome.NoMatch) return ActiveReplaceOutcome.NoMatch;
+            if (plan == TargetTextReplace.Outcome.SpansMarkup) return ActiveReplaceOutcome.SpansInlineTags;
 
             // Safe to apply.
             try
             {
-                SegmentWriteCheck.ProcessChecked(_activeDocument, pair, "Supervertaler", (sp, cancel) =>
-                {
-                    var liveTexts = new List<IText>();
-                    CollectTextsDepthFirst(sp.Target, liveTexts);
-                    foreach (var t in liveTexts)
-                    {
-                        var oldVal = t.Properties.Text ?? "";
-                        var newVal = PerformReplace(oldVal, searchText, replaceText, caseSensitive, useRegex, wholeWord);
-                        if (!string.Equals(oldVal, newVal, StringComparison.Ordinal))
-                            t.Properties.Text = newVal;
-                    }
-                });
+                SegmentWriteCheck.ProcessChecked(_activeDocument, pair, "Supervertaler",
+                    (sp, cancel) => TargetTextReplace.Apply(sp.Target, perform));
                 newFlatTarget = expected;
                 return ActiveReplaceOutcome.Replaced;
             }
@@ -1148,18 +1126,6 @@ namespace Supervertaler.Trados.Core
             catch
             {
                 return ActiveReplaceOutcome.Error;
-            }
-        }
-
-        private static void CollectTextsDepthFirst(IAbstractMarkupDataContainer container, List<IText> sink)
-        {
-            if (container == null) return;
-            foreach (var item in container)
-            {
-                if (item is IText t)
-                    sink.Add(t);
-                else if (item is IAbstractMarkupDataContainer inner)
-                    CollectTextsDepthFirst(inner, sink);
             }
         }
 

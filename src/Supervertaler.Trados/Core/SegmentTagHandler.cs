@@ -1043,29 +1043,43 @@ namespace Supervertaler.Trados.Core
         {
             if (segment == null) return "";
             var sb = new StringBuilder();
-            AppendFinalText(segment, sb);
+            foreach (var t in AcceptedTexts(segment)) sb.Append(t.Properties?.Text);
             return sb.ToString();
         }
 
-        private static void AppendFinalText(IAbstractMarkupDataContainer container, StringBuilder sb)
+        /// <summary>
+        /// The text nodes of a segment as it reads with its tracked changes
+        /// accepted, in document order: text inside a deletion is left out,
+        /// inserted and unchanged text kept, and so is text inside tags and
+        /// comments. Their texts joined are <see cref="GetFinalText"/>. These are
+        /// the segment's own nodes, so a find and replace can edit them in place
+        /// (<see cref="TargetTextReplace"/>) and never touch deleted text.
+        /// </summary>
+        public static List<IText> AcceptedTexts(IAbstractMarkupDataContainer container)
         {
+            var sink = new List<IText>();
+            CollectAcceptedTexts(container, sink);
+            return sink;
+        }
+
+        private static void CollectAcceptedTexts(IAbstractMarkupDataContainer container, List<IText> sink)
+        {
+            if (container == null) return;
             foreach (var item in container)
             {
                 if (item is IRevisionMarker revision)
                 {
                     // Skip deleted text entirely; include inserted/unchanged text
-                    if (revision.Properties.RevisionType != RevisionType.Delete)
-                    {
-                        AppendFinalText(revision, sb);
-                    }
+                    if (revision.Properties?.RevisionType != RevisionType.Delete)
+                        CollectAcceptedTexts(revision, sink);
                 }
                 else if (item is IText textItem)
                 {
-                    sb.Append(textItem.Properties.Text);
+                    sink.Add(textItem);
                 }
                 else if (item is IAbstractMarkupDataContainer nested)
                 {
-                    AppendFinalText(nested, sb);
+                    CollectAcceptedTexts(nested, sink);
                 }
                 // Standalone tags, placeholders, etc. – skip (plain text only)
             }
