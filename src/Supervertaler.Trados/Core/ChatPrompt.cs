@@ -22,7 +22,7 @@ namespace Supervertaler.Trados.Core
         // Project & document context
         public string ProjectName;
         public string FileName;
-        public List<string> DocumentSegments;  // all source segments for document analysis
+        public List<Supervertaler.Core.DocumentSegment> DocumentSegments;  // all source segments, with Studio's numbers and files
         public int ActiveSegmentIndex;         // 0-based index of current segment in document
         public int TotalSegmentCount;          // total segments in document
         public int MaxDocumentSegments;        // truncation cap from settings
@@ -123,8 +123,19 @@ namespace Supervertaler.Trados.Core
 
                 if (ctx.TotalSegmentCount > 0)
                 {
-                    if (ctx.ActiveSegmentIndex >= 0)
-                        sb.Append("- Position: Segment ").Append(ctx.ActiveSegmentIndex + 1)
+                    // The active segment by the number Studio shows - and, in a
+                    // merged document, which numbers each file from 1, its file.
+                    var active = ctx.DocumentSegments != null && ctx.ActiveSegmentIndex >= 0
+                        && ctx.ActiveSegmentIndex < ctx.DocumentSegments.Count
+                        ? ctx.DocumentSegments[ctx.ActiveSegmentIndex] : null;
+                    var files = Supervertaler.Core.DocumentContent.Files(ctx.DocumentSegments);
+                    if (active != null && files.Count > 1 && active.File != null)
+                        sb.Append("- Position: Segment ").Append(active.Number)
+                          .Append(" of ").Append(active.File)
+                          .Append(" (file ").Append(files.IndexOf(active.File) + 1).Append(" of ").Append(files.Count)
+                          .Append("; ").Append(ctx.TotalSegmentCount).AppendLine(" segments in all)");
+                    else if (ctx.ActiveSegmentIndex >= 0)
+                        sb.Append("- Position: Segment ").Append(active?.Number ?? (ctx.ActiveSegmentIndex + 1).ToString())
                           .Append(" of ").AppendLine(ctx.TotalSegmentCount.ToString());
                     else
                         sb.Append("- Total segments: ").AppendLine(ctx.TotalSegmentCount.ToString());
@@ -148,39 +159,11 @@ namespace Supervertaler.Trados.Core
                 sb.AppendLine("assessment to inform all your responses about terminology, style, and translation choices.");
                 sb.AppendLine();
 
-                var segments = ctx.DocumentSegments;
-                var max = ctx.MaxDocumentSegments > 0 ? ctx.MaxDocumentSegments : 500;
-
-                if (segments.Count <= max)
-                {
-                    // Include all segments
-                    for (int i = 0; i < segments.Count; i++)
-                    {
-                        sb.Append(i + 1).Append(". ").AppendLine(segments[i]);
-                    }
-                }
-                else
-                {
-                    // Truncate: first 80% of max + last 20% of max
-                    int firstCount = (int)(max * 0.8);
-                    int lastCount = max - firstCount;
-                    int omitted = segments.Count - max;
-
-                    for (int i = 0; i < firstCount; i++)
-                    {
-                        sb.Append(i + 1).Append(". ").AppendLine(segments[i]);
-                    }
-
-                    sb.AppendLine();
-                    sb.Append("[... ").Append(omitted).AppendLine(" segments omitted ...]");
-                    sb.AppendLine();
-
-                    int startLast = segments.Count - lastCount;
-                    for (int i = startLast; i < segments.Count; i++)
-                    {
-                        sb.Append(i + 1).Append(". ").AppendLine(segments[i]);
-                    }
-                }
+                // Numbered as Studio numbers them, so a segment the assistant names
+                // is one the translator finds: per file in a merged document.
+                // Truncated past the cap: first 80% of it + last 20%.
+                Supervertaler.Core.DocumentContent.AppendNumbered(sb, ctx.DocumentSegments,
+                    ctx.MaxDocumentSegments > 0 ? ctx.MaxDocumentSegments : 500);
             }
 
             // ── Surrounding segments ─────────────────────────────────

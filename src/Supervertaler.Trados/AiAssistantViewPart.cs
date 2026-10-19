@@ -704,7 +704,7 @@ namespace Supervertaler.Trados
                 tmMatches = DocumentContextHelper.GetTmMatches(_activeDocument);
 
             // Document context (all segments for document type analysis)
-            List<string> documentSegments = null;
+            List<DocumentSegment> documentSegments = null;
             int activeSegmentIndex = -1;
             int totalSegmentCount = 0;
             if (_settings?.AiSettings?.IncludeDocumentContext != false)
@@ -7123,8 +7123,9 @@ namespace Supervertaler.Trados
                 // explaining the markers whenever they are present.
                 var autoPromptStructure = DocumentContextStructureMode(aiSettings);
                 var docCtx = CollectDocumentContext(autoPromptStructure);
-                var sourceSegments = docCtx.Item1;
-                if (sourceSegments == null || sourceSegments.Count == 0)
+                var numberedSegments = docCtx.Item1;
+                var sourceSegments = numberedSegments.Select(seg => seg.Text).ToList();
+                if (sourceSegments.Count == 0)
                 {
                     AddErrorMessage("No segments found in the document.");
                     return;
@@ -7325,7 +7326,9 @@ namespace Supervertaler.Trados
                     DetectedDomain = detectedDomain,
                     AnalysisSummary = analysisSummary,
                     SegmentCount = sourceSegments.Count,
-                    SourceSegments = sourceSegments,
+                    // Studio's own numbers, per file in a merged document, so a
+                    // segment the generated prompt cites is one the translator finds.
+                    NumberedSegments = numberedSegments,
                     // #122: so the meta-prompt explains the markers it can see.
                     HasStructureMarkers = autoPromptStructure == StructureContextMode.Markers,
                     GlossRegister = glossRegister,   // #113
@@ -7397,13 +7400,12 @@ namespace Supervertaler.Trados
                 var aiSettings = _settings?.AiSettings ?? new AiSettings();
 
                 // Full source (CollectDocumentContext does not cap).
-                var allSource = CollectDocumentContext().Item1 ?? new List<string>();
-                var total = allSource.Count;
+                var allNumbered = CollectDocumentContext().Item1;
+                var allSource = allNumbered.Select(seg => seg.Text).ToList();
 
                 // Cap: override (-1 = use setting), 0 = whole document, >0 = cap.
                 int cap = maxSegmentsOverride >= 0 ? maxSegmentsOverride : aiSettings.PromptContextMaxSegments;
-                bool truncated = cap > 0 && total > cap;
-                var included = truncated ? allSource.Take(cap).ToList() : allSource;
+                var response = PromptContextSource(allNumbered, cap);
 
                 var analysis = DocumentAnalyzer.Analyze(allSource);
 
@@ -7439,30 +7441,83 @@ namespace Supervertaler.Trados
                 }
                 catch { }
 
-                return new BridgePromptContextResponse
-                {
-                    Ok = true,
-                    SourceLang = GetDocumentSourceLanguage(),
-                    TargetLang = GetDocumentTargetLanguage(),
-                    SegmentCount = total,
-                    ReturnedSegments = included.Count,
-                    WordCount = analysis?.WordCount ?? 0,
-                    Domain = analysis?.PrimaryDomain,
-                    Truncated = truncated,
-                    SourceText = string.Join("\n", included),
-                    Terms = terms.Count > 0 ? terms : null,
-                    TmPairs = tmPairs.Count > 0 ? tmPairs : null,
-                    CurrentDefaultPrompt = defaultPrompt,
-                    Note = truncated
-                        ? $"Showing the first {included.Count} of {total} segments (capped by the AI Settings prompt-context limit). Pass maxSegments=0 for the whole document."
-                        : null
-                };
+                response.SourceLang = GetDocumentSourceLanguage();
+                response.TargetLang = GetDocumentTargetLanguage();
+                response.WordCount = analysis?.WordCount ?? 0;
+                response.Domain = analysis?.PrimaryDomain;
+                response.Terms = terms.Count > 0 ? terms : null;
+                response.TmPairs = tmPairs.Count > 0 ? tmPairs : null;
+                response.CurrentDefaultPrompt = defaultPrompt;
+                return response;
             }
             catch (Exception ex)
             {
                 BridgeLog.Write($"[SupervertalerBridge] BuildPromptContext threw: {ex.Message}");
                 return new BridgePromptContextResponse { Ok = false, Error = "prompt-context error: " + ex.Message };
             }
+        }
+
+        /// <summary>
+        /// The source text of a get_prompt_context reply, and what goes with it:
+        /// the counts, the cap, and for a document of several files the files and
+        /// how the text is numbered. <paramref name="cap"/>: 0 = whole document,
+        /// above 0 = the first that many segments.
+        ///
+        /// <para>A merged document: Studio numbers each file's segments from 1.
+        /// As plain lines, an AI counted them straight through, and every segment
+        /// it cited was out by the size of the files before it. So sourceText is
+        /// headed by file and numbered as the grid is - the excerpt AutoPrompt
+        /// itself reads - while a one-file document's stays as it was. In
+        /// sourceText rather than beside it: a second copy of the document would
+        /// double a reply that is the whole document by default.</para>
+        ///
+        /// <para>Static and free of Studio, so the offline test can hold it to
+        /// that (.dev\autoprompt-segment-numbers-test.ps1).</para>
+        /// </summary>
+        internal static BridgePromptContextResponse PromptContextSource(IList<DocumentSegment> all, int cap)
+        {
+            all = all ?? new List<DocumentSegment>();
+            int total = all.Count;
+            bool truncated = cap > 0 && total > cap;
+            var included = truncated ? all.Take(cap).ToList() : all;
+
+            var response = new BridgePromptContextResponse
+            {
+                Ok = true,
+                SegmentCount = total,
+                ReturnedSegments = included.Count,
+                Truncated = truncated
+            };
+
+            string note = truncated
+                ? $"Showing the first {included.Count} of {total} segments (capped by the AI Settings prompt-context limit). Pass maxSegments=0 for the whole document."
+                : null;
+
+            var files = DocumentContent.Files(all);
+            if (files.Count > 1)
+            {
+                var sb = new System.Text.StringBuilder();
+                DocumentContent.AppendNumbered(sb, included, skipBlank: true, documentFiles: files);
+                response.SourceText = sb.ToString().TrimEnd();
+                var counts = all.Where(seg => seg.File != null)
+                    .GroupBy(seg => seg.File).ToDictionary(g => g.Key, g => g.Count());
+                response.Files = files.Select(f => new BridgePromptContextFile
+                {
+                    Name = f,
+                    Segments = counts[f]
+                }).ToList();
+                note = (note == null ? "" : note + " ") +
+                    $"This document is made up of {files.Count} files, and Studio numbers the segments of each file from 1: " +
+                    "sourceText is headed by file and numbered the same way (blank segments left out), as get_segments gives fileName and number. " +
+                    "Cite a segment by its file name and number, and quote a few words of its source text beside the number.";
+            }
+            else
+            {
+                response.SourceText = string.Join("\n", included.Select(seg => seg.Text));
+            }
+
+            response.Note = note;
+            return response;
         }
 
         /// <summary>
@@ -8162,7 +8217,7 @@ namespace Supervertaler.Trados
                 else
                 {
                     var documentText = string.Join("\n",
-                        CollectDocumentSourceSegments(_activeDocument).Select(SegmentTagHandler.StripTagPlaceholders));
+                        CollectDocumentSourceSegments(_activeDocument).Select(seg => SegmentTagHandler.StripTagPlaceholders(seg.Text)));
                     var client = CreateLlmClient(out _);   // none: no way to choose, so every article is kept
                     var ai = _settings?.AiSettings;
                     var chooserName = ai == null ? null
@@ -10350,7 +10405,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 var customSystemPrompt = aiSettings.CustomSystemPrompt;
 
                 // Collect document context for AI document type analysis
-                List<string> docSegments = null;
+                List<DocumentSegment> docSegments = null;
                 if (aiSettings.IncludeDocumentContext)
                 {
                     // #122: markers in the context too - this request ships the
@@ -10965,7 +11020,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 // Translate: the TM matches first (#116), then the prompt.
                 WithClipboardTmMatches(batchControl, aiSettings, segments, () =>
                 {
-                    List<string> docSegments = null;
+                    List<DocumentSegment> docSegments = null;
                     if (includeDocContext)
                     {
                         var docCtx = CollectDocumentContext(structureMode);   // #122
@@ -12275,7 +12330,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 }
                 else
                 {
-                    List<string> docSegments = null;
+                    List<DocumentSegment> docSegments = null;
                     if (includeDocContext)
                     {
                         var docCtx = CollectDocumentContext(structureMode);   // #122
@@ -13031,7 +13086,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             termbaseTerms = TermsForPrompt(termbaseTerms, segments.Select(sg => sg.SourceText), null);   // #102
 
             var customPromptContent = ResolveCustomPromptContent(sourceLang, targetLang);
-            List<string> docSegments = aiSettings.IncludeDocumentContext ? CollectDocumentContext(structureMode).Item1 : null;   // #122
+            List<DocumentSegment> docSegments = aiSettings.IncludeDocumentContext ? CollectDocumentContext(structureMode).Item1 : null;   // #122
             var projectName = GetProjectName();
             var kbContext = KbBlockNow(KbContextForTranslation(projectName, sourceLang, targetLang));   // what a batch sends
             var promptName = batchControl.GetSelectedPrompt()?.Name ?? "(default prompt)";
@@ -14520,7 +14575,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     var customSystemPrompt = aiSettings.CustomSystemPrompt;
 
                     // Collect document context for AI document type analysis
-                    List<string> singleDocSegments = null;
+                    List<DocumentSegment> singleDocSegments = null;
                     if (aiSettings.IncludeDocumentContext)
                     {
                         var docCtx = instance.CollectDocumentContext();
@@ -14540,9 +14595,10 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                             var systemPrompt = TranslationPrompt.BuildSystemPrompt(
                                 sourceLang, targetLang,
                                 customPromptContent, termbaseTerms, customSystemPrompt,
-                                singleDocSegments,
+                                null,
                                 capturedAiSettings.DocumentContextMaxSegments,
-                                capturedAiSettings.IncludeTermMetadata);
+                                capturedAiSettings.IncludeTermMetadata,
+                                numberedSegments: singleDocSegments);
 
                             var client = new LlmClient(
                                 capturedAiSettings.SelectedProvider,
@@ -14818,7 +14874,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     // prompt, provider and termbase, but the model received one
                     // isolated sentence - no register, no disambiguation, no
                     // consistency anchor. (Reported by a user.)
-                    List<string> docSegments = null;
+                    List<DocumentSegment> docSegments = null;
                     if (aiSettings.IncludeDocumentContext)
                         docSegments = instance.CollectDocumentContext(structureMode).Item1;   // #122
                     // This document's bank block: the batch's, so one selection
@@ -14994,7 +15050,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 // pane state and the pane has never been opened on this path,
                 // so that block stays out here - still a far cry from the bare
                 // sentence this used to send.
-                List<string> docSegments = null;
+                List<DocumentSegment> docSegments = null;
                 if (aiSettings.IncludeDocumentContext)
                     docSegments = CollectDocumentSourceSegments(doc);
 
@@ -15585,18 +15641,59 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         /// document, for the pane-less Ctrl+T fallback (#41) where the instance
         /// tracking behind <see cref="CollectDocumentContext"/> was never wired
         /// up. Same collection, minus the active-index bookkeeping the batch
-        /// prompt does not use.</summary>
-        private static List<string> CollectDocumentSourceSegments(IStudioDocument doc)
+        /// prompt does not use - and minus file names: the map that tells a
+        /// merged document's files apart is the pane's, so here a merged
+        /// document's numbers start again at each file without a heading. Each
+        /// is still the segment's own number.</summary>
+        private static List<DocumentSegment> CollectDocumentSourceSegments(IStudioDocument doc)
         {
-            var segments = new List<string>();
+            var segments = new List<DocumentSegment>();
             if (doc == null) return segments;
             try
             {
                 foreach (var pair in doc.SegmentPairs)
-                    segments.Add(SegmentTagHandler.ToModelText(pair.Source));   // #97
+                    segments.Add(new DocumentSegment(
+                        SegmentTagHandler.ToModelText(pair.Source),   // #97
+                        StudioNumberOf(pair, segments.Count)));
             }
             catch { /* document may not be accessible during transitions */ }
             return segments;
+        }
+
+        /// <summary>The number Studio shows for a segment: its id, which is the
+        /// grid number - kept by the surviving segment of a merge, "331 a" for a
+        /// split one, and starting again at 1 in each file of a merged document.
+        /// The running position only for a segment without one.</summary>
+        private static string StudioNumberOf(ISegmentPair pair, int index)
+        {
+            try
+            {
+                var id = pair?.Properties?.Id.Id;
+                if (!string.IsNullOrWhiteSpace(id)) return id;
+            }
+            catch { }
+            return (index + 1).ToString();
+        }
+
+        /// <summary>True when the open document is made up of several files
+        /// whose segments can be told apart, by the map get_segments uses. That
+        /// map reads every file from disk the first time, so a one-file
+        /// document, which has no use for it, never builds it here.</summary>
+        private bool CanAttributeSegmentsToFiles()
+        {
+            try
+            {
+                int files = 0;
+                var all = TryGetEnumerable(_activeDocument, "Files");
+                if (all != null)
+                    foreach (var f in all)
+                        if (f != null && ++files > 1) break;
+                if (files < 2) return false;
+
+                EnsureBridgeFileMapFresh();
+                return _perFileMappingWorked && _fileIdToName.Count > 1;
+            }
+            catch { return false; }
         }
 
         /// <param name="structureMode">
@@ -15615,10 +15712,15 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
         /// ship, which is everything except the translation prompt. Markers with
         /// nothing to explain them are litter a model may well echo back.</para>
         /// </param>
-        private Tuple<List<string>, int> CollectDocumentContext(
+        /// <returns>Every segment with the number Studio shows for it and, in a
+        /// document of several files, the file it is in - so the prompts number
+        /// a merged document per file, as the grid does, and not 1..N straight
+        /// through (which put every segment AutoPrompt cited out by the size of
+        /// the files before it). Plus the active segment's index, -1 if none.</returns>
+        private Tuple<List<DocumentSegment>, int> CollectDocumentContext(
             StructureContextMode structureMode = StructureContextMode.Off)
         {
-            var segments = new List<string>();
+            var segments = new List<DocumentSegment>();
             int activeIndex = -1;
 
             if (_activeDocument == null)
@@ -15652,11 +15754,29 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     catch { }
                 }
 
+                // A segment whose paragraph is missing from the map (one added
+                // since it was built) keeps the file of the segment before it:
+                // the document lists each file's segments together.
+                bool attributeFiles = CanAttributeSegmentsToFiles();
+                string file = null;
+
                 int index = 0;
                 foreach (var pair in _activeDocument.SegmentPairs)
                 {
                     // #97: placeholders, as the batch segments - never <cf ...>.
                     var sourceText = SegmentTagHandler.ToModelText(pair.Source);
+
+                    if (attributeFiles)
+                    {
+                        try
+                        {
+                            var puId = _activeDocument.GetParentParagraphUnit(pair)?.Properties?.ParagraphUnitId.Id;
+                            if (puId != null && _puIdToFileId.TryGetValue(puId, out var fid)
+                                && _fileIdToName.TryGetValue(fid, out var name) && !string.IsNullOrEmpty(name))
+                                file = name;
+                        }
+                        catch { }
+                    }
 
                     // #122: the paragraph's list marker, on its first segment only -
                     // the same rule the segment list uses, so a paragraph reads the
@@ -15675,7 +15795,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         catch { /* a segment without a reachable paragraph keeps its text */ }
                     }
 
-                    segments.Add(sourceText);
+                    segments.Add(new DocumentSegment(sourceText, StudioNumberOf(pair, index), file));
 
                     // Match against active segment
                     if (activeIndex < 0 && activePuId != null && activeSegId != null)
