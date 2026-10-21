@@ -15696,6 +15696,40 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             catch { return false; }
         }
 
+        /// <summary>
+        /// The file a paragraph of <paramref name="doc"/> is in, by paragraph-unit
+        /// id - the map get_segments and the prompts number a merged document by -
+        /// for Add segments to SuperMemory, which has no map of its own. Null when
+        /// the document is one file, when this pane is not following
+        /// <paramref name="doc"/>, or when its files cannot be told apart; the
+        /// function answers null for a paragraph the map does not have. Reads the
+        /// map as it stands: call it at once, on the UI thread.
+        /// <paramref name="fileCount"/> is how many files the document has, map or
+        /// not, so the caller can tell a one-file document from a merged one whose
+        /// files could not be told apart.
+        /// </summary>
+        internal static Func<string, string> ParagraphFileNames(IStudioDocument doc, out int fileCount)
+        {
+            fileCount = 0;
+            try
+            {
+                var files = TryGetEnumerable(doc, "Files");
+                if (files != null)
+                    foreach (var f in files)
+                        if (f != null) fileCount++;
+            }
+            catch { /* unknown: treated as one file */ }
+
+            var instance = _currentInstance;
+            if (instance == null || doc == null || !ReferenceEquals(instance._activeDocument, doc)) return null;
+            if (!instance.CanAttributeSegmentsToFiles()) return null;
+
+            return puId => puId != null
+                && instance._puIdToFileId.TryGetValue(puId, out var fid)
+                && instance._fileIdToName.TryGetValue(fid, out var name)
+                && !string.IsNullOrEmpty(name) ? name : null;
+        }
+
         /// <param name="structureMode">
         /// #122: when <c>Markers</c>, each paragraph's list marker is prefixed to its
         /// first segment here too, exactly as <see cref="ApplyStructureMarkers"/> does

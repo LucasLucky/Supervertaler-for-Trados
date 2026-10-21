@@ -75,21 +75,21 @@ namespace Supervertaler.Trados.Controls
         /// write. A term filed into the wrong client's terminology is exactly the
         /// kind of mistake that stays invisible until it reaches a delivery.</para>
         /// </summary>
-        public string SelectedBank
-        {
-            get
-            {
-                var text = _cmbBank?.SelectedItem as string;
-                if (string.IsNullOrEmpty(text)) return null;
+        public string SelectedBank => BankOf(_cmbBank?.SelectedItem);
 
-                // Strip any display annotation. Splitting on the double space is
-                // safe rather than clever: UserDataPath.SanitizeBankName allows
-                // only [a-z0-9-_], so a real bank name can contain neither a
-                // space nor a bracket, and any "  (" is therefore ours.
-                var marker = text.IndexOf("  (", StringComparison.Ordinal);
-                if (marker > 0) text = text.Substring(0, marker);
-                return text.Trim();
-            }
+        /// <summary>The bank name behind a list entry made by <see cref="FillBankList"/>.</summary>
+        internal static string BankOf(object item)
+        {
+            var text = item as string;
+            if (string.IsNullOrEmpty(text)) return null;
+
+            // Strip any display annotation. Splitting on the double space is
+            // safe rather than clever: UserDataPath.SanitizeBankName allows
+            // only [a-z0-9-_], so a real bank name can contain neither a
+            // space nor a bracket, and any "  (" is therefore ours.
+            var marker = text.IndexOf("  (", StringComparison.Ordinal);
+            if (marker > 0) text = text.Substring(0, marker);
+            return text.Trim();
         }
 
         /// <summary>
@@ -350,7 +350,11 @@ namespace Supervertaler.Trados.Controls
         /// which is an argument for making it visible and deliberate, not for
         /// leaving it reachable only by editing files by hand.</para>
         /// </summary>
-        private void PopulateBanks(string activeBankName)
+        private void PopulateBanks(string activeBankName) => FillBankList(_cmbBank, activeBankName);
+
+        /// <summary>The bank list as <see cref="PopulateBanks"/> describes it, for
+        /// any dialog that writes to a bank: Add segments to SuperMemory too.</summary>
+        internal static void FillBankList(ComboBox combo, string activeBankName)
         {
             var shared = MemoryBankReader.SharedBankName;
 
@@ -369,15 +373,15 @@ namespace Supervertaler.Trados.Controls
             // write path creates it, and omitting it would silently retarget the
             // entry somewhere else.
             if (!string.IsNullOrWhiteSpace(activeBankName))
-                _cmbBank.Items.Add(activeBankName + ActiveSuffix);
+                combo.Items.Add(activeBankName + ActiveSuffix);
 
             foreach (var b in others)
-                _cmbBank.Items.Add(b);
+                combo.Items.Add(b);
 
-            _cmbBank.Items.Add(shared + SharedSuffix);
+            combo.Items.Add(shared + SharedSuffix);
 
-            if (_cmbBank.Items.Count > 0)
-                _cmbBank.SelectedIndex = 0;
+            if (combo.Items.Count > 0)
+                combo.SelectedIndex = 0;
         }
 
         /// <summary>
