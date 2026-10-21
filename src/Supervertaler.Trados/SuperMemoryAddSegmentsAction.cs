@@ -28,9 +28,16 @@ namespace Supervertaler.Trados
     /// or one note; this takes a range. Until it existed the only way to put a
     /// range into a bank was an outside AI app through the MCP server.</para>
     ///
-    /// <para>No keyboard shortcut (Michael, 21 Oct 2026): it is used once or twice
-    /// per job. Its manifest entry is in Supervertaler.Trados.plugin.xml all the
-    /// same - Studio shows no action that is not declared there.</para>
+    /// <para><b>Ctrl+Alt+Shift+A</b>, which is how a multi-row selection reaches
+    /// the dialog. Right-clicking in a segment's text moves the cursor there and
+    /// Studio drops the selection, so from the context menu the range can only
+    /// start at the active segment; the segment-number column's own menu, where
+    /// the selection survives, is not public API (its location type is
+    /// internal). Planned without a shortcut, then given one after the live test
+    /// (Michael, 21 Oct 2026). Ctrl+Alt+Shift+M was the first choice, but that
+    /// is Studio's Insert left-to-right mark. Keep this and the ShortcutAttribute
+    /// in Supervertaler.Trados.plugin.xml in step: Studio binds keys from the
+    /// manifest.</para>
     /// </summary>
     [Action("Supervertaler_SuperMemoryAddSegments", typeof(EditorController),
         Name = "Add segments to SuperMemory",
@@ -38,6 +45,7 @@ namespace Supervertaler.Trados
     [ActionLayout(
         typeof(TranslationStudioDefaultContextMenus.EditorDocumentContextMenuLocation), 8,
         DisplayType.Default, "", false)]
+    [Shortcut(Keys.Control | Keys.Alt | Keys.Shift | Keys.A)]
     public class SuperMemoryAddSegmentsAction : AbstractAction
     {
         protected override void Execute()
@@ -79,7 +87,9 @@ namespace Supervertaler.Trados
             }
 
             // The range starts as the rows selected in the editor - click the
-            // first row's number, Shift+click the last - or as the active segment.
+            // first row's number, Shift+click the last, then Ctrl+Alt+Shift+A -
+            // or as the active segment. From the right-click menu it is always
+            // the active segment: the right-click has dropped the selection.
             var first = -1;
             var last = -1;
             try

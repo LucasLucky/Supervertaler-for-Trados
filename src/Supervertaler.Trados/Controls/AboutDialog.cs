@@ -235,6 +235,8 @@ namespace Supervertaler.Trados.Controls
                 ("Alt+Q",          "QuickLauncher (prompt menu)"),
                 ("Ctrl+Alt+1\u20260", "Run QuickLauncher slot 1\u201310"),
                 ("Ctrl+Alt+D",     "Toggle voice commands"),
+                ("Ctrl+Alt+M",     "Quick Add to SuperMemory"),
+                ("Ctrl+Alt+Shift+A", "Add selected segments to SuperMemory"),
                 // Alt+0 is registered too ("insert term digit 0"), so the range
                 // is 0-9, not the 1-9 this said until 20.184.
                 ("Alt+0\u20269",  "Insert term from TermLens panel"),
@@ -245,6 +247,14 @@ namespace Supervertaler.Trados.Controls
             var descFont = new Font("Segoe UI", 8.5f);
             var keyColor = Color.FromArgb(50, 50, 50);
             var descColor = Color.FromArgb(80, 80, 80);
+
+            // The description column starts past the widest key as drawn, not
+            // at a fixed 130 px: the fonts grow with display scaling and these
+            // positions do not, so "Ctrl+Alt+Shift+A" ran into its description
+            // at 125%.
+            var descX = 130;
+            foreach (var (key, _) in shortcuts)
+                descX = Math.Max(descX, 4 + TextRenderer.MeasureText(key, keyFont).Width + 10);
 
             foreach (var (key, desc) in shortcuts)
             {
@@ -259,7 +269,7 @@ namespace Supervertaler.Trados.Controls
                 Controls.Add(new Label
                 {
                     Text = desc,
-                    Location = new Point(leftPad + 130, y),
+                    Location = new Point(leftPad + descX, y),
                     AutoSize = true,
                     Font = descFont,
                     ForeColor = descColor
