@@ -96,6 +96,21 @@ namespace Supervertaler.Trados.Controls
             BackColor = Color.White;
             AutoSize = true;
             AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            // The title-bar ? (shown because there is no minimise or maximise
+            // box) and F1 open this dialog's help page, as the termbase dialogs do.
+            HelpButton = true;
+            HelpButtonClicked += (s, e) =>
+            {
+                e.Cancel = true;   // no ? cursor
+                HelpSystem.OpenHelp(HelpSystem.Topics.SuperMemoryAddSegments);
+            };
+            KeyPreview = true;
+            KeyDown += (s, e) =>
+            {
+                if (e.KeyCode != Keys.F1) return;
+                e.Handled = true;
+                HelpSystem.OpenHelp(HelpSystem.Topics.SuperMemoryAddSegments);
+            };
 
             SuspendLayout();
             var root = new TableLayoutPanel
