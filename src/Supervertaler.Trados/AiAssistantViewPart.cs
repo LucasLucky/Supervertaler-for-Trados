@@ -10378,9 +10378,14 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     return;
                 }
 
-                // Collect segments based on selected scope
+                // Collect segments based on selected scope. Keeping repetitions
+                // consistent (on by default) gives every later occurrence of a source
+                // its group's translation; collecting also records the targets of the
+                // segments this run will not write (docs/design/consistent-repetitions.md).
                 var scope = batchControl.GetSelectedScope();
-                var segments = CollectSegments(scope);
+                var repetitions = aiSettings.KeepRepetitionsConsistent ? new RepetitionRun() : null;
+                var runDocument = _activeDocument;
+                var segments = CollectSegments(scope, repetitions);
                 var structureMode = ApplyStructureMarkers(_activeDocument, segments, aiSettings, out var structureNote);   // #109
                 if (structureNote != null) batchControl.AppendLog(structureNote);
 
@@ -10491,7 +10496,13 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 var kbTask = KbContextForTranslation(projectName, sourceLang, targetLang);
 
                 _batchCts = new CancellationTokenSource();
-                _batchTranslator = new BatchTranslator();
+                _batchTranslator = new BatchTranslator
+                {
+                    // On this run's translator only: Alt+T and SuperBench use their
+                    // own, and never align or write to a captured document.
+                    Repetitions = repetitions,
+                    DocumentRef = runDocument
+                };
 
                 _batchTranslator.Progress += OnBatchProgress;
                 _batchTranslator.SegmentTranslated += OnBatchSegmentTranslated;
@@ -10661,7 +10672,11 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     // Capture to avoid NullReferenceException if the user switches projects
                     // while batch translation is running (OnActiveDocumentChanged can null
                     // _activeDocument between the null check and ProcessSegmentPair).
-                    var doc = _activeDocument;
+                    // A Batch Translate run writes to the document it started in, not
+                    // whichever is active now: its pairs belong to that one (until
+                    // 22 Oct 2026 a switch mid-run sent the rest of the run's writes to
+                    // the new document). Alt+T has no run document and uses the active one.
+                    var doc = (sender as BatchTranslator)?.DocumentRef as IStudioDocument ?? _activeDocument;
                     if (e.SegmentPairRef == null || doc == null) { e.WriteSucceeded = false; return; }
 
                     // All segments now store ISegmentPair for ProcessSegmentPair.
@@ -10714,8 +10729,9 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     if (e.Comment != null && !TryAddTcComment(doc, pair, e.Comment))
                         Write(BatchTranslator.InlineComment(e.Translation, e.Comment));
 
-                    // Back up to TMX regardless of tag complexity
-                    _batchBackup?.AddSegment(e.SourceText, e.Translation);
+                    // Back up to TMX regardless of tag complexity - with the AI's own
+                    // version as a note when a repetition was given its group's.
+                    _batchBackup?.AddSegment(e.SourceText, e.Translation, e.AiTranslation);
                 }
                 catch (Exception ex)
                 {
@@ -10766,6 +10782,14 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 _control.Value.BatchTranslateControl.ReportCompleted(
                     e.Translated, e.Failed, e.Skipped,
                     e.TotalTime, e.WasCancelled);
+
+                // Repetitions: how many were aligned, and any groups whose existing
+                // translations disagree (listed, never changed).
+                if (!string.IsNullOrEmpty(e.RepetitionSummary))
+                {
+                    foreach (var line in e.RepetitionSummary.Split(new[] { Environment.NewLine }, StringSplitOptions.None))
+                        _control.Value.BatchTranslateControl.AppendLog("Repetitions: " + line);
+                }
 
                 if (backup != null && backup.Count > 0)
                 {
@@ -13649,10 +13673,28 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             return true;
         }
 
-        private List<BatchSegment> CollectSegments(BatchScope scope)
+        /// <param name="repetitions">
+        /// Batch Translate's run when it keeps repetitions consistent, else null.
+        /// When set, every segment sent gets its repetition key, and every segment
+        /// in scope the run will not write - locked, or outside what the scope
+        /// overwrites - hands its existing target to <see cref="RepetitionRun.Keep"/>,
+        /// in document order, before anything is written.
+        /// </param>
+        private List<BatchSegment> CollectSegments(BatchScope scope, RepetitionRun repetitions = null)
         {
             var segments = new List<BatchSegment>();
             if (_activeDocument == null) return segments;
+
+            bool labelFiles = false;
+            if (repetitions != null)
+            {
+                try
+                {
+                    EnsureBridgeFileMapFresh();
+                    labelFiles = _perFileMappingWorked && _fileIdToName.Count > 1;
+                }
+                catch { }
+            }
 
             try
             {
@@ -13681,6 +13723,9 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     // locked precisely so it would be left alone.
                     if (pair.Properties?.IsLocked == true)
                     {
+                        // Never written - but its translation can still be the one its
+                        // repetitions get.
+                        if (repetitions != null) KeepForRepetitions(repetitions, pair, labelFiles);
                         index++;
                         continue;
                     }
@@ -13728,8 +13773,16 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                             // #110: gated here, so the run and the preview both see
                             // zero when the translator has turned it off.
                             TmMatchPercent = (_settings?.AiSettings?.SendTmMatchesInBatch ?? true)
-                                ? TmMatchPercentOf(pair) : 0
+                                ? TmMatchPercentOf(pair) : 0,
+
+                            // From the source itself, not sourceText: soft returns are
+                            // spaces in what is sent, and must not be in the key.
+                            RepetitionKey = repetitions != null ? RepetitionTokens.KeyOf(sourceSegment) : null
                         });
+                    }
+                    else if (repetitions != null)
+                    {
+                        KeepForRepetitions(repetitions, pair, labelFiles);
                     }
 
                     index++;
@@ -13741,6 +13794,53 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             }
 
             return segments;
+        }
+
+        /// <summary>
+        /// Hands a segment Batch Translate will not write to the run's repetitions:
+        /// its key, and its existing target in the notation the run writes - the
+        /// source's <c>&lt;tN&gt;</c> numbering when the source has tags, plain text
+        /// when it has none - so a kept translation can be written into a
+        /// repetition exactly as an AI one would be.
+        /// </summary>
+        private void KeepForRepetitions(RepetitionRun repetitions, ISegmentPair pair, bool labelFiles)
+        {
+            try
+            {
+                var key = RepetitionTokens.KeyOf(pair.Source);
+                if (key == null || pair.Target == null) return;
+
+                var serialization = SegmentTagHandler.Serialize(pair.Source);
+                var existing = serialization.HasTags
+                    ? SegmentTagHandler.SerializeAlignedTo(pair.Target, serialization.TagMap)
+                    : SegmentTagHandler.GetFinalText(pair.Target);
+                if (string.IsNullOrWhiteSpace(existing)) return;
+
+                repetitions.Keep(key, existing, RepetitionLabel(pair, labelFiles));
+            }
+            catch
+            {
+                // A segment that cannot be read is not kept: its group then takes
+                // the run's first translation instead, as if it were empty.
+            }
+        }
+
+        /// <summary>A segment as the repetitions summary names it: its number in Studio, and its file in a merged document.</summary>
+        private string RepetitionLabel(ISegmentPair pair, bool labelFiles)
+        {
+            var segment = "segment " + (pair.Properties?.Id.Id ?? "?");
+            if (!labelFiles) return segment;
+
+            string fileName = null;
+            try
+            {
+                var puId = _activeDocument.GetParentParagraphUnit(pair)?.Properties?.ParagraphUnitId.Id ?? "";
+                if (_puIdToFileId.TryGetValue(puId, out var fileId) && fileId != null)
+                    _fileIdToName.TryGetValue(fileId, out fileName);
+            }
+            catch { }
+
+            return string.IsNullOrEmpty(fileName) ? segment : fileName + ", " + segment;
         }
 
         private void UpdateBatchSegmentCounts()

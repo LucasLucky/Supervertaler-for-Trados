@@ -76,6 +76,12 @@ namespace Supervertaler.Trados.Core
         /// segment as Studio has it.
         /// </summary>
         public string StructureMarker { get; set; }
+
+        /// <summary>
+        /// The segment's repetition key (<see cref="RepetitionTokens.KeyOf"/>) when
+        /// the run keeps repetitions consistent, otherwise null.
+        /// </summary>
+        public string RepetitionKey { get; set; }
     }
 
     public enum BatchScope
@@ -111,6 +117,9 @@ namespace Supervertaler.Trados.Core
         public int Skipped { get; set; }
         public TimeSpan TotalTime { get; set; }
         public bool WasCancelled { get; set; }
+
+        /// <summary>The repetitions line for the log, or null when the run did not keep them consistent.</summary>
+        public string RepetitionSummary { get; set; }
     }
 
     public class BatchSegmentResultEventArgs : EventArgs
@@ -134,6 +143,13 @@ namespace Supervertaler.Trados.Core
         /// <see cref="BatchTranslator.PlaceComment"/>.
         /// </summary>
         public string Comment { get; set; }
+
+        /// <summary>
+        /// The AI's own translation of this segment, when it was given its
+        /// repetition's instead and the two differ - kept in the backup TMX, so the
+        /// backup still records what the model returned. Otherwise null.
+        /// </summary>
+        public string AiTranslation { get; set; }
 
         /// <summary>
         /// Set by the event handler to <c>false</c> when writing the translation
@@ -163,6 +179,21 @@ namespace Supervertaler.Trados.Core
         public event EventHandler<BatchSegmentResultEventArgs> SegmentTranslated;
 
         /// <summary>
+        /// Keeps the run's repetitions consistent: every later occurrence of a source
+        /// is written with its group's translation (docs/design/consistent-repetitions.md).
+        /// Set by Batch Translate only - on this instance, never through a field the
+        /// other users of <see cref="SegmentTranslated"/> share (Alt+T, SuperBench) -
+        /// and null otherwise, which leaves every result as the AI returned it.
+        /// </summary>
+        public RepetitionRun Repetitions { get; set; }
+
+        /// <summary>
+        /// The document the run was started in, for the write handler; null when the
+        /// handler should use whatever document is active.
+        /// </summary>
+        public object DocumentRef { get; set; }
+
+        /// <summary>
         /// Translates segments in batches using the configured LLM provider.
         /// This method is async and should be called on a background thread
         /// or via Task.Run.
@@ -187,6 +218,11 @@ namespace Supervertaler.Trados.Core
             int failed = 0;
             int skipped = 0;
             var notTranslated = new List<BatchSegment>(); // collected during the pass; retried if enabled
+            // Repetitions (only when Repetitions is set): segments left empty whose
+            // group has no translation yet, and the groups that got one in the
+            // current batch - see FillFromGroups.
+            var awaitingGroup = new List<BatchSegment>();
+            var groupsFixed = new HashSet<string>(StringComparer.Ordinal);
             bool promptTooLarge = false; // a local model read too little of it: no retry pass either
 
             // Aggregated prompt log accumulators - combined into one Reports entry at the end
@@ -522,45 +558,31 @@ namespace Supervertaler.Trados.Core
                             int number = i + 1; // match 1-based numbering
 
                             string translation;
-                            if (translationMap.TryGetValue(number, out translation)
-                                && !string.IsNullOrWhiteSpace(translation))
-                            {
-                                var args = new BatchSegmentResultEventArgs
-                                {
-                                    SegmentIndex = segments[i].Index,
-                                    SourceText = segments[i].SourceText,
-                                    Translation = PlaceComment(translation, tcAsComments, out var comment),
-                                    Comment = comment,
-                                    SegmentPairRef = segments[i].SegmentPairRef,
-                                    HasTags = segments[i].HasTags,
-                                    TagMap = segments[i].TagMap
-                                };
-                                SegmentTranslated?.Invoke(this, args);
+                            bool answered = translationMap.TryGetValue(number, out translation)
+                                && !string.IsNullOrWhiteSpace(translation);
 
-                                // Only count as translated if the handler actually wrote
-                                // the segment to Trados. Pre-v4.19.55 the counter was
-                                // bumped here unconditionally, so write failures (e.g.
-                                // ProcessSegmentPair throwing) would be logged but the
-                                // final completion summary would still over-report
-                                // success. Requires SegmentTranslated to be raised
-                                // synchronously so the flag is up-to-date here.
-                                if (args.WriteSucceeded)
-                                {
-                                    batchTranslated++;
-                                    translated++;
-                                }
-                                else
-                                {
-                                    batchFailed++;
-                                    failed++;
-                                    notTranslated.Add(segments[i]);
-                                }
+                            // Only count as translated if the handler actually wrote
+                            // the segment to Trados. Pre-v4.19.55 the counter was
+                            // bumped here unconditionally, so write failures (e.g.
+                            // ProcessSegmentPair throwing) would be logged but the
+                            // final completion summary would still over-report
+                            // success. Deliver raises SegmentTranslated synchronously
+                            // so the flag is up-to-date when it returns. A repetition
+                            // is written with its group's translation, and one the AI
+                            // did not answer is filled from its group if it has one.
+                            var outcome = Deliver(segments[i], answered ? translation : null, tcAsComments, groupsFixed);
+                            if (outcome == DeliveryOutcome.Written)
+                            {
+                                batchTranslated++;
+                                translated++;
                             }
                             else
                             {
                                 batchFailed++;
                                 failed++;
-                                if (!refused.Contains(number)) notTranslated.Add(segments[i]);
+                                if (outcome == DeliveryOutcome.Declined || !refused.Contains(number))
+                                    notTranslated.Add(segments[i]);
+                                if (outcome == DeliveryOutcome.NothingToWrite) AwaitGroup(segments[i], awaitingGroup);
                             }
 
                             RaiseProgress(i + 1, segments.Count, null, false, sw.Elapsed);
@@ -594,14 +616,42 @@ namespace Supervertaler.Trados.Core
                     }
                     catch (Exception ex)
                     {
-                        // Log the batch error and continue to next batch
-                        failed += batchCount;
+                        // Log the batch error and continue to next batch. A
+                        // repetition whose group already has a translation is
+                        // filled from it; the rest wait for a group or a retry.
                         aggHasError = true;
                         lastError = ex.Message;
-                        for (int i = startIdx; i < endIdx; i++) notTranslated.Add(segments[i]);
+                        int filledHere = 0;
+                        for (int i = startIdx; i < endIdx; i++)
+                        {
+                            var outcome = Deliver(segments[i], null, tcAsComments, groupsFixed);
+                            if (outcome == DeliveryOutcome.Written)
+                            {
+                                filledHere++;
+                                translated++;
+                                continue;
+                            }
+                            failed++;
+                            notTranslated.Add(segments[i]);
+                            if (outcome == DeliveryOutcome.NothingToWrite) AwaitGroup(segments[i], awaitingGroup);
+                        }
                         RaiseProgress(endIdx, segments.Count,
-                            $"\u2717 Batch {batchNum + 1} failed: {ex.Message}",
+                            $"\u2717 Batch {batchNum + 1} failed: {ex.Message}"
+                            + (filledHere > 0 ? $" ({filledHere} filled from their repetitions)" : ""),
                             true, sw.Elapsed);
+                    }
+
+                    // Segments left empty earlier whose group got a translation in
+                    // this batch: written now, so a run stopped after this batch
+                    // leaves no group half filled.
+                    int filledLater = FillFromGroups(awaitingGroup, groupsFixed, notTranslated, tcAsComments);
+                    if (filledLater > 0)
+                    {
+                        translated += filledLater;
+                        failed -= filledLater;
+                        RaiseProgress(endIdx, segments.Count,
+                            $"{filledLater} segment(s) left empty earlier filled from their repetitions.",
+                            false, sw.Elapsed);
                     }
                 }
 
@@ -657,23 +707,16 @@ namespace Supervertaler.Trados.Core
                                 for (int i = rs; i < re; i++)
                                 {
                                     string t;
-                                    if (rMap.TryGetValue((i - rs) + 1, out t) && !string.IsNullOrWhiteSpace(t))
+                                    bool answered = rMap.TryGetValue((i - rs) + 1, out t) && !string.IsNullOrWhiteSpace(t);
+                                    var outcome = Deliver(pending[i], answered ? t : null, tcAsComments, groupsFixed);
+                                    if (outcome == DeliveryOutcome.Written)
                                     {
-                                        var args = new BatchSegmentResultEventArgs
-                                        {
-                                            SegmentIndex = pending[i].Index,
-                                            SourceText = pending[i].SourceText,
-                                            Translation = PlaceComment(t, tcAsComments, out var comment),
-                                            Comment = comment,
-                                            SegmentPairRef = pending[i].SegmentPairRef,
-                                            HasTags = pending[i].HasTags,
-                                            TagMap = pending[i].TagMap
-                                        };
-                                        SegmentTranslated?.Invoke(this, args);
-                                        if (args.WriteSucceeded) { translated++; failed--; }
-                                        else stillEmpty.Add(pending[i]);
+                                        translated++;
+                                        failed--;
+                                        awaitingGroup.Remove(pending[i]);
                                     }
-                                    else if (!rRefused.Contains((i - rs) + 1)) stillEmpty.Add(pending[i]);
+                                    else if (outcome == DeliveryOutcome.Declined || !rRefused.Contains((i - rs) + 1))
+                                        stillEmpty.Add(pending[i]);
                                     RaiseProgress(translated, segments.Count, null, false, sw.Elapsed);
                                 }
                             }
@@ -693,6 +736,12 @@ namespace Supervertaler.Trados.Core
                             }
                         }
                         pending = stillEmpty;
+
+                        // After the pass, not during it: pending is the list the
+                        // pass walks by index.
+                        int filledAfterPass = FillFromGroups(awaitingGroup, groupsFixed, pending, tcAsComments);
+                        translated += filledAfterPass;
+                        failed -= filledAfterPass;
                     }
                 }
             }
@@ -751,8 +800,97 @@ namespace Supervertaler.Trados.Core
                 Failed = failed,
                 Skipped = skipped,
                 TotalTime = sw.Elapsed,
-                WasCancelled = cancellationToken.IsCancellationRequested
+                WasCancelled = cancellationToken.IsCancellationRequested,
+                RepetitionSummary = Repetitions?.Summary()
             });
+        }
+
+        // ─── Repetitions ────────────────────────────────────────
+
+        private enum DeliveryOutcome { Written, Declined, NothingToWrite }
+
+        /// <summary>
+        /// Raises one segment's result for the write handler and reports how it
+        /// went. When <see cref="Repetitions"/> is set, a repetition is given its
+        /// group's translation in place of <paramref name="own"/> (null when the AI
+        /// gave none), and a written translation that is the first of its group
+        /// fixes the group's - only once Studio has taken the write, so a declined
+        /// write fixes nothing. The group keeps the text before
+        /// <see cref="PlaceComment"/>, so every occurrence gets the same [[TC: ]]
+        /// note, inline or as a comment. Raised synchronously, as
+        /// <see cref="BatchSegmentResultEventArgs.WriteSucceeded"/> requires.
+        /// </summary>
+        private DeliveryOutcome Deliver(BatchSegment segment, string own, bool tcAsComments, HashSet<string> groupsFixed)
+        {
+            var run = Repetitions;
+            var key = run != null ? segment.RepetitionKey : null;
+            var delivery = key != null ? run.Decide(key, own) : null;
+            var text = delivery != null ? delivery.Text : own;
+            if (string.IsNullOrWhiteSpace(text)) return DeliveryOutcome.NothingToWrite;
+
+            var args = new BatchSegmentResultEventArgs
+            {
+                SegmentIndex = segment.Index,
+                SourceText = segment.SourceText,
+                Translation = PlaceComment(text, tcAsComments, out var comment),
+                Comment = comment,
+                SegmentPairRef = segment.SegmentPairRef,
+                HasTags = segment.HasTags,
+                TagMap = segment.TagMap,
+                AiTranslation = delivery != null && delivery.Differed ? own : null
+            };
+            SegmentTranslated?.Invoke(this, args);
+            if (!args.WriteSucceeded) return DeliveryOutcome.Declined;
+
+            if (delivery != null)
+            {
+                run.Commit(key, delivery);
+                if (delivery.Source == RepetitionSource.Own) groupsFixed?.Add(key);
+            }
+            return DeliveryOutcome.Written;
+        }
+
+        /// <summary>A segment left empty waits for its group, when the run keeps repetitions.</summary>
+        private void AwaitGroup(BatchSegment segment, List<BatchSegment> awaitingGroup)
+        {
+            if (Repetitions != null && segment.RepetitionKey != null) awaitingGroup.Add(segment);
+        }
+
+        /// <summary>
+        /// Writes the segments left empty earlier in the run whose group has got a
+        /// translation since (decision 3 of the design), and takes them off
+        /// <paramref name="retryList"/>. Called after every batch, so a run stopped
+        /// after any batch leaves no group half filled. Returns how many it wrote.
+        /// </summary>
+        private int FillFromGroups(List<BatchSegment> awaitingGroup, HashSet<string> groupsFixed,
+            List<BatchSegment> retryList, bool tcAsComments)
+        {
+            if (awaitingGroup.Count == 0 || groupsFixed.Count == 0)
+            {
+                groupsFixed.Clear();
+                return 0;
+            }
+
+            int filled = 0;
+            var stillWaiting = new List<BatchSegment>(awaitingGroup.Count);
+            foreach (var segment in awaitingGroup)
+            {
+                if (groupsFixed.Contains(segment.RepetitionKey)
+                    && Deliver(segment, null, tcAsComments, null) == DeliveryOutcome.Written)
+                {
+                    filled++;
+                    retryList?.Remove(segment);
+                }
+                else
+                {
+                    stillWaiting.Add(segment);
+                }
+            }
+
+            awaitingGroup.Clear();
+            awaitingGroup.AddRange(stillWaiting);
+            groupsFixed.Clear();
+            return filled;
         }
 
         /// <summary>
