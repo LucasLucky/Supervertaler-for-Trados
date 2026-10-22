@@ -1,6 +1,7 @@
 # Consistent repetitions in Batch Translate (Trados and memoQ)
 
-**Status:** proposal, 22 Oct 2026, for Michael's approval. Nothing built.
+**Status:** APPROVED by Michael on 22 Oct 2026, with all six decisions as recommended (below). Nothing built yet;
+phase 1 (core) is next.
 **Source:** Michael's handoff of 22 Oct 2026, "Consistent repetitions in Batch Translate" (goal, evidence, design v1,
 match key, acceptance test), kept outside this public repository because its evidence names client jobs. This note
 checks that design against the code of both products and says how to build it.
@@ -38,6 +39,16 @@ in how they read segments and hand results back.
 ---
 
 ## Decisions for Michael
+
+**Decided 22 Oct 2026: all six as recommended.** In short:
+1. Copies are labelled "interactive" in v1, plus one live probe of "auto-propagated".
+2. In memoQ, the first translation to come back is the one every repetition gets.
+3. A failed repetition is filled with the group's translation.
+4. The backup TMX keeps the AI's own version in a `<note>`.
+5. `find_inconsistencies` uses the same key.
+6. Batch Proofread is phase 3.
+
+The reasoning behind each is kept below.
 
 1. **What a copy is labelled as in Trados.**
    - Since 20 Oct every write is labelled "interactive", your edit (`Core/SegmentOrigin.cs:15-17`, your choice, no
