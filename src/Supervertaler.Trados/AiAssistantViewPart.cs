@@ -16712,7 +16712,8 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 // segments would be skipped for safety.
                 var tagMismatch = result.TagMismatchCount;
                 var sourceMismatch = result.SourceMismatchCount;
-                var nonTagIssues = result.IssueCount - tagMismatch - sourceMismatch;
+                var fileUnknown = result.FileUnknownCount;
+                var nonTagIssues = result.IssueCount - tagMismatch - sourceMismatch - fileUnknown;
 
                 // Called out separately, and named. This is not "a segment that
                 // could not be updated" - it means the row came back different from
@@ -16726,7 +16727,22 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     var shown = string.Join(", ", nums.GetRange(0, Math.Min(6, nums.Count)));
                     if (nums.Count > 6) shown += ", and more";
                     sourceLine = "  " + sourceMismatch + " row(s) no longer match the exported file "
-                               + "- will be SKIPPED (segment " + shown + ")" + Environment.NewLine;
+                               + "– will be SKIPPED (segment " + shown + ")" + Environment.NewLine;
+                }
+
+                // A merged document numbers every file from 1, so in a combined
+                // export a number can stand for a segment in each file. A row
+                // that does not say which file it is in - an export from before
+                // re-import read the file column, or a file cell that was edited -
+                // is skipped and named, never written to whichever file matched.
+                var fileLine = "";
+                if (fileUnknown > 0)
+                {
+                    var nums = result.FileUnknownNumbers;
+                    var shown = string.Join(", ", nums.GetRange(0, Math.Min(6, nums.Count)));
+                    if (nums.Count > 6) shown += ", and more";
+                    fileLine = "  " + fileUnknown + " row(s) whose file cannot be told: that number is in more than "
+                             + "one file of the document – will be SKIPPED (segment " + shown + ")" + Environment.NewLine;
                 }
                 var tagLine = tagMismatch > 0
                     ? (strict
@@ -16738,6 +16754,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                           $"  {result.UnchangedCount} unchanged\n" +
                           tagLine +
                           sourceLine +
+                          fileLine +
                           $"  {nonTagIssues} other issue(s) (missing or locked)\n\n" +
                           "Apply the changes to the active Trados document?";
                 var dr = MessageBox.Show(_control.Value, msg, "Re-import bilingual file",
@@ -16789,7 +16806,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                             if (d.Kind == Core.Export.ImportChangeKind.TagMismatch && strict)
                             {
                                 ctrl.AppendLog(
-                                    $"Segment {d.Number}: skipped – {d.Detail}. " +
+                                    $"Segment {d.Label}: skipped – {d.Detail}. " +
                                     "Restore the tag in the bilingual file, edit the segment " +
                                     "directly in Trados, or turn off strict tag-integrity check.",
                                     true);
@@ -16801,14 +16818,14 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         if (d.Kind == Core.Export.ImportChangeKind.TagMismatch && !strict)
                         {
                             ctrl.AppendLog(
-                                $"Segment {d.Number}: applying despite tag mismatch – {d.Detail}. " +
+                                $"Segment {d.Label}: applying despite tag mismatch – {d.Detail}. " +
                                 "Strict tag-integrity check is OFF; verify Trados QA after import.",
                                 true);
                         }
                         ISegmentPair pair;
                         if (!pairIndex.TryGetValue(KeyOf(d.ParagraphUnitId, d.SegmentId), out pair) || pair == null)
                         {
-                            ctrl.AppendLog($"Segment {d.Number}: not found in document, skipped.", true);
+                            ctrl.AppendLog($"Segment {d.Label}: not found in document, skipped.", true);
                             failed++;
                             processed++;
                             continue;

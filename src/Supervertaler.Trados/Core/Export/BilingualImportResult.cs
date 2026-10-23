@@ -29,7 +29,12 @@ namespace Supervertaler.Trados.Core.Export
         /// failure (source tags must appear in the target). Skipped by
         /// default; can be force-applied by turning off the strict
         /// tag-integrity check in the Import / Export tab.</summary>
-        TagMismatch
+        TagMismatch,
+
+        /// <summary>The number is in more than one file of a combined export
+        /// and the row does not say which, or names none of them. Skipped:
+        /// writing it to the wrong file's segment is worse than not at all.</summary>
+        FileUnknown
     }
 
     public class ImportSegmentDiff
@@ -39,6 +44,15 @@ namespace Supervertaler.Trados.Core.Export
         /// not a number - and the join key for the round trip, so export and
         /// import must agree on its form. See <see cref="SegmentNumber"/>.</summary>
         public string Number { get; set; } = "";
+
+        /// <summary>The file the segment is in, in an export spanning several
+        /// files; null otherwise. With it, "segment 12" names one segment.</summary>
+        public string File { get; set; }
+
+        /// <summary>"12", or "12 in Acme - Figures.docx" in a multi-file export:
+        /// how a message names the segment.</summary>
+        public string Label => string.IsNullOrEmpty(File) ? Number : Number + " in " + File;
+
         public string ParagraphUnitId { get; set; }
         public string SegmentId { get; set; }
         public string OldTarget { get; set; }
@@ -76,7 +90,8 @@ namespace Supervertaler.Trados.Core.Export
                     if (d.Kind == ImportChangeKind.SegmentMissing
                         || d.Kind == ImportChangeKind.SourceMismatch
                         || d.Kind == ImportChangeKind.Locked
-                        || d.Kind == ImportChangeKind.TagMismatch) n++;
+                        || d.Kind == ImportChangeKind.TagMismatch
+                        || d.Kind == ImportChangeKind.FileUnknown) n++;
                 return n;
             }
         }
@@ -98,7 +113,25 @@ namespace Supervertaler.Trados.Core.Export
             {
                 var list = new List<string>();
                 foreach (var d in Diffs)
-                    if (d.Kind == ImportChangeKind.SourceMismatch) list.Add(d.Number);
+                    if (d.Kind == ImportChangeKind.SourceMismatch) list.Add(d.Label);
+                return list;
+            }
+        }
+
+        /// <summary>Rows that could not be placed in one file of a combined
+        /// export (see <see cref="ImportChangeKind.FileUnknown"/>).</summary>
+        public int FileUnknownCount
+        {
+            get { int n = 0; foreach (var d in Diffs) if (d.Kind == ImportChangeKind.FileUnknown) n++; return n; }
+        }
+
+        public List<string> FileUnknownNumbers
+        {
+            get
+            {
+                var list = new List<string>();
+                foreach (var d in Diffs)
+                    if (d.Kind == ImportChangeKind.FileUnknown) list.Add(d.Label);
                 return list;
             }
         }

@@ -45,6 +45,10 @@ namespace Supervertaler.Trados.Core.Export
         // the match anchored to the current line.
         private static readonly Regex BracketedLangLineRe = new Regex(@"^([A-Za-z]{2,3}):[ \t]*(.*)$", RegexOptions.Multiline);
 
+        /// <summary>The "📄 File: name" line the Text renderer writes where each
+        /// file of a merged document starts.</summary>
+        private static readonly Regex FileMarkerRe = new Regex(@"^📄[ \t]*File:[ \t]*(.*?)[ \t]*$", RegexOptions.Multiline);
+
         public List<ImportedSegment> Parse(string filePath)
         {
             var text = File.ReadAllText(filePath, Encoding.UTF8);
@@ -89,11 +93,23 @@ namespace Supervertaler.Trados.Core.Export
             }
             if (anchors.Count == 0) return segments;
 
+            // Where each file of a merged document starts: a segment is in the
+            // file whose marker came last before its anchor. Studio numbers every
+            // file from 1, so without this "[SEGMENT 0003]" names one segment
+            // per file.
+            var fileMarkers = new List<KeyValuePair<int, string>>();
+            foreach (Match fm in FileMarkerRe.Matches(text))
+                fileMarkers.Add(new KeyValuePair<int, string>(fm.Index, fm.Groups[1].Value.Trim()));
+            int nextMarker = 0;
+            string currentFile = null;
+
             // Walk each anchor → next anchor, parse the EN: / NL: pair.
             for (int i = 0; i < anchors.Count; i++)
             {
                 int blockStart = anchors[i].Key;
                 int blockEnd = (i + 1 < anchors.Count) ? anchors[i + 1].Key : text.Length;
+                while (nextMarker < fileMarkers.Count && fileMarkers[nextMarker].Key < blockStart)
+                    currentFile = fileMarkers[nextMarker++].Value;
                 var number = anchors[i].Value;
                 var blockText = text.Substring(blockStart, blockEnd - blockStart);
 
@@ -217,6 +233,7 @@ namespace Supervertaler.Trados.Core.Export
                 var seg = new ImportedSegment
                 {
                     Number = number,
+                    File = string.IsNullOrEmpty(currentFile) || currentFile == "(unknown)" ? null : currentFile,
                     // Decode the [newline] token (Text-format single-line
                     // encoding) back into real breaks. A no-op on older
                     // multi-line files that never used the token.
@@ -246,14 +263,16 @@ namespace Supervertaler.Trados.Core.Export
                 // v4.20.19: detect 6-column layout (multi-file mode).
                 // 5-col: # | Source | Target | Status | Notes        → cells = [Src, Tgt, Status, Notes]
                 // 6-col: # | Source | Target | File | Status | Notes → cells = [Src, Tgt, File, Status, Notes]
-                // Heuristic: if we have 5 or more cells, assume 6-column
-                // and skip the File column (which is informational on
-                // re-import — the manifest's per-segment SourceFileId is
-                // the authoritative routing key, not what the table says).
+                // Heuristic: if we have 5 or more cells, assume 6-column.
+                // The File column is what tells two segments of the same
+                // number apart in a merged document (Studio numbers every
+                // file from 1); the importer matches it against the
+                // manifest's file for that number.
                 bool multiFile = cells.Length >= 5;
                 var seg = new ImportedSegment
                 {
                     Number = num,
+                    File = multiFile ? NullIfBlank(UnescapeCell(cells[2])) : null,
                     SourceText = UnescapeCell(cells[0]),
                     TargetText = UnescapeCell(cells[1]),
                     Status = multiFile
@@ -264,6 +283,8 @@ namespace Supervertaler.Trados.Core.Export
             }
             return rows;
         }
+
+        private static string NullIfBlank(string s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
         private static string UnescapeCell(string cell)
         {

@@ -47,29 +47,40 @@ namespace Supervertaler.Trados.Core.Export
                 // whose header doesn't parse.
                 var headerRow = tableRows[0];
                 var headerCells = headerRow.Elements<TableCell>().ToList();
-                int statusIdx = -1;
+                int statusIdx = -1, fileIdx = -1;
                 for (int c = 3; c < headerCells.Count; c++)
                 {
                     var h = ExtractCellText(headerCells[c]).Trim();
                     if (h.Equals("Status", System.StringComparison.OrdinalIgnoreCase)) statusIdx = c;
 
-                    // "File" and "Comments" columns are recognised implicitly:
-                    // they shift Status/Notes right and carry no re-importable
-                    // data themselves.
+                    // The "File" column says which file of a merged document a
+                    // row is in, which the number alone does not: Studio numbers
+                    // every file from 1. "Comments" carries nothing re-importable.
+                    if (h.Equals("File", System.StringComparison.OrdinalIgnoreCase)) fileIdx = c;
                 }
                 bool headerMapped = statusIdx >= 0;
                 bool sixColumn = headerCells.Count >= 6;
+                if (fileIdx < 0 && !headerMapped && sixColumn) fileIdx = 3;   // legacy: #, Src, Tgt, File, Status, Notes
+
+                // The file the rows below belong to, from the last file heading
+                // row: the fallback when a row has no File cell of its own.
+                string sectionFile = null;
 
                 // Skip the header row (row 0); data starts at row 1.
                 for (int i = 1; i < tableRows.Count; i++)
                 {
                     var cells = tableRows[i].Elements<TableCell>().ToList();
-                    if (cells.Count < 3) continue;
 
                     // Multi-file section-break row: a single spanned cell
-                    // (cells.Count == 1) carrying the file-name header.
-                    // No segment data; skip.
-                    if (cells.Count == 1) continue;
+                    // carrying "File: <name>". No segment data, but it says
+                    // which file the rows after it are in. (This check used to
+                    // come after "fewer than 3 cells: skip", so it never ran.)
+                    if (cells.Count == 1)
+                    {
+                        sectionFile = FileFromHeading(ExtractCellText(cells[0]));
+                        continue;
+                    }
+                    if (cells.Count < 3) continue;
 
                     // The "#" column carries Studio's number, which may end in a
                     // letter ("209a"). Requiring a leading digit still skips the header
@@ -84,6 +95,8 @@ namespace Supervertaler.Trados.Core.Export
                         SourceText = ExtractCellText(cells[1]),
                         TargetText = ExtractCellText(cells[2])
                     };
+                    var fileCell = fileIdx >= 0 && fileIdx < cells.Count ? ExtractCellText(cells[fileIdx]).Trim() : "";
+                    seg.File = fileCell.Length > 0 ? fileCell : sectionFile;
                     if (headerMapped)
                     {
                         seg.Status = statusIdx < cells.Count ? ExtractCellText(cells[statusIdx]) : "";
@@ -105,6 +118,19 @@ namespace Supervertaler.Trados.Core.Export
             }
 
             return rows;
+        }
+
+        /// <summary>The name in a file heading row ("📄  File: Acme - Figures.docx"),
+        /// or null for "(unknown)" or anything else. The icon in front is a
+        /// surrogate pair plus spaces, so "File:" is looked for near the start
+        /// rather than at it.</summary>
+        private static string FileFromHeading(string text)
+        {
+            var t = (text ?? "").Trim();
+            var at = t.IndexOf("File:", System.StringComparison.OrdinalIgnoreCase);
+            if (at < 0 || at > 4) return null;
+            t = t.Substring(at + "File:".Length).Trim();
+            return t.Length == 0 || t == "(unknown)" ? null : t;
         }
 
         /// <summary>Concatenate all text runs in a cell, inserting newlines
