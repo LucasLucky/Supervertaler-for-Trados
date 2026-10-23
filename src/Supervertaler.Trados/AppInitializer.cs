@@ -197,6 +197,13 @@ namespace Supervertaler.Trados
             // because the Python Supervertaler Assistant migrated first).
             MigrateLegacyMemoryBankIfNeeded();
 
+            // The shared memory bank, so nobody has to make the folder by hand
+            // (see UserDataPath.EnsureSharedMemoryBank). After the migration
+            // above, which it must not pre-empt. File work, possibly on a team
+            // folder on a network share, so in the background: Studio's start
+            // must not wait on it.
+            System.Threading.Tasks.Task.Run(() => UserDataPath.EnsureSharedMemoryBank());
+
             // Initialize licensing - loads cached state, triggers background validation
             LicenseManager.Instance.InitializeAsync();
         }

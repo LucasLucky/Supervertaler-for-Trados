@@ -9317,6 +9317,20 @@ namespace Supervertaler.Trados
                 string error;
                 if (UserDataPath.TryCreateMemoryBank(rawName, out sanitised, out error))
                 {
+                    // Not made the active bank: it is always loaded under
+                    // whichever bank is, so switching to it would only drop the
+                    // client bank from every prompt.
+                    if (UserDataPath.IsSharedBankName(sanitised))
+                    {
+                        RefreshMemoryBankDropdown();
+                        _control.Value.AddMessage(new ChatMessage
+                        {
+                            Role = ChatRole.Assistant,
+                            Content = $"Created the shared memory bank **{sanitised}** for your house defaults. It is sent with every request, under whichever bank is active, so the active bank has not changed. It sends nothing until you write something in it."
+                        });
+                        return;
+                    }
+
                     try
                     {
                         // Repopulate the dropdown so the new bank is visible,
@@ -9417,7 +9431,7 @@ namespace Supervertaler.Trados
 
                 txtName.TextChanged += (s, e) =>
                 {
-                    var safe = UserDataPath.SanitizeBankName(txtName.Text);
+                    var safe = UserDataPath.NewBankFolderName(txtName.Text);
                     if (string.IsNullOrEmpty(safe))
                     {
                         lblPreview.Text = "Folder name: –";
@@ -11520,7 +11534,9 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
 
             if (!UserDataPath.ListMemoryBanks().Contains(name))
             {
-                if (!UserDataPath.TryCreateMemoryBank(projectName, out var sanitised, out var error))
+                // The sanitised name, not the project's: a project called
+                // "_shared" must not land its figures in the shared bank.
+                if (!UserDataPath.TryCreateMemoryBank(name, out var sanitised, out var error))
                 {
                     batchControl.AppendLog("Could not create memory bank \"" + name + "\": " + error, true);
                     return;

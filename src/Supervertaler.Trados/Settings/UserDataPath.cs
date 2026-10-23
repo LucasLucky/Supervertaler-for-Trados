@@ -397,6 +397,79 @@ namespace Supervertaler.Trados.Settings
         }
 
         /// <summary>
+        /// The folder name New memory bank makes for <paramref name="rawName"/>:
+        /// the sanitised name, except that the shared bank keeps its underscore.
+        /// <see cref="SanitizeBankName"/> strips it, so typing <c>_shared</c> used
+        /// to make an ordinary bank called "shared", which is never sent as the
+        /// shared one. One rule for the dialog's preview and the folder it makes.
+        /// </summary>
+        public static string NewBankFolderName(string rawName)
+        {
+            return IsSharedBankName(rawName) ? MemoryBankReader.SharedBankName : SanitizeBankName(rawName);
+        }
+
+        /// <summary>
+        /// Makes the shared bank when there is none, so nobody has to know it is
+        /// a folder they must create by hand. Until 2026-10-23 nothing did, in
+        /// either product, and the only route was File Explorer. Supervertaler for
+        /// memoQ does the same at its own start.
+        ///
+        /// <para>Only when the folder is missing. A bank that exists is the
+        /// translator's, and a file they deleted from it stays deleted.</para>
+        ///
+        /// <para>Costs no tokens: the files are core's skeletons, and the reader
+        /// leaves out a file that is still exactly one, so the bank adds nothing
+        /// to a prompt until someone writes in it.</para>
+        ///
+        /// <para>Not while an old single-folder bank waits to be moved: the
+        /// migration is offered only while <c>memory-banks\</c> does not exist,
+        /// and making <c>_shared</c> would create it and end the offer for good.
+        /// And only inside Studio. Tests load this assembly into PowerShell, and
+        /// must never write the translator's real banks.</para>
+        ///
+        /// <para>Called once per start, in the background. A failure is logged and
+        /// the start carries on.</para>
+        /// </summary>
+        public static void EnsureSharedMemoryBank()
+        {
+            try { if (!InStudio) return; }
+            catch { return; }
+
+            EnsureSharedMemoryBank(MemoryBanksRoot,
+                m => Supervertaler.Trados.Core.DiagnosticLog.WriteAlways("SuperMemory", m));
+        }
+
+        /// <summary><see cref="EnsureSharedMemoryBank()"/> under a given banks
+        /// folder, for tests.</summary>
+        internal static void EnsureSharedMemoryBank(string banksRoot, Action<string> log)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(banksRoot) || NeedsLegacyBankMigration) return;
+                var dir = Path.Combine(banksRoot, MemoryBankReader.SharedBankName);
+                if (Directory.Exists(dir)) return;
+
+                Directory.CreateDirectory(dir);
+                var problem = WriteNewBankSkeleton(dir, MemoryBankReader.SharedBankName);
+                log?.Invoke(problem == null
+                    ? "Made the shared memory bank at " + dir
+                    : "Made the shared memory bank at " + dir + ", but " + problem);
+            }
+            catch (Exception ex)
+            {
+                // Never worth failing a start over: without the folder the shared
+                // bank simply contributes nothing, which is what it does empty.
+                log?.Invoke("Could not make the shared memory bank: " + ex.Message);
+            }
+        }
+
+        /// <summary>True inside Trados Studio's own process (SDLTradosStudio.exe
+        /// in every version).</summary>
+        private static bool InStudio =>
+            System.Diagnostics.Process.GetCurrentProcess().ProcessName
+                .StartsWith("SDLTradosStudio", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
         /// Path to the legacy single-bank folder, if one exists. Checks both the
         /// v1 rename target (<c>memory-bank/</c>) and the original
         /// <c>supermemory/</c> name. Returns null if neither is present.
@@ -493,7 +566,7 @@ namespace Supervertaler.Trados.Settings
             sanitisedName = string.Empty;
             error = null;
 
-            var safeName = SanitizeBankName(rawName);
+            var safeName = NewBankFolderName(rawName);
             if (string.IsNullOrEmpty(safeName))
             {
                 error = "The name must contain at least one lowercase letter, digit, hyphen or underscore.";
@@ -503,7 +576,10 @@ namespace Supervertaler.Trados.Settings
             var target = GetMemoryBankDir(safeName);
             if (Directory.Exists(target))
             {
-                error = "A memory bank named '" + safeName + "' already exists at:\n  " + target;
+                error = IsSharedBankName(safeName)
+                    ? "The shared memory bank '" + safeName + "' already exists. It is sent with every request, "
+                      + "under whichever bank is active, so there is no need to create it or switch to it."
+                    : "A memory bank named '" + safeName + "' already exists at:\n  " + target;
                 return false;
             }
 
@@ -667,20 +743,23 @@ namespace Supervertaler.Trados.Settings
         /// Starter content matters more than it looks: an empty bank teaches the
         /// user nothing about the shape, and the shape is the whole design. Each
         /// file therefore arrives with its headings and a one-line explanation of
-        /// what belongs in it. Failures are swallowed - a bank with a missing
-        /// file still works, and the user can create it by hand.
+        /// what belongs in it. Failures do not stop the rest - a bank with a
+        /// missing file still works, and the user can create it by hand - and
+        /// the first one is returned for the caller to report (null when none).
+        ///
+        /// <para>The files must stay exactly core's <c>SkeletonBody</c> for the
+        /// folder's name: the reader recognises an untouched file by comparing it
+        /// with that, and leaves it out of the prompt. Any other wording would be
+        /// sent with every request, as if the headings were the translator's
+        /// decisions.</para>
         /// </summary>
-        private static void WriteNewBankSkeleton(string bankDir, string bankName)
+        private static string WriteNewBankSkeleton(string bankDir, string bankName)
         {
+            string problem = null;
             void Write(string fileName, string body)
             {
-                try
-                {
-                    var path = Path.Combine(bankDir, fileName);
-                    if (!File.Exists(path))
-                        File.WriteAllText(path, body, new UTF8Encoding(false));
-                }
-                catch { }
+                var error = WriteIfMissing(Path.Combine(bankDir, fileName), body);
+                if (problem == null && error != null) problem = fileName + " could not be written: " + error;
             }
 
             Write("brief.md", Supervertaler.Core.MemoryBanks.SkeletonBody("brief.md", bankName));
@@ -688,8 +767,36 @@ namespace Supervertaler.Trados.Settings
             Write("style.md", Supervertaler.Core.MemoryBanks.SkeletonBody("style.md", bankName));
 
             WriteReferenceReadme(bankDir);
+            return problem;
         }
 
+        /// <summary>
+        /// Writes the file only if it does not exist, in one step, and returns why
+        /// it could not (null when written or already there). Trados and memoQ
+        /// both make the shared bank at start-up, and in a team folder so does
+        /// everyone else; a check followed by a write could put a skeleton over a
+        /// file someone had just written.
+        /// </summary>
+        private static string WriteIfMissing(string path, string text)
+        {
+            try
+            {
+                using (var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    var bytes = new UTF8Encoding(false).GetBytes(text);
+                    stream.Write(bytes, 0, bytes.Length);
+                }
+                return null;
+            }
+            catch (IOException) when (File.Exists(path))
+            {
+                return null;   // someone was first; theirs stands
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
 
         /// <summary>Seeds <c>reference/README.md</c>. Never read by the prompt builder.</summary>
         private static void WriteReferenceReadme(string bankDir)
@@ -699,20 +806,16 @@ namespace Supervertaler.Trados.Settings
                 var refDir = Path.Combine(bankDir, MemoryBankReader.ReferenceFolder);
                 Directory.CreateDirectory(refDir);
                 var readme = Path.Combine(refDir, "README.md");
-                if (!File.Exists(readme))
-                {
-                    File.WriteAllText(readme,
-                        "# reference/\r\n\r\n" +
-                        "Source material, kept **unmodified**: client style guides, PDFs,\r\n" +
-                        "glossaries, tracked-changes harvests.\r\n\r\n" +
-                        "Everything in brief.md, terminology.md and style.md is derived from\r\n" +
-                        "what is in here. Keeping the original is what lets you check a rule\r\n" +
-                        "that looks wrong - and find out whether it was mis-derived or the\r\n" +
-                        "source really does say that.\r\n\r\n" +
-                        "Nothing reads this folder automatically. It is the audit trail, not\r\n" +
-                        "an inbox.\r\n",
-                        new UTF8Encoding(false));
-                }
+                WriteIfMissing(readme,
+                    "# reference/\r\n\r\n" +
+                    "Source material, kept **unmodified**: client style guides, PDFs,\r\n" +
+                    "glossaries, tracked-changes harvests.\r\n\r\n" +
+                    "Everything in brief.md, terminology.md and style.md is derived from\r\n" +
+                    "what is in here. Keeping the original is what lets you check a rule\r\n" +
+                    "that looks wrong - and find out whether it was mis-derived or the\r\n" +
+                    "source really does say that.\r\n\r\n" +
+                    "Nothing reads this folder automatically. It is the audit trail, not\r\n" +
+                    "an inbox.\r\n");
             }
             catch { }
         }
