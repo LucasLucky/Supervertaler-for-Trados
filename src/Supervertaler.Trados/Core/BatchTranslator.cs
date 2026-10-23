@@ -17,6 +17,27 @@ namespace Supervertaler.Trados.Core
     public class BatchSegment
     {
         public int Index { get; set; }
+
+        /// <summary>
+        /// The number Trados Studio shows for the segment ("12", "331 a" for a split
+        /// one), or null where it is not known. <see cref="Index"/> is no use to a
+        /// translator: in a merged document Studio starts again at 1 in each file,
+        /// and a one-segment run (Alt+T) has Index 0.
+        /// </summary>
+        public string Number { get; set; }
+
+        /// <summary>The file the segment is in, in a document of several files; otherwise null.</summary>
+        public string File { get; set; }
+
+        /// <summary>
+        /// The segment as the log names it (<see cref="SegmentLabel"/>): "segment 2 of
+        /// Text.docx"; by its position when Studio's number is not known.
+        /// <paramref name="withFile"/> false for the diagnostic log, which gets pasted
+        /// into issues: a file's name can be a client's.
+        /// </summary>
+        public string Label(bool capital = false, bool withFile = true) =>
+            SegmentLabel.Of(Number ?? (Index + 1).ToString(), withFile ? File : null, capital);
+
         public string SourceText { get; set; }
         public string ExistingTarget { get; set; }
 
@@ -125,6 +146,10 @@ namespace Supervertaler.Trados.Core
     public class BatchSegmentResultEventArgs : EventArgs
     {
         public int SegmentIndex { get; set; }
+
+        /// <summary>The segment as the log names it, as Studio does: <see cref="BatchSegment.Label"/>.</summary>
+        public string SegmentName { get; set; }
+
         public string SourceText { get; set; }
         public string Translation { get; set; }
         public object SegmentPairRef { get; set; }
@@ -326,10 +351,12 @@ namespace Supervertaler.Trados.Core
             // Split into batches
             int totalBatches = (segments.Count + batchSize - 1) / batchSize;
 
-            // How a segment is named in the log. A one-segment run (Alt+T) carries
-            // Index 0 whatever the segment's place in the document.
-            string Name(BatchSegment seg) =>
-                segments.Count == 1 ? "The segment" : "Segment " + (seg.Index + 1);
+            // How a segment is named in the log: as Studio names it (BatchSegment.Label).
+            // Without its number, a one-segment run (Alt+T) carries Index 0 whatever
+            // the segment's place in the document. The diagnostic log leaves the file
+            // out (withFile: false).
+            string Name(BatchSegment seg, bool withFile = true) =>
+                seg.Number == null && segments.Count == 1 ? "The segment" : seg.Label(capital: true, withFile: withFile);
 
             // Every request of the run is counted here, whichever pass sends it, so
             // the one aggregated Reports entry adds up.
@@ -360,7 +387,7 @@ namespace Supervertaler.Trados.Core
             {
                 var tags = ReplyCheck.TagDifference(seg.SourceText, reply);
                 if (tags != null)
-                    DiagnosticLog.Log("ReplyCheck", $"{Name(seg)}: tags differ from the source ({tags}); written");
+                    DiagnosticLog.Log("ReplyCheck", $"{Name(seg, withFile: false)}: tags differ from the source ({tags}); written");
             }
 
             // The reply check (core ReplyCheck, OutputContract). A reply holding
@@ -392,7 +419,7 @@ namespace Supervertaler.Trados.Core
 
                     offenders.Add(kv.Key);
                     replies.Remove(kv.Key);
-                    DiagnosticLog.Log("ReplyCheck", $"{Name(kv.Value)}, {where}: {problem} "
+                    DiagnosticLog.Log("ReplyCheck", $"{Name(kv.Value, withFile: false)}, {where}: {problem} "
                         + $"({reply.Length} chars back for {kv.Value.SourceText?.Length ?? 0}); asked again");
                     RaiseProgress(0, 0, $"{Name(kv.Value)} came back with more than a translation ({problem}); asking again.",
                         false, sw.Elapsed);
@@ -434,7 +461,7 @@ namespace Supervertaler.Trados.Core
                 {
                     var seg = sent[offenders[k]];
                     answers.TryGetValue(k + 1, out var t);
-                    t = CleanTarget(t, seg.Index + 1, structureContext);
+                    t = CleanTarget(t, seg, structureContext);
                     if (string.IsNullOrWhiteSpace(t)) continue;   // not answered: an ordinary empty segment
 
                     var second = ReplyCheck.Problem(seg.SourceText, t);
@@ -442,12 +469,12 @@ namespace Supervertaler.Trados.Core
                     {
                         replies[offenders[k]] = t;
                         NoteTagDifference(seg, t);
-                        DiagnosticLog.Log("ReplyCheck", $"{Name(seg)}, {where}: the second answer was a clean translation");
+                        DiagnosticLog.Log("ReplyCheck", $"{Name(seg, withFile: false)}, {where}: the second answer was a clean translation");
                         continue;
                     }
 
                     refused.Add(offenders[k]);
-                    DiagnosticLog.Log("ReplyCheck", $"{Name(seg)}, {where}: refused - {second}, twice; left for the translator");
+                    DiagnosticLog.Log("ReplyCheck", $"{Name(seg, withFile: false)}, {where}: refused - {second}, twice; left for the translator");
                     RaiseProgress(0, 0, $"{Name(seg)} was left empty: it came back with more than a translation twice "
                         + $"({second}). Translate it again, or by hand.", true, sw.Elapsed);
                 }
@@ -540,7 +567,7 @@ namespace Supervertaler.Trados.Core
                         var translationMap = new Dictionary<int, string>();
                         foreach (var p in parsed)
                             translationMap[p.Number] = CleanTarget(p.Translation,
-                                p.Number >= 1 && p.Number <= segments.Count ? segments[p.Number - 1].Index + 1 : p.Number, structureContext);
+                                p.Number >= 1 && p.Number <= segments.Count ? segments[p.Number - 1] : null, structureContext);
 
                         // Nothing reaches the document before the reply check.
                         var sent = new Dictionary<int, BatchSegment>();
@@ -697,7 +724,7 @@ namespace Supervertaler.Trados.Core
                                 var rMap = new Dictionary<int, string>();
                                 foreach (var p in rParsed)
                                     rMap[p.Number] = CleanTarget(p.Translation,
-                                        rs + p.Number - 1 < pending.Count && p.Number >= 1 ? pending[rs + p.Number - 1].Index + 1 : p.Number, structureContext);
+                                        rs + p.Number - 1 < pending.Count && p.Number >= 1 ? pending[rs + p.Number - 1] : null, structureContext);
 
                                 var rSent = new Dictionary<int, BatchSegment>();
                                 for (int i = rs; i < re; i++) rSent[(i - rs) + 1] = pending[i];
@@ -831,6 +858,7 @@ namespace Supervertaler.Trados.Core
             var args = new BatchSegmentResultEventArgs
             {
                 SegmentIndex = segment.Index,
+                SegmentName = segment.Label(),
                 SourceText = segment.SourceText,
                 Translation = PlaceComment(text, tcAsComments, out var comment),
                 Comment = comment,
@@ -1044,14 +1072,16 @@ namespace Supervertaler.Trados.Core
         /// evidence on whether the rule is obeyed. Only when markers were sent - with
         /// the feature off the prompt is unchanged and so is the reply.
         /// </summary>
-        private string CleanTarget(string translation, int segmentNumber, StructureContextMode mode)
+        /// <param name="segment">The segment the reply is for; null for a number
+        /// that was not sent, which the parser does not return.</param>
+        private string CleanTarget(string translation, BatchSegment segment, StructureContextMode mode)
         {
             if (mode == StructureContextMode.Off || string.IsNullOrEmpty(translation)) return translation;
             var cleaned = StructureContext.Strip(translation, out var fired);
             if (fired)
             {
-                DiagnosticLog.Log("Structure", $"Sentinel echoed by the model in segment {segmentNumber}: removed. Reply began: {Truncate(translation, 60)}");
-                RaiseProgress(0, 0, $"Structure marker echoed by the model in segment {segmentNumber} – removed before writing.", false, TimeSpan.Zero);
+                DiagnosticLog.Log("Structure", $"Sentinel echoed by the model in {segment?.Label(withFile: false) ?? "a reply"}: removed. Reply began: {Truncate(translation, 60)}");
+                RaiseProgress(0, 0, $"Structure marker echoed by the model in {segment?.Label() ?? "a reply"} – removed before writing.", false, TimeSpan.Zero);
             }
             return cleaned;
         }

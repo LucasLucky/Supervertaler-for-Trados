@@ -10751,7 +10751,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 {
                     e.WriteSucceeded = false;
                     _control.Value.BatchTranslateControl.AppendLog(
-                        $"Failed to write segment {e.SegmentIndex}: {ex.Message}", true);
+                        $"Failed to write {e.SegmentName}: {ex.Message}", true);
                 }
             }
 
@@ -12571,7 +12571,10 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         foreach (var pt in parsed)
                         {
                             pt.Translation = Supervertaler.Core.StructureContext.Strip(pt.Translation, out var echoed);
-                            if (echoed) batchControl.AppendLog($"Structure marker echoed by the model in segment {pt.Number} – removed before writing.");
+                            if (echoed) batchControl.AppendLog("Structure marker echoed by the model in "
+                                + (pt.Number >= 1 && pt.Number <= _clipboardSegments.Count
+                                    ? _clipboardSegments[pt.Number - 1].Label() : "reply number " + pt.Number)
+                                + " – removed before writing.");
                         }
                     }
 
@@ -12637,13 +12640,17 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                             // The reply check an API run makes (see BatchTranslator), with no
                             // second chance: nobody can be asked again from here. A reply
                             // holding more than the translation is not written; the log says
-                            // which segment and why, by the number the AI chat shows.
+                            // which segment and why - as Studio names it, and by the number
+                            // the AI chat shows where that is another.
                             var problem = Supervertaler.Core.ReplyCheck.Problem(seg.SourceText, pt.Translation);
                             if (problem != null)
                             {
                                 refused++;
                                 processed++;
-                                batchControl.AppendLog($"Segment {pt.Number} not imported: the reply holds more than a translation "
+                                var replyNumber = pt.Number.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                                batchControl.AppendLog($"{seg.Label(capital: true)}"
+                                    + (seg.Number == replyNumber ? "" : $" (number {replyNumber} in the AI's reply)")
+                                    + $" not imported: the reply holds more than a translation "
                                     + $"({problem}). Ask the AI for it again, or translate it by hand.", true);
                                 continue;
                             }
@@ -12697,7 +12704,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                             catch (Exception ex)
                             {
                                 batchControl.AppendLog(
-                                    $"Failed to write segment {pt.Number}: {ex.Message}", true);
+                                    $"Failed to write {seg.Label()}: {ex.Message}", true);
                                 failed++;
                             }
 
@@ -13701,16 +13708,12 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             var segments = new List<BatchSegment>();
             if (_activeDocument == null) return segments;
 
-            bool labelFiles = false;
-            if (repetitions != null)
-            {
-                try
-                {
-                    EnsureBridgeFileMapFresh();
-                    labelFiles = _perFileMappingWorked && _fileIdToName.Count > 1;
-                }
-                catch { }
-            }
+            // In a merged document each segment carries its file, so the log names
+            // it as Studio does (BatchSegment.Label), and so does the repetitions
+            // summary. A segment whose paragraph the map lacks keeps the file of the
+            // segment before it, as in the prompts (CollectDocumentContext).
+            bool labelFiles = CanAttributeSegmentsToFiles();
+            string file = null;
 
             try
             {
@@ -13777,9 +13780,12 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         // for all segments. This ensures correct handling of literal
                         // newlines (Excel, Visio) which need IText cloning from source
                         // to produce soft returns instead of paragraph marks.
+                        if (labelFiles) file = FileOf(_activeDocument, pair) ?? file;
                         segments.Add(new BatchSegment
                         {
                             Index = index,
+                            Number = StudioNumberOf(pair, index),
+                            File = file,
                             SourceText = sourceText,
                             ExistingTarget = targetText,
                             SegmentPairRef = pair,
@@ -13847,15 +13853,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             var segment = "segment " + (pair.Properties?.Id.Id ?? "?");
             if (!labelFiles) return segment;
 
-            string fileName = null;
-            try
-            {
-                var puId = _activeDocument.GetParentParagraphUnit(pair)?.Properties?.ParagraphUnitId.Id ?? "";
-                if (_puIdToFileId.TryGetValue(puId, out var fileId) && fileId != null)
-                    _fileIdToName.TryGetValue(fileId, out fileName);
-            }
-            catch { }
-
+            var fileName = FileOf(_activeDocument, pair);
             return string.IsNullOrEmpty(fileName) ? segment : fileName + ", " + segment;
         }
 
@@ -14715,6 +14713,8 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         new BatchSegment
                         {
                             Index = 0,
+                            Number = StudioNumberOf(pair, 0),
+                            File = instance.CanAttributeSegmentsToFiles() ? instance.FileOf(instance._activeDocument, pair) : null,
                             SourceText = sourceText,
                             ExistingTarget = pair.Target != null
                                 ? SegmentTagHandler.GetFinalText(pair.Target) : "",
@@ -14905,6 +14905,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     new BatchSegment
                     {
                         Index = 0,
+                        Number = StudioNumberOf(pair, 0),   // no file: the map is the pane's
                         SourceText = sourceText,
                         ExistingTarget = pair.Target != null ? SegmentTagHandler.GetFinalText(pair.Target) : "",
                         SegmentPairRef = pair,
@@ -15063,7 +15064,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 // The translator reports no write failure of its own, so this path
                 // would otherwise end in silence. UI thread (called through ui.Send).
                 if (ex is Core.SegmentWriteDeclinedException)
-                    MessageBox.Show("The translation was not written: " + ex.Message,
+                    MessageBox.Show("The translation was not written into " + e.SegmentName + ": " + ex.Message,
                         "Supervertaler – Translate segment", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
@@ -15196,9 +15197,10 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         }
                         bool ok = WriteAutoTaggedTarget(doc, pair, finalMarker, tagMap, out var declined);
                         BridgeLog.Write(ok ? "AutoTagger: tags placed." : "AutoTagger: write failed.");
+                        // The segment is named: the AI call takes a while, and the cursor may have moved on.
                         if (!ok)
                             MessageBox.Show(declined != null
-                                    ? "AutoTagger could not write the tagged target: " + declined
+                                    ? "AutoTagger could not write the tagged target into " + SegmentLabelOf(doc, pair) + ": " + declined
                                     : "AutoTagger could not write the tagged target.",
                                 "AutoTagger", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     };
@@ -15553,6 +15555,40 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
             return (index + 1).ToString();
         }
 
+        /// <summary>The file <paramref name="pair"/> is in, by the map get_segments
+        /// uses; null when the map does not have its paragraph. Only for a document
+        /// <see cref="CanAttributeSegmentsToFiles"/> has said yes to.</summary>
+        private string FileOf(IStudioDocument doc, ISegmentPair pair)
+        {
+            try
+            {
+                var puId = doc?.GetParentParagraphUnit(pair)?.Properties?.ParagraphUnitId.Id;
+                if (puId != null && _puIdToFileId.TryGetValue(puId, out var fid) && fid != null
+                    && _fileIdToName.TryGetValue(fid, out var name) && !string.IsNullOrEmpty(name))
+                    return name;
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>
+        /// A segment as a message names it, the way Studio does
+        /// (<see cref="Core.SegmentLabel"/>): its number and, in a document of
+        /// several files this pane can tell apart, its file. For AutoTagger, which
+        /// works without the pane: with no pane following <paramref name="doc"/>,
+        /// the number alone. UI thread.
+        /// </summary>
+        private static string SegmentLabelOf(IStudioDocument doc, ISegmentPair pair)
+        {
+            string number = null, file = null;
+            try { number = pair?.Properties?.Id.Id; } catch { }
+            var instance = _currentInstance;
+            if (instance != null && doc != null && ReferenceEquals(instance._activeDocument, doc)
+                && instance.CanAttributeSegmentsToFiles())
+                file = instance.FileOf(doc, pair);
+            return Core.SegmentLabel.Of(number, file);
+        }
+
         /// <summary>True when the open document is made up of several files
         /// whose segments can be told apart, by the map get_segments uses. That
         /// map reads every file from disk the first time, so a one-file
@@ -15679,16 +15715,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     var sourceText = SegmentTagHandler.ToModelText(pair.Source);
 
                     if (attributeFiles)
-                    {
-                        try
-                        {
-                            var puId = _activeDocument.GetParentParagraphUnit(pair)?.Properties?.ParagraphUnitId.Id;
-                            if (puId != null && _puIdToFileId.TryGetValue(puId, out var fid)
-                                && _fileIdToName.TryGetValue(fid, out var name) && !string.IsNullOrEmpty(name))
-                                file = name;
-                        }
-                        catch { }
-                    }
+                        file = FileOf(_activeDocument, pair) ?? file;
 
                     // #122: the paragraph's list marker, on its first segment only -
                     // the same rule the segment list uses, so a paragraph reads the
@@ -16756,6 +16783,16 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 // crash.
                 var pairIndex = BuildSegmentPairIndex(ctrl);
 
+                // A segment as the log names it: by its number in the bilingual file,
+                // which is Studio's, and in a document of several files with its file -
+                // Studio numbers each file's segments from 1 (Core.SegmentLabel).
+                bool attributeFiles = CanAttributeSegmentsToFiles();
+                string Name(Core.Export.ImportSegmentDiff d) =>
+                    Core.SegmentLabel.Of(d.Number,
+                        attributeFiles && pairIndex.TryGetValue(KeyOf(d.ParagraphUnitId, d.SegmentId), out var p) && p != null
+                            ? FileOf(_activeDocument, p) : null,
+                        capital: true);
+
                 // Workload size for the progress bar (only segments that will
                 // actually be written back).
                 int toApply = 0;
@@ -16789,7 +16826,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                             if (d.Kind == Core.Export.ImportChangeKind.TagMismatch && strict)
                             {
                                 ctrl.AppendLog(
-                                    $"Segment {d.Number}: skipped – {d.Detail}. " +
+                                    $"{Name(d)}: skipped – {d.Detail}. " +
                                     "Restore the tag in the bilingual file, edit the segment " +
                                     "directly in Trados, or turn off strict tag-integrity check.",
                                     true);
@@ -16801,14 +16838,14 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         if (d.Kind == Core.Export.ImportChangeKind.TagMismatch && !strict)
                         {
                             ctrl.AppendLog(
-                                $"Segment {d.Number}: applying despite tag mismatch – {d.Detail}. " +
+                                $"{Name(d)}: applying despite tag mismatch – {d.Detail}. " +
                                 "Strict tag-integrity check is OFF; verify Trados QA after import.",
                                 true);
                         }
                         ISegmentPair pair;
                         if (!pairIndex.TryGetValue(KeyOf(d.ParagraphUnitId, d.SegmentId), out pair) || pair == null)
                         {
-                            ctrl.AppendLog($"Segment {d.Number}: not found in document, skipped.", true);
+                            ctrl.AppendLog($"{Name(d)}: not found in document, skipped.", true);
                             failed++;
                             processed++;
                             continue;
@@ -16897,7 +16934,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                         }
                         catch (Exception ex)
                         {
-                            ctrl.AppendLog($"Segment {d.Number}: write failed – {ex.Message}", true);
+                            ctrl.AppendLog($"{Name(d)}: write failed – {ex.Message}", true);
                             failed++;
                         }
 
