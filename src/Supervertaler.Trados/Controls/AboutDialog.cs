@@ -305,6 +305,8 @@ namespace Supervertaler.Trados.Controls
                 tooltip: "Supervertaler forum and GitHub Issues");
             AddLink("Privacy Policy", "https://supervertaler.com/privacy/", leftPad, ref y,
                 tooltip: "How Supervertaler handles your data");
+            AddLink("Terms of Use", LicenseManager.TermsOfUseUrl, leftPad, ref y,
+                tooltip: "What you agree to when you use Supervertaler");
 
             y += 4;
 
@@ -341,8 +343,16 @@ namespace Supervertaler.Trados.Controls
             };
             var securityTip = new ToolTip();
             securityTip.SetToolTip(securityLink,
-                "This plugin makes no network calls except to your chosen AI provider and the licence server.\n" +
-                "No telemetry, no tracking, no data collection. Verify it yourself on GitHub.");
+                // Said "no network calls except to your chosen AI provider and the
+                // licence server" and "no telemetry, no data collection" while the
+                // usage ping was on by default and the update check asked the RWS
+                // AppStore. A connection the plugin makes by itself must be listed
+                // here and in sections 4 to 6 of supervertaler.com/privacy.
+                "Besides your chosen AI provider, the plugin connects by itself only to the licence\n" +
+                "services, the RWS AppStore (to check for updates) and, unless you switch it off,\n" +
+                "one anonymous usage ping per session. Anything else – a website you search,\n" +
+                "a download you start – happens only when you ask. Details are in the privacy\n" +
+                "policy; verify it yourself on GitHub.");
             securityLink.LinkClicked += (s, e) =>
             {
                 try { Process.Start(new ProcessStartInfo("https://github.com/Supervertaler/Supervertaler-for-Trados") { UseShellExecute = true }); }

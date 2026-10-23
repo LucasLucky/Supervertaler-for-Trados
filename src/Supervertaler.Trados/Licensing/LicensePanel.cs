@@ -14,6 +14,7 @@ namespace Supervertaler.Trados.Licensing
     {
         private const string PurchaseUrl = "https://supervertaler-for-trados.lemonsqueezy.com/checkout/buy/86e8dcb3-2a38-4396-aa38-9a67e5c72204";
         private const string ManageUrl = "https://supervertaler-for-trados.lemonsqueezy.com/billing";
+        internal const string TermsText = "By activating a licence, you agree to the Terms of Use.";
 
         private const int LeftPad = 16;
         private const int ContentWidth = 480;
@@ -229,6 +230,26 @@ namespace Supervertaler.Trados.Licensing
                 catch { }
             };
 
+            // Said where activating happens: the licence is granted under the
+            // terms of use.
+            var lnkTerms = new LinkLabel
+            {
+                Text = TermsText,
+                MaximumSize = new Size(contentWidth, 0),
+                Margin = new Padding(0, 10, 0, 0),
+                AutoSize = true,
+                Font = font,
+                LinkColor = Color.FromArgb(40, 100, 180),
+                ActiveLinkColor = Color.FromArgb(30, 80, 160)
+            };
+            lnkTerms.LinkArea = new LinkArea(
+                TermsText.IndexOf("Terms of Use", StringComparison.Ordinal), "Terms of Use".Length);
+            lnkTerms.LinkClicked += (s, e) =>
+            {
+                try { Process.Start(new ProcessStartInfo(LicenseManager.TermsOfUseUrl) { UseShellExecute = true }); }
+                catch { }
+            };
+
             // The open door: nobody should feel they have to crack the trial.
             var lnkHardship = new LinkLabel
             {
@@ -252,7 +273,8 @@ namespace Supervertaler.Trados.Licensing
             activationGrid.Controls.Add(lblEnterKey, 0, 1);
             activationGrid.Controls.Add(_txtLicenseKey, 0, 2);
             activationGrid.Controls.Add(activateRow, 0, 3);
-            activationGrid.Controls.Add(lnkHardship, 0, 4);
+            activationGrid.Controls.Add(lnkTerms, 0, 4);
+            activationGrid.Controls.Add(lnkHardship, 0, 5);
             _activationPanel.Controls.Add(activationGrid);
             Controls.Add(_activationPanel);
 

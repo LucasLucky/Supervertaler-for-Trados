@@ -142,6 +142,13 @@ namespace Supervertaler.Trados.Licensing
             "A licence counts only for the computer and account that activated it. " +
             "If it is yours, enter its key below to activate it here.";
 
+        /// <summary>
+        /// The terms the trial and every licence are granted under (the source
+        /// licence says using the plugin needs a licence; this is that licence).
+        /// Linked from the first-run usage notice, beside Activate, and in About.
+        /// </summary>
+        internal const string TermsOfUseUrl = "https://supervertaler.com/terms/";
+
         // ─── Initialization ─────────────────────────────────────────
 
         /// <summary>
