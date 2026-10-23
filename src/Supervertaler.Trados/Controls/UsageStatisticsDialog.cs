@@ -33,6 +33,10 @@ namespace Supervertaler.Trados.Controls
             "If you'd rather not, switch it off below or any time in Settings.\n\n" +
             "– Michael";
 
+        internal const string TermsText =
+            "By using Supervertaler for Trados you agree to its Terms of Use.";
+        private const string TermsLinkWords = "Terms of Use";
+
         public UsageStatisticsDialog()
         {
             Icon = Supervertaler.Trados.Core.IconHelper.AppIcon;
@@ -48,7 +52,7 @@ namespace Supervertaler.Trados.Controls
             MinimizeBox = false;
             ShowInTaskbar = false;
             HelpButton = true;
-            ClientSize = new Size(460, 285);
+            ClientSize = new Size(460, 307);
             Font = new Font("Segoe UI", 9F);
 
             HelpButtonClicked += (s, e) =>
@@ -94,11 +98,34 @@ namespace Supervertaler.Trados.Controls
                 catch { }
             };
 
+            // The terms of use, here because this is the one dialog every new
+            // user sees, once, as the trial starts. A notice, not a box to
+            // tick (Michael, 23 Oct 2026): nothing waits on it.
+            var lnkTerms = new LinkLabel
+            {
+                Text = TermsText,
+                Location = new Point(20, 251),
+                AutoSize = true,
+                ForeColor = Color.FromArgb(50, 50, 50),
+                LinkColor = Color.FromArgb(37, 99, 235)
+            };
+            lnkTerms.LinkArea = new LinkArea(TermsText.IndexOf(TermsLinkWords, StringComparison.Ordinal),
+                TermsLinkWords.Length);
+            lnkTerms.LinkClicked += (s, e) =>
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo(Supervertaler.Trados.Licensing.LicenseManager.TermsOfUseUrl)
+                        { UseShellExecute = true });
+                }
+                catch { }
+            };
+
             var btnYes = new Button
             {
                 Text = "Keep it on",
                 DialogResult = DialogResult.Yes,
-                Location = new Point(190, 245),
+                Location = new Point(190, 267),
                 Size = new Size(120, 32),
                 FlatStyle = FlatStyle.System
             };
@@ -107,7 +134,7 @@ namespace Supervertaler.Trados.Controls
             {
                 Text = "Turn it off",
                 DialogResult = DialogResult.No,
-                Location = new Point(320, 245),
+                Location = new Point(320, 267),
                 Size = new Size(120, 32),
                 FlatStyle = FlatStyle.System
             };
@@ -120,7 +147,7 @@ namespace Supervertaler.Trados.Controls
             AcceptButton = btnYes;
             CancelButton = btnYes;
 
-            Controls.AddRange(new Control[] { lblTitle, lblBody, lnkLearnMore, btnYes, btnNo });
+            Controls.AddRange(new Control[] { lblTitle, lblBody, lnkLearnMore, lnkTerms, btnYes, btnNo });
 
             // Size the body to its text once the dialog has its real font and
             // DPI, and move everything below it. The positions above are for
@@ -139,7 +166,8 @@ namespace Supervertaler.Trados.Controls
                 var need = lblBody.GetPreferredSize(new Size(lblBody.Width, 0)).Height;
                 lblBody.Height = need + gap;
                 lnkLearnMore.Top = lblBody.Bottom + gap;
-                btnYes.Top = btnNo.Top = lnkLearnMore.Top + (int)Math.Round(16 * u);
+                lnkTerms.Top = lnkLearnMore.Bottom + gap;
+                btnYes.Top = btnNo.Top = lnkTerms.Bottom + gap;
                 ClientSize = new Size(ClientSize.Width, btnYes.Bottom + gap);
             };
 

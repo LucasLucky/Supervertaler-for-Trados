@@ -29,8 +29,8 @@ namespace Supervertaler.Trados.Core
         private readonly string _sourceLang;
         private readonly string _targetLang;
         private readonly string _pluginVersion;
-        private readonly List<(string Source, string Target)> _entries =
-            new List<(string, string)>();
+        private readonly List<(string Source, string Target, string AiTranslation)> _entries =
+            new List<(string, string, string)>();
         private readonly object _lock = new object();
         private int _lastFlushedCount = 0;
 
@@ -56,16 +56,19 @@ namespace Supervertaler.Trados.Core
 
         /// <summary>
         /// Records a translated segment and triggers a flush if the interval is reached.
-        /// Safe to call from any thread.
+        /// Safe to call from any thread. <paramref name="aiTranslation"/> is the AI's
+        /// own version when the segment was written with its repetition's instead;
+        /// it is kept as the unit's note, so the backup still says what the model
+        /// returned.
         /// </summary>
-        public void AddSegment(string sourceText, string translatedText)
+        public void AddSegment(string sourceText, string translatedText, string aiTranslation = null)
         {
             if (string.IsNullOrEmpty(sourceText) || string.IsNullOrEmpty(translatedText))
                 return;
 
             lock (_lock)
             {
-                _entries.Add((sourceText, translatedText));
+                _entries.Add((sourceText, translatedText, aiTranslation));
                 if (_entries.Count - _lastFlushedCount >= FlushInterval)
                     WriteTmxInternal();
             }
@@ -112,9 +115,11 @@ namespace Supervertaler.Trados.Core
                         $" adminlang=\"en-US\" srclang=\"{EscapeXml(_sourceLang)}\"/>");
                     writer.WriteLine("  <body>");
 
-                    foreach (var (src, tgt) in _entries)
+                    foreach (var (src, tgt, ai) in _entries)
                     {
                         writer.WriteLine("    <tu>");
+                        if (!string.IsNullOrEmpty(ai))
+                            writer.WriteLine($"      <note>Repetition: written with its first occurrence's translation. The AI's own: {EscapeXml(ai)}</note>");
                         writer.WriteLine($"      <tuv xml:lang=\"{EscapeXml(_sourceLang)}\">");
                         writer.WriteLine($"        <seg>{EscapeXml(src)}</seg>");
                         writer.WriteLine("      </tuv>");

@@ -84,6 +84,7 @@ namespace Supervertaler.Trados.Controls
         private NumericUpDown _nudBatchSize;
         private CheckBox _chkTcAsComments;
         private CheckBox _chkProofreadCommentLabel;
+        private CheckBox _chkKeepRepetitions;
         private Label _lblAiTermbases;
 
         // AI Context section – Chat & QuickLauncher only
@@ -647,6 +648,20 @@ namespace Supervertaler.Trados.Controls
                 "higher values reduce cost and improve cross-segment consistency.");
             Pair(root, ref row, _lblBatchSize, _nudBatchSize);
 
+            _chkKeepRepetitions = Check("Keep repetitions consistent in Batch Translate");
+            var repetitionsTip = new ToolTip { AutoPopDelay = 20000, InitialDelay = 300 };
+            repetitionsTip.SetToolTip(_chkKeepRepetitions,
+                "The AI translates every segment separately, so the same sentence can come back\r\n" +
+                "worded differently each time it occurs.\r\n\r\n" +
+                "Ticked (the default): every later occurrence of a sentence gets the translation of its\r\n" +
+                "first, across all files in the run. A segment the run does not overwrite – a TM match,\r\n" +
+                "a locked segment – keeps its translation, and that translation is the one its empty\r\n" +
+                "repetitions get. If two such segments already disagree, nothing is changed and the\r\n" +
+                "log lists them. Nothing sent to the AI changes.\r\n\r\n" +
+                "A repetition is the same text exactly – same case, spaces (a non-breaking space is not\r\n" +
+                "an ordinary one) and tags; only tag numbering may differ.");
+            Span(root, ref row, _chkKeepRepetitions);
+
             _chkTcAsComments = Check("Add the AI's [[TC: …]] notes as Trados comments");
             var tcTip = new ToolTip { AutoPopDelay = 20000, InitialDelay = 300 };
             tcTip.SetToolTip(_chkTcAsComments,
@@ -927,6 +942,7 @@ namespace Supervertaler.Trados.Controls
                 Math.Min(_nudBatchSize.Maximum, settings.BatchSize > 0 ? settings.BatchSize : 20));
             _chkTcAsComments.Checked = settings.TcMarkersAsComments;
             _chkProofreadCommentLabel.Checked = settings.ProofreadCommentLabel;
+            _chkKeepRepetitions.Checked = settings.KeepRepetitionsConsistent;
         }
 
 
@@ -1024,6 +1040,7 @@ namespace Supervertaler.Trados.Controls
             settings.BatchSize = (int)_nudBatchSize.Value;
             settings.TcMarkersAsComments = _chkTcAsComments.Checked;
             settings.ProofreadCommentLabel = _chkProofreadCommentLabel.Checked;
+            settings.KeepRepetitionsConsistent = _chkKeepRepetitions.Checked;
             // NOTE: DisabledAiTermbaseIds / AiTermbaseIdsInitialized are now owned by the
             // Termbases tab (the "AI" column in the termbase grid), not this panel.
         }

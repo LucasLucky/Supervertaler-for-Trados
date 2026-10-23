@@ -114,6 +114,15 @@ namespace Supervertaler.Trados.Settings
         [DataMember(Name = "proofreadCommentLabel")]
         public bool ProofreadCommentLabel { get; set; } = true;
 
+        /// <summary>
+        /// Batch Translate gives every later occurrence of a source segment the
+        /// translation of its first, so one run never delivers two translations of
+        /// the same sentence. Nothing sent to the AI changes. On by default (seeded
+        /// in OnDeserializing; Michael, 22 Oct 2026; docs/design/consistent-repetitions.md).
+        /// </summary>
+        [DataMember(Name = "keepRepetitionsConsistent")]
+        public bool KeepRepetitionsConsistent { get; set; } = true;
+
         [DataMember(Name = "selectedCustomProfileName")]
         public string SelectedCustomProfileName { get; set; } = "";
 
@@ -343,6 +352,7 @@ namespace Supervertaler.Trados.Settings
             SendTmMatchesInBatch = true;
             TmFuzzyMinScore = 70;      // #116: a 0 here would search for anything at all
             ProofreadCommentLabel = true;
+            KeepRepetitionsConsistent = true;
         }
 
         /// <summary>

@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Text;
+using Sdl.Core.Globalization;
 using Sdl.FileTypeSupport.Framework.BilingualApi;
 using Sdl.TranslationStudioAutomation.IntegrationApi;
 
@@ -30,7 +31,9 @@ namespace Supervertaler.Trados.Core
         /// <see cref="IStudioDocument.ProcessSegmentPair"/>, then the check: throws
         /// <see cref="SegmentWriteDeclinedException"/> with the reason when Studio
         /// did not apply the edit, so each caller's own failure handling reports
-        /// it. UI thread.
+        /// it. An edit that changed the text leaves the segment labelled as edited
+        /// by hand (<see cref="SegmentOrigin"/>), and <paramref name="pair"/>
+        /// carrying that label. UI thread.
         /// </summary>
         /// <param name="comments">Compare the target's comments too: for an edit
         /// that changes a comment and not the text, which the text alone would
@@ -51,6 +54,10 @@ namespace Supervertaler.Trados.Core
                 : c => TrackedTargetMerge.Project(c, accept: true);
             bool tracked = TrackingSuspension.IsTracking(doc) == true;
             string before = null, after = null, shapeBefore = null, shapeAfter = null;
+            // The text alone, as Accept All would leave it: what decides whether the
+            // segment is labelled as edited. The view above also holds the comments.
+            string textBefore = null, textAfter = null;
+            var levelBefore = ConfirmationLevel.Unspecified;
             TrackedWrite record = null;
             TrackingSuspension suspension = null;
 
@@ -59,6 +66,8 @@ namespace Supervertaler.Trados.Core
                 doc.ProcessSegmentPair(pair, undoName, (sp, cancel) =>
                 {
                     before = view(sp.Target);
+                    textBefore = comments ? TrackedTargetMerge.Project(sp.Target, accept: true) : before;
+                    levelBefore = sp.Properties?.ConfirmationLevel ?? ConfirmationLevel.Unspecified;
                     shapeBefore = TrackedTargetMerge.Shape(sp.Target);
                     // Both asked of the live target before the edit: Clone() drops
                     // a revision recorded on a tag itself.
@@ -75,6 +84,7 @@ namespace Supervertaler.Trados.Core
                         record = new TrackedWrite { RevisionMode = mode, Note = note, TagsReplaced = replaced };
                     }
                     after = view(sp.Target);
+                    textAfter = comments ? TrackedTargetMerge.Project(sp.Target, accept: true) : after;
                     shapeAfter = TrackedTargetMerge.Shape(sp.Target);
                 });
             }
@@ -88,8 +98,12 @@ namespace Supervertaler.Trados.Core
 
             if (after == null || after == before) return record;
             var live = ReadLivePair(doc, pair)?.Target;
-            if (live == null || view(live) == after) return record;
-            throw new SegmentWriteDeclinedException(Reason(doc, live, shapeBefore, shapeAfter, tracked));
+            if (live != null && view(live) != after)
+                throw new SegmentWriteDeclinedException(Reason(doc, live, shapeBefore, shapeAfter, tracked));
+            // Landed, or cannot be read back (which is not held against it). A
+            // comment edit leaves the text as it was, and the label with it.
+            if (textAfter != textBefore) SegmentOrigin.MarkEdited(doc, pair, levelBefore);
+            return record;
         }
 
         /// <summary>
