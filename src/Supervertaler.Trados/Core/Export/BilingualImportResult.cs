@@ -49,9 +49,19 @@ namespace Supervertaler.Trados.Core.Export
         /// files; null otherwise. With it, "segment 12" names one segment.</summary>
         public string File { get; set; }
 
-        /// <summary>"12", or "12 in Acme - Figures.docx" in a multi-file export:
-        /// how a message names the segment.</summary>
-        public string Label => string.IsNullOrEmpty(File) ? Number : Number + " in " + File;
+        /// <summary>"12", or "12 of Acme - Figures.docx" in a multi-file export
+        /// (Studio's ".sdlxliff" left off): how a message names the segment, in
+        /// the same form as Proofread and the write-failure log lines.</summary>
+        public string Label
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(File)) return Number;
+                var name = File.EndsWith(".sdlxliff", System.StringComparison.OrdinalIgnoreCase)
+                    ? File.Substring(0, File.Length - ".sdlxliff".Length) : File;
+                return Number + " of " + name;
+            }
+        }
 
         public string ParagraphUnitId { get; set; }
         public string SegmentId { get; set; }
