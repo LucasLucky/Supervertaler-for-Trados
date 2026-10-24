@@ -71,8 +71,10 @@ namespace Supervertaler.Trados
 
             var pending = report.Issues
                 .Where(i => i != null && !i.Dismissed && ProofreadFindingComment.Text(i, null, false) != null)
-                .OrderBy(i => i.SegmentIndex)
                 .ToList();
+            // File by file, then by number: by number alone, a merged
+            // document's files would be visited in turn.
+            pending = report.InDocumentOrder(pending).ToList();
             if (pending.Count == 0) return;
 
             var run = new FindingCommentsRun
@@ -156,7 +158,7 @@ namespace Supervertaler.Trados
                     case FindingCommentOutcome.AlreadyThere: run.AlreadyThere++; break;
                     default:
                         run.NotAdded++;
-                        var line = "segment " + issue.SegmentNumber + ": " + refusal;
+                        var line = "segment " + issue.Label + ": " + refusal;
                         if (run.Refusals.Count < RefusalsNamed) run.Refusals.Add(line);
                         try { DiagnosticLog.Log("Proofread", "Finding not added as a comment, " + line); } catch { }
                         break;

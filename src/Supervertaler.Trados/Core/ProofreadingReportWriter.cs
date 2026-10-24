@@ -39,6 +39,9 @@ namespace Supervertaler.Trados.Core
         {
             [DataMember] public int SegmentIndex;
             [DataMember] public int SegmentNumber;
+            // The file of a merged document; absent in reports saved before 201,
+            // which then read as before (one number, no file).
+            [DataMember] public string FileName;
             [DataMember] public string SourceText;
             [DataMember] public string TargetText;
             [DataMember] public bool IsOk;
@@ -91,7 +94,7 @@ namespace Supervertaler.Trados.Core
                         .Where(i => i != null)
                         .Select(i => new IssueState
                         {
-                            SegmentIndex = i.SegmentIndex, SegmentNumber = i.SegmentNumber,
+                            SegmentIndex = i.SegmentIndex, SegmentNumber = i.SegmentNumber, FileName = i.FileName,
                             SourceText = i.SourceText, TargetText = i.TargetText, IsOk = i.IsOk,
                             IssueDescription = i.IssueDescription, Suggestion = i.Suggestion, Evidence = i.Evidence,
                             ParagraphUnitId = i.ParagraphUnitId, SegmentId = i.SegmentId, Dismissed = i.Dismissed,
@@ -165,7 +168,7 @@ namespace Supervertaler.Trados.Core
                     if (s == null) continue;
                     report.Issues.Add(new ProofreadingIssue
                     {
-                        SegmentIndex = s.SegmentIndex, SegmentNumber = s.SegmentNumber,
+                        SegmentIndex = s.SegmentIndex, SegmentNumber = s.SegmentNumber, FileName = s.FileName,
                         SourceText = s.SourceText, TargetText = s.TargetText, IsOk = s.IsOk,
                         IssueDescription = s.IssueDescription, Suggestion = s.Suggestion, Evidence = s.Evidence,
                         ParagraphUnitId = s.ParagraphUnitId, SegmentId = s.SegmentId, Dismissed = s.Dismissed,
@@ -234,9 +237,8 @@ namespace Supervertaler.Trados.Core
             sb.Append("- Issues: ").Append(report.IssueCount).AppendLine();
             sb.AppendLine();
 
-            var issues = (report.Issues ?? Enumerable.Empty<ProofreadingIssue>())
-                .Where(i => i != null && !i.IsOk)
-                .OrderBy(i => i.SegmentNumber)
+            var issues = report.InDocumentOrder((report.Issues ?? Enumerable.Empty<ProofreadingIssue>())
+                .Where(i => i != null && !i.IsOk))
                 .ToList();
 
             if (issues.Count == 0)
@@ -247,7 +249,7 @@ namespace Supervertaler.Trados.Core
 
             foreach (var i in issues)
             {
-                sb.Append("## Segment ").Append(i.SegmentNumber).AppendLine();
+                sb.Append("## Segment ").Append(i.Label).AppendLine();
                 sb.AppendLine();
                 Field(sb, "Issue", i.IssueDescription);
                 Field(sb, "Suggestion", i.Suggestion);
