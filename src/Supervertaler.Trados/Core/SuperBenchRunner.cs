@@ -34,7 +34,7 @@ namespace Supervertaler.Trados.Core
             var copy = (SuperBenchInputs)MemberwiseClone();
             copy.Segments = Segments.Take(Math.Max(0, count)).Select((s, i) => new BatchSegment
             {
-                Index = i, SourceText = s.SourceText, ExistingTarget = s.ExistingTarget,
+                Index = i, Number = s.Number, File = s.File, SourceText = s.SourceText, ExistingTarget = s.ExistingTarget,
                 SegmentPairRef = s.SegmentPairRef, HasTags = s.HasTags, TagMap = s.TagMap,
                 StructureMarker = s.StructureMarker,
             }).ToList();
