@@ -14,12 +14,16 @@ namespace Supervertaler.Trados.Core
     /// </summary>
     internal static class SegmentLabel
     {
-        /// <summary>"segment 12", or "segment 2 of Text.docx" with a file.</summary>
+        /// <summary>"segment 12", or "segment 2 of Text.docx" with a file - Studio's
+        /// ".sdlxliff" left off, as Proofread's cards and the re-import name it.</summary>
         public static string Of(string number, string file = null, bool capital = false)
         {
             var name = (capital ? "Segment " : "segment ")
                 + (string.IsNullOrWhiteSpace(number) ? "?" : number.Trim());
-            return string.IsNullOrEmpty(file) ? name : name + " of " + file;
+            if (string.IsNullOrEmpty(file)) return name;
+            if (file.EndsWith(".sdlxliff", System.StringComparison.OrdinalIgnoreCase))
+                file = file.Substring(0, file.Length - ".sdlxliff".Length);
+            return name + " of " + file;
         }
     }
 }
