@@ -50,20 +50,33 @@ namespace Supervertaler.Trados.Core.Export
 
             var result = new BilingualImportResult { Manifest = manifest };
 
-            // Index manifest segments by number for O(1) lookup.
-            var manifestByNumber = new Dictionary<string, ExportManifestSegment>(
+            // Every manifest entry under its number. A combined export of a
+            // merged document has one entry per file for each number Studio
+            // repeats - it numbers every file from 1 - so a number is a list.
+            // This was a Dictionary from number to one entry, and the last file
+            // overwrote the others: a row of the first file was then joined to
+            // the same-numbered segment of the last one, and where both sources
+            // read the same ("Fig.", "1") its edit was written into the wrong
+            // file (found live 24 Oct 2026).
+            var manifestByNumber = new Dictionary<string, List<ExportManifestSegment>>(
                 StringComparer.OrdinalIgnoreCase);
             foreach (var m in manifest.Segments)
-                manifestByNumber[m.Number] = m;
+            {
+                if (!manifestByNumber.TryGetValue(m.Number, out var list))
+                    manifestByNumber[m.Number] = list = new List<ExportManifestSegment>();
+                list.Add(m);
+            }
+            bool multiFile = SpansSeveralFiles(manifest);
 
             foreach (var row in imported)
             {
-                ExportManifestSegment m;
-                if (!manifestByNumber.TryGetValue(row.Number, out m))
+                List<ExportManifestSegment> candidates;
+                if (!manifestByNumber.TryGetValue(row.Number, out candidates))
                 {
                     result.Diffs.Add(new ImportSegmentDiff
                     {
                         Number = row.Number,
+                        File = multiFile ? NullIfEmpty(row.File) : null,
                         NewTarget = row.TargetText,
                         Kind = ImportChangeKind.SegmentMissing,
                         Detail = "No manifest entry for segment #" + row.Number
@@ -71,9 +84,24 @@ namespace Supervertaler.Trados.Core.Export
                     continue;
                 }
 
+                var m = PickEntry(candidates, row.File, out var why);
+                if (m == null)
+                {
+                    result.Diffs.Add(new ImportSegmentDiff
+                    {
+                        Number = row.Number,
+                        File = NullIfEmpty(row.File),
+                        NewTarget = row.TargetText,
+                        Kind = ImportChangeKind.FileUnknown,
+                        Detail = why
+                    });
+                    continue;
+                }
+
                 var diff = new ImportSegmentDiff
                 {
                     Number = row.Number,
+                    File = multiFile ? NullIfEmpty(m.SourceFileName) : null,
                     ParagraphUnitId = m.ParagraphUnitId,
                     SegmentId = m.SegmentId,
                     NewTarget = row.TargetText ?? "",
@@ -182,5 +210,80 @@ namespace Supervertaler.Trados.Core.Export
                 lines[i] = lines[i].TrimEnd();
             return string.Join("\n", lines).Trim();
         }
+
+        /// <summary>
+        /// The manifest entry a row stands for, or null with the reason. A number
+        /// in one file only is that entry, whatever the row says about its file,
+        /// so every export that worked before still does. A number in several
+        /// files needs the row's file to match exactly one of them: an export
+        /// written before the readers kept the file, or a row whose file cell was
+        /// edited, is skipped rather than joined to a segment by guesswork.
+        /// </summary>
+        internal static ExportManifestSegment PickEntry(List<ExportManifestSegment> candidates, string rowFile,
+            out string why)
+        {
+            why = null;
+            if (candidates == null || candidates.Count == 0) { why = "No manifest entry for this segment."; return null; }
+            if (candidates.Count == 1) return candidates[0];
+
+            var number = candidates[0].Number;
+            if (string.IsNullOrWhiteSpace(rowFile))
+            {
+                why = "Segment #" + number + " is in " + candidates.Count + " files of this export, and the row "
+                    + "does not say which, so it was not imported.";
+                return null;
+            }
+
+            ExportManifestSegment found = null;
+            int matches = 0;
+            foreach (var c in candidates)
+            {
+                if (!SameFile(c.SourceFileName, rowFile)) continue;
+                found = c;
+                matches++;
+            }
+            if (matches == 1) return found;
+
+            why = matches == 0
+                ? "Segment #" + number + " is in " + candidates.Count + " files of this export, and none of them is \""
+                  + rowFile.Trim() + "\", the file the row names, so it was not imported."
+                : "Segment #" + number + " appears more than once in \"" + rowFile.Trim()
+                  + "\" in this export, so which one the row is cannot be told; it was not imported.";
+            return null;
+        }
+
+        /// <summary>
+        /// File names as the export wrote them, compared without case or
+        /// surrounding space, and with or without the ".sdlxliff" Studio adds -
+        /// the manifest and the file column both come from the same name, but a
+        /// proofreader's tools should not have to keep the suffix intact.
+        /// </summary>
+        internal static bool SameFile(string a, string b)
+        {
+            string Norm(string s)
+            {
+                s = (s ?? "").Trim();
+                if (s.EndsWith(".sdlxliff", StringComparison.OrdinalIgnoreCase))
+                    s = s.Substring(0, s.Length - ".sdlxliff".Length);
+                return s;
+            }
+            var x = Norm(a);
+            return x.Length > 0 && string.Equals(x, Norm(b), StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>True when the export came from a document of several files.</summary>
+        private static bool SpansSeveralFiles(ExportManifest manifest)
+        {
+            string first = null;
+            foreach (var m in manifest.Segments)
+            {
+                var f = m.SourceFileName ?? "";
+                if (first == null) first = f;
+                else if (!string.Equals(first, f, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
+        private static string NullIfEmpty(string s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
     }
 }
