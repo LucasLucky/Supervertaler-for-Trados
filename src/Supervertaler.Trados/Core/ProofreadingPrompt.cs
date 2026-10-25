@@ -360,14 +360,24 @@ namespace Supervertaler.Trados.Core
         /// </summary>
         /// <param name="targetOnly">Leave the Source lines out
         /// (<see cref="BuildTargetOnlySystemPrompt"/>).</param>
+        /// <param name="file">The file the segments are in, in a document made of
+        /// several files: they are numbered as Studio numbers that file, which is
+        /// also how # DOCUMENT CONTENT numbers it under the file's heading. Null
+        /// for a one-file document, whose request reads exactly as before.</param>
         public static string BuildBatchUserPrompt(List<(int number, string source, string target)> segments,
-            bool targetOnly = false)
+            bool targetOnly = false, string file = null)
         {
             var sb = new StringBuilder(segments.Count * (targetOnly ? 150 : 300));
 
             sb.AppendLine("**SEGMENTS TO REVIEW (" + segments.Count + " segments" +
                 (targetOnly ? ", translation only" : "") + "):**");
             sb.AppendLine();
+            if (!string.IsNullOrEmpty(file))
+            {
+                sb.AppendLine("All of these segments are in the file \"" + file + "\", numbered as in that file. "
+                    + "Answer for each with its number as given here.");
+                sb.AppendLine();
+            }
 
             foreach (var seg in segments)
             {

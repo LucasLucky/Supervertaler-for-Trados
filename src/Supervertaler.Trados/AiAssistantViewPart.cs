@@ -12365,7 +12365,10 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
 
                         var batchSize = aiSettings != null && aiSettings.BatchSize > 0
                             ? aiSettings.BatchSize : 20;
-                        var previewCount = Math.Min(batchSize, segments.Count);
+                        // The first request as the run makes it: Batches never puts
+                        // two files, or one number twice, into a request.
+                        var firstBatch = BatchProofreader.Batches(segments, batchSize);
+                        var previewCount = firstBatch.Count > 0 ? firstBatch[0].end : 0;
 
                         promptText = proofSystemPrompt
                             + Environment.NewLine + Environment.NewLine
@@ -13002,12 +13005,12 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                 {
                     if (e.Issue.IsOk)
                     {
-                        batchControl.AppendLog($"\u2713 Seg {e.Issue.SegmentNumber}: OK");
+                        batchControl.AppendLog($"\u2713 Seg {e.Issue.Label}: OK");
                     }
                     else
                     {
                         var desc = Truncate(e.Issue.IssueDescription, 80);
-                        batchControl.AppendLog($"\u26A0 Seg {e.Issue.SegmentNumber}: {desc}");
+                        batchControl.AppendLog($"\u26A0 Seg {e.Issue.Label}: {desc}");
                     }
                 }
             });
@@ -13361,9 +13364,27 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                     }
                 }
 
+                // In a document of several files, which file each segment is in:
+                // the map get_segments and the prompts use. A paragraph the map
+                // lacks keeps the previous segment's file, as there.
+                bool attributeFiles = CanAttributeSegmentsToFiles();
+                string currentFile = null;
+
                 int index = 0;
                 foreach (var pair in pairs)
                 {
+                    if (attributeFiles)
+                    {
+                        try
+                        {
+                            var filePu = _activeDocument.GetParentParagraphUnit(pair)?.Properties?.ParagraphUnitId.Id;
+                            if (filePu != null && _puIdToFileId.TryGetValue(filePu, out var fid)
+                                && _fileIdToName.TryGetValue(fid, out var fname) && !string.IsNullOrEmpty(fname))
+                                currentFile = fname;
+                        }
+                        catch { }
+                    }
+
                     // Locked segments are never proofread – same rule as batch
                     // translate. Worse here: a locked segment has a target, so
                     // the proofreader would not only read it but could rewrite
@@ -13456,6 +13477,7 @@ Always list the original source filename(s) in the `sources:` frontmatter field.
                             Index = actualSegNum - 1, // 0-based for BatchSegment.Index
                             SourceText = sourceText,
                             ExistingTarget = targetText,
+                            File = attributeFiles ? currentFile : null,
                             SegmentPairRef = new[] { paragraphUnitId, segmentId },
 
                             // #110: gated here, so the run and the preview both see

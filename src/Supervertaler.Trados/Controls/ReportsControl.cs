@@ -519,9 +519,9 @@ namespace Supervertaler.Trados.Controls
             _checkedCount = report.Issues.Count(i => !i.IsOk && i.Dismissed);
             if (_checkedCount > 0) UpdateIssueCountLabel();
 
-            // One row per open finding, by segment number (a stable sort: equal
-            // numbers - one per file of a merged document - keep the report's order).
-            foreach (var issue in report.Issues.Where(i => !i.IsOk && !i.Dismissed).OrderBy(i => i.SegmentNumber))
+            // One row per open finding, in document order: file by file, then by
+            // number. By number alone, a merged document's files interleaved.
+            foreach (var issue in report.InDocumentOrder(report.Issues.Where(i => !i.IsOk && !i.Dismissed)))
             {
                 _rows.Add(issue);
                 _rowInfo[issue] = new RowInfo();
@@ -1110,7 +1110,11 @@ namespace Supervertaler.Trados.Controls
                 }
                 else if (tag == "seg")
                 {
-                    c.Text = "\u26A0 Segment " + issue.SegmentNumber;
+                    // "Segment 3 of Acme - Text.docx" in a merged document, where
+                    // the number alone is in every file; kept to one short line.
+                    var label = issue.Label;
+                    if (label.Length > 60) label = label.Substring(0, 57) + "\u2026";
+                    c.Text = "\u26A0 Segment " + label;
                     var m = TextRenderer.MeasureText(dc, c.Text, CardSegNumFont);
                     c.Size = new Size(m.Width + 4, m.Height);
                 }
@@ -1656,7 +1660,7 @@ namespace Supervertaler.Trados.Controls
 
             menu.Items.Add(new ToolStripSeparator());
 
-            var all = $"Segment {issue.SegmentNumber}\n{issue.IssueDescription}";
+            var all = $"Segment {issue.Label}\n{issue.IssueDescription}";
             if (!string.IsNullOrEmpty(issue.Evidence))
                 all += $"\nEvidence: {issue.Evidence}";
             if (!string.IsNullOrEmpty(issue.Suggestion))

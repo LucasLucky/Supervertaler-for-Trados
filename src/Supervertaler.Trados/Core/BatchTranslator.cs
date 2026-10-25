@@ -21,6 +21,14 @@ namespace Supervertaler.Trados.Core
         public string ExistingTarget { get; set; }
 
         /// <summary>
+        /// The file the segment is in, in a document made of several files;
+        /// null otherwise. Proofread fills it: Studio numbers every file from 1,
+        /// so a number alone does not name a segment there, and a request that
+        /// held "segment 3" of two files gave both of them one verdict.
+        /// </summary>
+        public string File { get; set; }
+
+        /// <summary>
         /// Opaque reference to the Trados ISegmentPair. Stored as object
         /// so the engine doesn't depend on Trados SDK types.
         /// </summary>

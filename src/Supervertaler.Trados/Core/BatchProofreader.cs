@@ -105,8 +105,9 @@ namespace Supervertaler.Trados.Core
 
             if (batchSize <= 0) batchSize = 20;
 
-            // Split into batches
-            int totalBatches = (segments.Count + batchSize - 1) / batchSize;
+            // Split into batches: never two files, never one number twice.
+            var batches = Batches(segments, batchSize);
+            int totalBatches = batches.Count;
 
             RaiseProgress(0, segments.Count, "Starting proofreading...", false, TimeSpan.Zero);
 
@@ -118,8 +119,8 @@ namespace Supervertaler.Trados.Core
                     if (cancellationToken.IsCancellationRequested)
                         break;
 
-                    int startIdx = batchNum * batchSize;
-                    int endIdx = Math.Min(startIdx + batchSize, segments.Count);
+                    int startIdx = batches[batchNum].start;
+                    int endIdx = batches[batchNum].end;
                     int batchCount = endIdx - startIdx;
 
                     RaiseProgress(startIdx, segments.Count,
@@ -172,6 +173,7 @@ namespace Supervertaler.Trados.Core
                             {
                                 SegmentIndex = segments[i].Index,
                                 SegmentNumber = segments[i].Index + 1, // actual document segment number
+                                FileName = segments[i].File,
                                 SourceText = segments[i].SourceText,
                                 TargetText = segments[i].ExistingTarget,
                                 SegmentPairRef = segments[i].SegmentPairRef,
@@ -289,12 +291,49 @@ namespace Supervertaler.Trados.Core
             for (int i = startIdx; i < endIdx; i++)
             {
                 promptSegments.Add((
-                    number: segments[i].Index + 1, // absolute document position, 1-based
+                    number: segments[i].Index + 1, // the number Studio shows; per file in a merged document
                     source: segments[i].SourceText,
                     target: segments[i].ExistingTarget
                 ));
             }
-            return ProofreadingPrompt.BuildBatchUserPrompt(promptSegments, targetOnly);
+            // A batch holds one file (Batches), so it can say which.
+            var file = endIdx > startIdx ? segments[startIdx].File : null;
+            return ProofreadingPrompt.BuildBatchUserPrompt(promptSegments, targetOnly, file);
+        }
+
+        /// <summary>
+        /// The requests a run is split into, as [start, end) ranges of
+        /// <paramref name="segments"/>: at most <paramref name="batchSize"/>
+        /// segments each, and a new one wherever the file changes or a number
+        /// would repeat. The reply's verdicts are matched back by number, and
+        /// Studio numbers every file of a merged document from 1, so a request
+        /// holding segment 3 of two files gave both of them one verdict - a
+        /// finding, a comment and an Apply on a segment it was not about (found
+        /// live 24 Oct 2026). One file, one number: the match cannot be wrong.
+        /// Internal so Preview prompt shows the first request the run sends.
+        /// </summary>
+        internal static List<(int start, int end)> Batches(IList<BatchSegment> segments, int batchSize)
+        {
+            var batches = new List<(int start, int end)>();
+            if (segments == null || segments.Count == 0) return batches;
+            if (batchSize <= 0) batchSize = 20;
+
+            int start = 0;
+            var numbers = new HashSet<int>();
+            for (int i = 0; i < segments.Count; i++)
+            {
+                if (i > start && (i - start >= batchSize
+                        || !string.Equals(segments[i].File, segments[start].File, StringComparison.OrdinalIgnoreCase)
+                        || numbers.Contains(segments[i].Index)))
+                {
+                    batches.Add((start, i));
+                    start = i;
+                    numbers.Clear();
+                }
+                numbers.Add(segments[i].Index);
+            }
+            batches.Add((start, segments.Count));
+            return batches;
         }
 
         private void RaiseProgress(int current, int total, string message,
