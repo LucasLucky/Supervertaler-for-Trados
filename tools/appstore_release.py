@@ -3,7 +3,11 @@
 Produces a single Markdown file with the fields needed for the App Store Manager
 form, covering every build (Studio 2022 = major 17 where there is one,
 Studio 2024 = major 18, Studio 2026 = major 19):
-version numbers, min/max studio versions, checksums, and the combined changelog.
+version numbers, min/max studio versions, checksums, and a short changelog: the
+starred highlights, a count of everything else, and a link to the full changelog
+on supervertaler.com. RWS asked for that in October 2026 - a long, formatted
+Changelog tab is what made the App Store platform slow for this app - and the
+website always has the full text.
 
 Usage:
     python tools/appstore_release.py                    # all entries since last release
@@ -122,12 +126,10 @@ def extract_headline(bullet):
 def collect_sections(entries):
     """Merge multiple changelog entries into combined Added/Changed/Fixed sections.
 
-    A bullet whose text begins with the star marker is ALSO lifted into a
-    Highlights lead. It keeps its place in its own section: an App Store reader
-    coming from a version two dozen releases back faces well over a hundred
-    bullets, and the flagship feature should not depend on them reading to the
-    right one. The lead carries only the bold headline, so nothing is repeated
-    at length.
+    A bullet whose text begins with the star marker is ALSO lifted into the
+    highlights, which are what the App Store changelog shows. It keeps its place
+    in its own section, where it is counted. A highlight is only the bold
+    headline, so nothing is repeated at length.
     """
     added = []
     changed = []
@@ -194,6 +196,48 @@ def collect_sections(entries):
     return dedup(added), dedup(changed), dedup(fixed), unique_highlights
 
 
+CHANGELOG_PAGE = "https://supervertaler.com/changelog/trados/"
+FALLBACK_HIGHLIGHTS = 3  # headlines shown when a release has no starred bullet
+
+
+def short_changelog(added, changed, fixed, highlights, newest, since):
+    """The App Store's Changelog tab: a few plain lines and a link.
+
+    One line per highlight, then one line counting everything else, then the
+    link. A release with no starred bullet shows its first few headlines
+    instead, so the tab is never just a count. With since=None the link goes to
+    the newest release's own entry on the changelog page (#v<version>, the
+    page's anchor for a release headed "## [<version> / ...]"); with a version,
+    to ?since=<version>, which makes the page show every release after it.
+    """
+    if not highlights:
+        highlights = [extract_headline(b) for b in added + changed + fixed][:FALLBACK_HIGHLIGHTS]
+    shown = {h.lower().strip() for h in highlights}
+
+    def rest(items, one, many):
+        n = sum(1 for b in items if extract_headline(b).lower().strip() not in shown)
+        more = n < len(items)  # a highlight came from this section
+        noun = one if n == 1 else many
+        return f"{n} more {noun}" if more else f"{n} {noun}"
+
+    counts = [rest(items, one, many) for items, one, many in (
+        (added, "addition", "additions"),
+        (changed, "change", "changes"),
+        (fixed, "fix", "fixes"),
+    ) if any(extract_headline(b).lower().strip() not in shown for b in items)]
+
+    lines = [f"- {h}" for h in highlights]
+    if counts:
+        also = counts[0] if len(counts) == 1 else ", ".join(counts[:-1]) + " and " + counts[-1]
+        lines.append(f"- Also: {also}.")
+    lines.append("")
+    if since:
+        lines.append(f"Full changelog: {CHANGELOG_PAGE}?since={since}")
+    else:
+        lines.append(f"Full changelog: {CHANGELOG_PAGE}#v{newest}")
+    return "\n".join(lines)
+
+
 def main():
     entries = parse_changelog(CHANGELOG)
     if not entries:
@@ -248,16 +292,10 @@ def main():
     version_range = f"{selected[-1][0]}-{selected[0][0]}" if len(selected) > 1 else selected[0][0]
 
     added, changed, fixed, highlights = collect_sections(selected)
-
-    # Build changelog text
-    sections = []
-    if added:
-        sections.append("### Added\n" + "\n".join(added))
-    if changed:
-        sections.append("### Changed\n" + "\n".join(changed))
-    if fixed:
-        sections.append("### Fixed\n" + "\n".join(fixed))
-    changelog_text = "\n\n".join(sections)
+    # One release links to its own entry; several, to everything after the
+    # version they start from.
+    since = from_version if len(selected) > 1 else None
+    changelog_text = short_changelog(added, changed, fixed, highlights, selected[0][0], since)
 
     build_not_found = "BUILD NOT FOUND - run bash build.sh first"
 
@@ -278,22 +316,16 @@ def main():
     output_lines.append("")
     output_lines.append("---")
     output_lines.append("")
-    if highlights:
-        output_lines.append("## Highlights")
-        output_lines.append("")
-        for h in highlights:
-            output_lines.append(f"- **{h}**")
-        output_lines.append("")
-        output_lines.append("Everything else is below.")
-        output_lines.append("")
-        output_lines.append("---")
-        output_lines.append("")
-
     output_lines.append("## Changelog")
+    output_lines.append("")
+    output_lines.append("Paste everything between the two rules into the Changelog tab, as it is.")
+    output_lines.append("")
+    output_lines.append("---")
     output_lines.append("")
     output_lines.append(changelog_text)
     output_lines.append("")
-    output_lines.append("For the full changelog, see: https://supervertaler.com/changelog/trados/")
+    output_lines.append("---")
+    output_lines.append("")
 
     full_output = "\n".join(output_lines)
 

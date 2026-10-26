@@ -76,6 +76,7 @@ scripts above.
 ## Other scripts
 
 - `appstore_release.py` – pipeline helper for submitting a signed build to the
-  RWS App Store.
+  RWS App Store: version numbers, checksums, and a short changelog with a link
+  to the full one on supervertaler.com.
 - `read_plugin_version.py` – pulls version info from the built DLL for sanity
   checks.
