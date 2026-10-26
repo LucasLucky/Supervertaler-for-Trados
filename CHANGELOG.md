@@ -7,6 +7,11 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.202 / 19.20.202] – 2026-10-26
+
+### Fixed
+- **A licence key you enter is kept, and deactivating sticks.** On some computers a licence key entered under **Settings → Licence** was gone again the next time Trados Studio started, so it had to be entered again, and each time used up another of the key's activations. Deactivating a licence on such a computer did not stick either. Both now work on every computer.
+
 ## [18.20.201 / 19.20.201] – 2026-10-25
 
 ### Added
