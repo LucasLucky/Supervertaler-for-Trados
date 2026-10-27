@@ -7,6 +7,11 @@
 > releases (`4.20.85` and below) used a single independent sequence for both
 > builds.
 
+## [18.20.203 / 19.20.203] – Unreleased
+
+### Changed
+- **The tabs of the web search window (Alt+W) are easier to tell apart, and the one you are on stands out.** Windows outlined the tabs in a grey so light that the sites ran together, and the open tab differed from the rest only by standing a couple of pixels taller. Each tab now has a clearly visible outline, the open tab has a blue bar along its top, and the site names are a little larger. They are no wider than needed, so a window of the usual size still shows nine sites without scrolling.
+
 ## [18.20.202 / 19.20.202] – 2026-10-26
 
 ### Fixed

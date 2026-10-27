@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Windows.Forms;
+using Supervertaler.Trados.Core;
 
 namespace Supervertaler.Trados.Controls
 {
@@ -19,6 +20,11 @@ namespace Supervertaler.Trados.Controls
     ///
     /// <para>Left alone without visual styles and in high contrast, where the
     /// strip is drawn differently and its own colours are the ones to keep.</para>
+    ///
+    /// <para><see cref="MarkSelected"/> adds a bar across the selected tab's top
+    /// edge. SuperSearch has nine tabs or so, and in a strip that long the
+    /// selected tab standing 2 px proud was not enough to find it (Michael, 27
+    /// Oct 2026).</para>
     /// </summary>
     internal sealed class OutlinedTabControl : TabControl
     {
@@ -29,6 +35,9 @@ namespace Supervertaler.Trados.Controls
 
         /// <summary>How far the selected tab's frame stands outside its rectangle.</summary>
         private const int SelectedInflate = 2;
+
+        /// <summary>Draw a bar in the selection colour across the selected tab's top.</summary>
+        public bool MarkSelected { get; set; }
 
         protected override void WndProc(ref Message m)
         {
@@ -55,6 +64,9 @@ namespace Supervertaler.Trados.Controls
                         g.DrawLine(pen, left, top, left, r.Bottom);
                         g.DrawLine(pen, right, top, right, r.Bottom);
                         g.DrawLine(pen, left, top, right, top);
+                        if (MarkSelected)
+                            g.FillRectangle(SystemBrushes.Highlight,
+                                left, top, right - left + 1, UiScale.Pixels(3));
                         continue;
                     }
 

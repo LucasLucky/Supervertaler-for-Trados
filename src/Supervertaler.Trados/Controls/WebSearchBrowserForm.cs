@@ -67,7 +67,17 @@ namespace Supervertaler.Trados.Controls
             MinimumSize = new Size(600, 400);
             try { Icon = IconHelper.AppIcon; } catch { /* icon is cosmetic */ }
 
-            _tabs = new TabControl { Dock = DockStyle.Fill };
+            // Outlined and marked, in the Assistant panel's tab font: at the
+            // default font the tabs ran together and the selected one was hard
+            // to find. Any larger and nine tabs no longer fit the default
+            // window at 125%.
+            _tabs = new OutlinedTabControl
+            {
+                Dock = DockStyle.Fill,
+                MarkSelected = true,
+                Font = new Font("Segoe UI", UiScale.FontSize(8.5f)),
+                Padding = new Point(UiScale.Pixels(7), UiScale.Pixels(4))
+            };
             _tabs.SelectedIndexChanged += async (s, e) => await ActivateSelectedTabAsync();
             Controls.Add(_tabs);
 
