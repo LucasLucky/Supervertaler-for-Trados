@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Threading;
+using System.Windows.Forms;
 using Supervertaler.Trados.Core;
 
 namespace Supervertaler.Trados.Settings
@@ -116,7 +117,17 @@ namespace Supervertaler.Trados.Settings
         {
             lock (_gate)
             {
-                _current = LoadOrDefault();
+#pragma warning disable 618
+                var loaded = TermLensSettings.TryLoad(out var problem);
+#pragma warning restore 618
+                if (loaded == null)
+                {
+                    // Keep what is in memory: it was read fine, the file on disk
+                    // is what cannot be read now.
+                    DiagnosticLog.WriteAlways(LogCategory, "Settings not reloaded, the file cannot be read: " + problem);
+                    return;
+                }
+                _current = loaded;
                 DiagnosticLog.Log(LogCategory, "Settings reloaded from disk");
             }
             RaiseChanged();
@@ -169,16 +180,55 @@ namespace Supervertaler.Trados.Settings
 
         private static TermLensSettings LoadOrDefault()
         {
-            // The one sanctioned call. Load() is [Obsolete] precisely so that any
+            // The one sanctioned call. TryLoad() is [Obsolete] precisely so that any
             // OTHER call becomes a build warning naming this class instead.
 #pragma warning disable 618
-            try { return TermLensSettings.Load() ?? new TermLensSettings(); }
+            var loaded = TermLensSettings.TryLoad(out var problem);
 #pragma warning restore 618
-            catch (Exception ex)
-            {
-                DiagnosticLog.Log(LogCategory, "Could not load settings, using defaults: " + ex.Message);
-                return new TermLensSettings();
-            }
+            if (loaded != null) return loaded;
+
+            // The file is there but cannot be read. Defaults are used - every
+            // caller needs a usable object - but they are never saved over it
+            // unseen: a copy is kept first, and if no copy can be kept, this
+            // session does not save settings at all.
+            var defaults = new TermLensSettings();
+            var kept = TermLensSettings.KeepUnreadableCopy();
+            if (kept == null)
+                defaults.SaveRefused = "the settings file could not be read when Trados Studio started, " +
+                                       "and no copy of it could be kept, so it is not overwritten";
+            DiagnosticLog.WriteAlways(LogCategory, "Settings file unreadable (" + problem + "); " +
+                (kept != null ? "copy kept at " + kept : "no copy could be kept, so settings are not saved this session"));
+
+            Warn("settings-unreadable",
+                "Supervertaler could not read its settings file, so it has started with default settings.\n\n" +
+                (kept != null
+                    ? "A copy of the file as it was has been kept:\n" + kept
+                    : "To protect the file, settings will not be saved until Trados Studio is restarted:\n" + TermLensSettings.SettingsFilePath) +
+                "\n\nReason: " + problem);
+            return defaults;
+        }
+
+        private static int _saveFailureShown;
+
+        /// <summary>
+        /// A save that did not happen: always logged, and shown to the user the
+        /// first time in a session. Once is enough - a failing save tends to fail
+        /// again on every change, and a dialog per font-size click helps nobody.
+        /// </summary>
+        internal static void ReportSaveFailure(string why)
+        {
+            DiagnosticLog.WriteAlways(LogCategory, "Settings not saved: " + why);
+            if (Interlocked.Exchange(ref _saveFailureShown, 1) == 1) return;
+            Warn("settings-not-saved",
+                "Supervertaler could not save its settings:\n" + why + "\n\n" +
+                "Your changes apply until Trados Studio closes, but will be lost then. " +
+                "This is shown once; any further failures go to the diagnostic log.");
+        }
+
+        private static void Warn(string name, string text)
+        {
+            StartupNotices.Enqueue(null, name, owner =>
+                MessageBox.Show(owner, text, "Supervertaler – settings", MessageBoxButtons.OK, MessageBoxIcon.Warning));
         }
 
         private static void RaiseChanged()

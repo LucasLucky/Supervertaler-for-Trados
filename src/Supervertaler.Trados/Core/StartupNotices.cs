@@ -173,9 +173,12 @@ namespace Supervertaler.Trados.Core
         /// </summary>
         private static async Task WaitForUiAsync(Control anchor)
         {
+            // A notice with no anchor - a settings file that could not be read,
+            // found while Studio is still starting - waits the same 15 s for the
+            // UI context instead, rather than being dropped for want of one.
             for (int i = 0; i < 30; i++)
             {
-                if (anchor == null || anchor.IsHandleCreated) return;
+                if (anchor == null ? _ui != null : anchor.IsHandleCreated) return;
                 await Task.Delay(500).ConfigureAwait(false);
             }
         }

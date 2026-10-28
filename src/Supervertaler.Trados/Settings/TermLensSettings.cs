@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
 using System.Text;
@@ -528,7 +529,10 @@ namespace Supervertaler.Trados.Settings
             = new List<GroupShareServerCredential>();
 
         /// <summary>
-        /// Loads settings from disk. Returns default settings if the file doesn't exist or can't be read.
+        /// Loads settings from disk. Default settings when there is no file; null,
+        /// with the reason in <paramref name="problem"/>, when there is one that
+        /// cannot be read. Until 203 an unreadable file also gave defaults, and the
+        /// next save wrote them over the user's settings without a word.
         ///
         /// <para><b>Use <see cref="SettingsService.Current"/> instead.</b> This is
         /// the service's own way of filling the shared instance and has exactly
@@ -547,150 +551,221 @@ namespace Supervertaler.Trados.Settings
         /// temptation at least stops at the assembly boundary.</para>
         /// </summary>
         [Obsolete("Use SettingsService.Current (or Update/UpdateIf to write). " +
-                  "Load() returns a private copy, and saving one reverts every change " +
+                  "TryLoad() returns a private copy, and saving one reverts every change " +
                   "another component made since it was read.")]
-        internal static TermLensSettings Load()
+        internal static TermLensSettings TryLoad(out string problem)
+        {
+            problem = null;
+            var settingsFile = SettingsFilePath;
+
+            // Auto-migrate from old TermLens settings location
+            try
+            {
+                if (!File.Exists(settingsFile) && File.Exists(OldSettingsFile))
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(settingsFile));
+                    File.Copy(OldSettingsFile, settingsFile);
+                }
+            }
+            catch { /* the old file stays where it is, and this start has no settings file */ }
+
+            if (!File.Exists(settingsFile))
+                return new TermLensSettings();
+
+            // Temporary files left by a process killed in the middle of a save.
+            AtomicFile.SweepAbandoned(settingsFile, TimeSpan.FromMinutes(5));
+
+            // Read with sharing, so this read never makes a save fail, and three
+            // times: the Workbench writes this file too, and a read that meets a
+            // write half-way can fail once and succeed a moment later.
+            Exception last = null;
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                if (attempt > 0) System.Threading.Thread.Sleep(150);
+                try
+                {
+                    var json = AtomicFile.ReadAllText(settingsFile);
+                    if (!IsWholeObject(json))
+                        throw new SerializationException("the file ends before its settings do - cut short, or still being written");
+                    return Parse(json);
+                }
+                catch (FileNotFoundException) { return new TermLensSettings(); }
+                catch (DirectoryNotFoundException) { return new TermLensSettings(); }
+                catch (Exception ex) { last = ex; }
+            }
+
+            // Log the failure to a sidecar file so a future regression
+            // surfaces immediately instead of silently wiping the user's
+            // saved settings (the exact failure mode of the v4.19.52 bug).
+            try
+            {
+                var dir = Path.GetDirectoryName(settingsFile);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                    File.AppendAllText(Path.Combine(dir, "settings-load-errors.log"),
+                        $"[{DateTime.Now:O}] {last.GetType().FullName}: {last.Message}\r\n{last.StackTrace}\r\n\r\n");
+                }
+            }
+            catch { /* logging must never throw out of a load */ }
+
+            // Null, never defaults: a caller that saved defaults here would
+            // replace the user's settings with them (SettingsService decides).
+            problem = last.GetType().Name + ": " + last.Message;
+            return null;
+        }
+
+        /// <summary>
+        /// Copies an unreadable settings file aside, before anything can save over
+        /// it, as <c>settings.json.unreadable-&lt;time&gt;</c>. The copy's path, or
+        /// null if even the copy could not be made.
+        /// </summary>
+        internal static string KeepUnreadableCopy()
         {
             try
             {
-                var settingsFile = SettingsFilePath;
-                var settingsDir  = Path.GetDirectoryName(settingsFile);
-
-                // Auto-migrate from old TermLens settings location
-                if (!File.Exists(settingsFile) && File.Exists(OldSettingsFile))
-                {
-                    Directory.CreateDirectory(settingsDir);
-                    File.Copy(OldSettingsFile, settingsFile);
-                }
-
-                if (!File.Exists(settingsFile))
-                    return new TermLensSettings();
-
-                var json = File.ReadAllText(settingsFile, Encoding.UTF8);
-                using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(json)))
-                {
-                    var loadSettings = new DataContractJsonSerializerSettings
-                    {
-                        UseSimpleDictionaryFormat = true
-                    };
-                    var serializer = new DataContractJsonSerializer(typeof(TermLensSettings), loadSettings);
-                    var s = (TermLensSettings)serializer.ReadObject(stream);
-
-                    // Migrate: old single WriteTermbaseId → new WriteTermbaseIds list
-                    if ((s.WriteTermbaseIds == null || s.WriteTermbaseIds.Count == 0)
-                        && s.WriteTermbaseId >= 0)
-                    {
-                        s.WriteTermbaseIds = new List<long> { s.WriteTermbaseId };
-                        s.WriteTermbaseId = -1;
-                    }
-
-                    // Ensure list is never null
-                    if (s.WriteTermbaseIds == null)
-                        s.WriteTermbaseIds = new List<long>();
-                    if (s.ConfirmedNonMatchingWriteTermbaseNames == null)
-                        s.ConfirmedNonMatchingWriteTermbaseNames = new List<string>();
-                    // Absent from any settings file written before web resources
-                    // shipped. Left empty rather than seeded: GetWebResources()
-                    // treats empty as "give me the defaults", so a pre-existing
-                    // user gets the current built-ins on first use.
-                    if (s.WebResources == null)
-                        s.WebResources = new List<WebResource>();
-                    if (string.IsNullOrWhiteSpace(s.WebResultsMode))
-                        s.WebResultsMode = "Embedded";
-
-                    // Migrate: chord delay missing from older settings (deserializes as 0)
-                    if (s.ChordDelayMs <= 0)
-                        s.ChordDelayMs = 1100;
-
-                    // Ensure AI settings are never null (backward compat with older settings files)
-                    if (s.AiSettings == null)
-                        s.AiSettings = new AiSettings();
-                    if (s.AiSettings.ApiKeys == null)
-                        s.AiSettings.ApiKeys = new AiApiKeys();
-                    if (s.AiSettings.CustomOpenAiProfiles == null)
-                        s.AiSettings.CustomOpenAiProfiles = new List<CustomOpenAiProfile>();
-                    if (s.AiSettings.DisabledAiTermbaseIds == null)
-                        s.AiSettings.DisabledAiTermbaseIds = new List<long>();
-                    if (s.AiSettings.EnabledAiMultiTermIds == null)
-                        s.AiSettings.EnabledAiMultiTermIds = new List<long>();
-                    if (s.GroupShareServers == null)
-                        s.GroupShareServers = new List<GroupShareServerCredential>();
-
-                    // Ensure prompt settings have safe defaults
-                    if (s.AiSettings.SelectedPromptPath == null)
-                        s.AiSettings.SelectedPromptPath = "";
-                    // CustomSystemPrompt is intentionally nullable (null = use default)
-
-                    // Ensure the active memory bank is populated. The OnDeserializing
-                    // hook pre-seeds this, but belt-and-braces for callers who build
-                    // AiSettings instances outside of the serializer.
-                    if (string.IsNullOrWhiteSpace(s.AiSettings.ActiveMemoryBankName))
-                        s.AiSettings.ActiveMemoryBankName = UserDataPath.DefaultMemoryBankName;
-
-                    // Migrate: retired OpenAI models → GPT-5.4 Mini
-                    var openAiModel = s.AiSettings.OpenAiModel;
-                    if (openAiModel == "gpt-4.1" || openAiModel == "gpt-4.1-mini" ||
-                        openAiModel == "o4-mini" || openAiModel == "gpt-4o" ||
-                        openAiModel == "gpt-4o-mini")
-                    {
-                        s.AiSettings.OpenAiModel = "gpt-5.4-mini";
-                    }
-
-                    // Migrate: UI scale factor missing or invalid from older settings
-                    if (s.UiScaleFactor <= 0f || s.UiScaleFactor > 3f)
-                        s.UiScaleFactor = 1.0f;
-
-                    // Migrate: chat font size missing from older settings (deserializes as 0)
-                    if (s.ChatFontSize <= 0f)
-                        s.ChatFontSize = 9f;
-
-                    // Ensure update checker field is never null
-                    if (s.SkippedUpdateVersion == null)
-                        s.SkippedUpdateVersion = "";
-                    if (s.UpdateSnoozedUntilUtc == null)
-                        s.UpdateSnoozedUntilUtc = "";
-
-                    // Suffix-tolerant matching missing from older settings → "auto"
-                    if (string.IsNullOrWhiteSpace(s.SuffixTolerantMatching))
-                        s.SuffixTolerantMatching = "auto";
-
-                    // Ensure usage statistics ID is never null
-                    if (s.UsageStatisticsId == null)
-                        s.UsageStatisticsId = "";
-
-                    // Ensure survey collections are never null
-                    if (s.AnsweredSurveyIds == null)
-                        s.AnsweredSurveyIds = new List<int>();
-                    if (s.SurveyShownCounts == null)
-                        s.SurveyShownCounts = new Dictionary<string, int>();
-                    if (s.ShownAnnouncementIds == null)
-                        s.ShownAnnouncementIds = new List<string>();
-
-                    // Keep the global diagnostic-logging switch in sync with the
-                    // persisted preference on every load.
-                    DiagnosticLog.Enabled = s.DiagnosticLogging;
-
-                    return s;
-                }
+                var copy = SettingsFilePath + ".unreadable-" +
+                           DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", System.Globalization.CultureInfo.InvariantCulture);
+                File.WriteAllBytes(copy, AtomicFile.ReadAllBytes(SettingsFilePath));
+                return copy;
             }
-            catch (Exception ex)
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// True when the text is one whole JSON object: braces and brackets
+        /// balanced outside strings, nothing after the last one. Needed because
+        /// DataContractJsonSerializer reads a file cut short - <c>{ "a": 4</c> -
+        /// without complaint, as settings with every later field missing, which
+        /// the next save would then write back for good.
+        /// </summary>
+        internal static bool IsWholeObject(string json)
+        {
+            int depth = 0;
+            bool inString = false, escaped = false, started = false;
+            foreach (var c in json ?? "")
             {
-                // Log the failure to a sidecar file so a future regression
-                // surfaces immediately instead of silently wiping the user's
-                // saved settings (the exact failure mode of the v4.19.52 bug).
-                try
+                if (inString)
                 {
-                    var dir = Path.GetDirectoryName(SettingsFilePath);
-                    if (!string.IsNullOrEmpty(dir))
-                    {
-                        Directory.CreateDirectory(dir);
-                        var logPath = Path.Combine(dir, "settings-load-errors.log");
-                        File.AppendAllText(logPath,
-                            $"[{DateTime.Now:O}] {ex.GetType().FullName}: {ex.Message}\r\n{ex.StackTrace}\r\n\r\n");
-                    }
+                    if (escaped) escaped = false;
+                    else if (c == '\\') escaped = true;
+                    else if (c == '"') inString = false;
+                    continue;
                 }
-                catch { /* logging must never throw out of Load */ }
-                return new TermLensSettings();
+                if (started && depth == 0 && !char.IsWhiteSpace(c)) return false;   // after the object
+                if (c == '"') inString = true;
+                else if (c == '{' || c == '[') { depth++; started = true; }
+                else if ((c == '}' || c == ']') && --depth < 0) return false;
+            }
+            return started && depth == 0 && !inString;
+        }
+
+        private static TermLensSettings Parse(string json)
+        {
+            using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(json)))
+            {
+                var loadSettings = new DataContractJsonSerializerSettings
+                {
+                    UseSimpleDictionaryFormat = true
+                };
+                var serializer = new DataContractJsonSerializer(typeof(TermLensSettings), loadSettings);
+                var s = (TermLensSettings)serializer.ReadObject(stream);
+
+                // Migrate: old single WriteTermbaseId → new WriteTermbaseIds list
+                if ((s.WriteTermbaseIds == null || s.WriteTermbaseIds.Count == 0)
+                    && s.WriteTermbaseId >= 0)
+                {
+                    s.WriteTermbaseIds = new List<long> { s.WriteTermbaseId };
+                    s.WriteTermbaseId = -1;
+                }
+
+                // Ensure list is never null
+                if (s.WriteTermbaseIds == null)
+                    s.WriteTermbaseIds = new List<long>();
+                if (s.ConfirmedNonMatchingWriteTermbaseNames == null)
+                    s.ConfirmedNonMatchingWriteTermbaseNames = new List<string>();
+                // Absent from any settings file written before web resources
+                // shipped. Left empty rather than seeded: GetWebResources()
+                // treats empty as "give me the defaults", so a pre-existing
+                // user gets the current built-ins on first use.
+                if (s.WebResources == null)
+                    s.WebResources = new List<WebResource>();
+                if (string.IsNullOrWhiteSpace(s.WebResultsMode))
+                    s.WebResultsMode = "Embedded";
+
+                // Migrate: chord delay missing from older settings (deserializes as 0)
+                if (s.ChordDelayMs <= 0)
+                    s.ChordDelayMs = 1100;
+
+                // Ensure AI settings are never null (backward compat with older settings files)
+                if (s.AiSettings == null)
+                    s.AiSettings = new AiSettings();
+                if (s.AiSettings.ApiKeys == null)
+                    s.AiSettings.ApiKeys = new AiApiKeys();
+                if (s.AiSettings.CustomOpenAiProfiles == null)
+                    s.AiSettings.CustomOpenAiProfiles = new List<CustomOpenAiProfile>();
+                if (s.AiSettings.DisabledAiTermbaseIds == null)
+                    s.AiSettings.DisabledAiTermbaseIds = new List<long>();
+                if (s.AiSettings.EnabledAiMultiTermIds == null)
+                    s.AiSettings.EnabledAiMultiTermIds = new List<long>();
+                if (s.GroupShareServers == null)
+                    s.GroupShareServers = new List<GroupShareServerCredential>();
+
+                // Ensure prompt settings have safe defaults
+                if (s.AiSettings.SelectedPromptPath == null)
+                    s.AiSettings.SelectedPromptPath = "";
+                // CustomSystemPrompt is intentionally nullable (null = use default)
+
+                // Ensure the active memory bank is populated. The OnDeserializing
+                // hook pre-seeds this, but belt-and-braces for callers who build
+                // AiSettings instances outside of the serializer.
+                if (string.IsNullOrWhiteSpace(s.AiSettings.ActiveMemoryBankName))
+                    s.AiSettings.ActiveMemoryBankName = UserDataPath.DefaultMemoryBankName;
+
+                // Migrate: retired OpenAI models → GPT-5.4 Mini
+                var openAiModel = s.AiSettings.OpenAiModel;
+                if (openAiModel == "gpt-4.1" || openAiModel == "gpt-4.1-mini" ||
+                    openAiModel == "o4-mini" || openAiModel == "gpt-4o" ||
+                    openAiModel == "gpt-4o-mini")
+                {
+                    s.AiSettings.OpenAiModel = "gpt-5.4-mini";
+                }
+
+                // Migrate: UI scale factor missing or invalid from older settings
+                if (s.UiScaleFactor <= 0f || s.UiScaleFactor > 3f)
+                    s.UiScaleFactor = 1.0f;
+
+                // Migrate: chat font size missing from older settings (deserializes as 0)
+                if (s.ChatFontSize <= 0f)
+                    s.ChatFontSize = 9f;
+
+                // Ensure update checker field is never null
+                if (s.SkippedUpdateVersion == null)
+                    s.SkippedUpdateVersion = "";
+                if (s.UpdateSnoozedUntilUtc == null)
+                    s.UpdateSnoozedUntilUtc = "";
+
+                // Suffix-tolerant matching missing from older settings → "auto"
+                if (string.IsNullOrWhiteSpace(s.SuffixTolerantMatching))
+                    s.SuffixTolerantMatching = "auto";
+
+                // Ensure usage statistics ID is never null
+                if (s.UsageStatisticsId == null)
+                    s.UsageStatisticsId = "";
+
+                // Ensure survey collections are never null
+                if (s.AnsweredSurveyIds == null)
+                    s.AnsweredSurveyIds = new List<int>();
+                if (s.SurveyShownCounts == null)
+                    s.SurveyShownCounts = new Dictionary<string, int>();
+                if (s.ShownAnnouncementIds == null)
+                    s.ShownAnnouncementIds = new List<string>();
+
+                // Keep the global diagnostic-logging switch in sync with the
+                // persisted preference on every load.
+                DiagnosticLog.Enabled = s.DiagnosticLogging;
+
+                return s;
             }
         }
 
@@ -868,36 +943,65 @@ namespace Supervertaler.Trados.Settings
         }
 
         /// <summary>
-        /// Saves settings to disk.
+        /// Why this instance must not be saved, or null. Set when the settings file
+        /// could not be read at start-up and no copy of it could be kept: saving
+        /// these defaults would then replace the user's settings for good.
         /// </summary>
-        public void Save()
+        [IgnoreDataMember]
+        internal string SaveRefused;
+
+        /// <summary>
+        /// Saves settings to disk, in one step: the new file is written beside the
+        /// old one and renamed over it (<see cref="AtomicFile"/>), so an interrupted
+        /// save leaves the old settings, never half a file. What is written is read
+        /// back first, so a serialiser fault cannot leave a file the next start
+        /// cannot read. False when nothing was saved; the user is told once per
+        /// session (<see cref="SettingsService.ReportSaveFailure"/>). Until 203 this
+        /// wrote the file in place and ignored every failure.
+        /// </summary>
+        public bool Save()
         {
-            try
+            string why;
+            if (SaveRefused != null)
             {
-                var settingsFile = SettingsFilePath;
-                var settingsDir  = Path.GetDirectoryName(settingsFile);
-                Directory.CreateDirectory(settingsDir);
-
-                MergeBackgroundOwnedFields();
-
-                using (var stream = new MemoryStream())
+                why = SaveRefused;
+            }
+            else
+            {
+                try
                 {
-                    var settings = new DataContractJsonSerializerSettings
-                    {
-                        UseSimpleDictionaryFormat = true
-                    };
-                    var serializer = new DataContractJsonSerializer(typeof(TermLensSettings), settings);
-                    serializer.WriteObject(stream, this);
+                    var settingsFile = SettingsFilePath;
+                    Directory.CreateDirectory(Path.GetDirectoryName(settingsFile));
 
-                    // Pretty-print by re-parsing (DataContractJsonSerializer writes compact JSON)
-                    var json = Encoding.UTF8.GetString(stream.ToArray());
-                    File.WriteAllText(settingsFile, json, Encoding.UTF8);
+                    MergeBackgroundOwnedFields();
+
+                    var serializer = new DataContractJsonSerializer(typeof(TermLensSettings),
+                        new DataContractJsonSerializerSettings { UseSimpleDictionaryFormat = true });
+                    byte[] json;
+                    using (var stream = new MemoryStream())
+                    {
+                        serializer.WriteObject(stream, this);
+                        json = stream.ToArray();
+                    }
+                    using (var check = new MemoryStream(json))
+                        serializer.ReadObject(check);
+
+                    // UTF-8 with a byte-order mark, as File.WriteAllText wrote it.
+                    var bytes = Encoding.UTF8.GetPreamble().Concat(json).ToArray();
+                    string failure = null;
+                    if (AtomicFile.Write(settingsFile, bytes, replaceExisting: true, log: m => failure = m)
+                        == AtomicFile.Outcome.Written)
+                        return true;
+                    why = failure ?? "the file could not be written";
+                }
+                catch (Exception ex)
+                {
+                    why = ex.Message;
                 }
             }
-            catch
-            {
-                // Silently ignore save failures
-            }
+
+            SettingsService.ReportSaveFailure(why);
+            return false;
         }
 
         /// <summary>
@@ -934,7 +1038,7 @@ namespace Supervertaler.Trados.Settings
                 // ANOTHER process wrote. SettingsService.Current would return
                 // the very object we are about to serialise.
 #pragma warning disable 618
-                var onDisk = Load();
+                var onDisk = TryLoad(out _);
 #pragma warning restore 618
                 if (onDisk == null) return;
 
