@@ -38,7 +38,20 @@ namespace Supervertaler.Trados.Controls
         private Button _btnWebGo;
         private Button _btnHelp;
 
-        // ─── Replace bar row 2 (hidden by default) ──────────────
+        // ─── Search bar overflow ─────────────────────────────────
+        // The options and scope buttons after the mode dropdown, left to right,
+        // each with the space before it. LayoutSearchBar keeps them on the boxes'
+        // row, wraps them onto a second one, or hands them to the » menu.
+        private (Control Item, int Gap)[] _barItems;
+        /// <summary>The order the bar gives items up to the » menu once even a
+        /// second row is too narrow: least used first.</summary>
+        private Control[] _overflowOrder;
+        /// <summary>What the last layout put in the » menu, left to right.</summary>
+        private List<Control> _overflowed = new List<Control>();
+        private Button _btnOverflow;
+        private ContextMenuStrip _overflowMenu;
+
+        // ─── Replace bar (hidden by default) ────────────────────
         private Panel _replacePanel;
         private TextBox _txtReplace;
         private Button _btnReplace;
@@ -396,6 +409,29 @@ namespace Supervertaler.Trados.Controls
             Core.ClickThrough.Attach(_btnHelp, () => HelpRequested?.Invoke(this, EventArgs.Empty));
             _searchPanel.Controls.Add(_btnHelp);
 
+            // » holds whatever a narrow pane has no room for (see LayoutSearchBar).
+            _btnOverflow = CreateButton("\u00BB", new Font(bodyFont, FontStyle.Bold), 26, 26);
+            _btnOverflow.Visible = false;
+            _btnOverflow.Click += (s, e) => ShowOverflowMenu();
+            Core.ClickThrough.Attach(_btnOverflow, () => ShowOverflowMenu());
+            _searchPanel.Controls.Add(_btnOverflow);
+            _overflowMenu = new ContextMenuStrip { Font = new Font("Segoe UI", 9f) };
+
+            _barItems = new (Control, int)[]
+            {
+                (_chkCaseSensitive, 6), (_chkRegex, 2), (_chkWholeWord, 2), (_chkShowReplace, 2),
+                (_chkLiveFilter, 4), (_btnFiles, 4), (_btnTms, 4), (_btnTbs, 4), (_btnWeb, 4),
+                (_btnWebGo, 4), (_btnHelp, 4)
+            };
+            _overflowOrder = new Control[]
+            {
+                _btnHelp, _chkLiveFilter, _chkShowReplace, _btnWeb, _btnTbs, _btnTms, _btnFiles,
+                _chkRegex, _chkWholeWord, _chkCaseSensitive, _btnWebGo
+            };
+            foreach (var chk in new[] { _chkCaseSensitive, _chkRegex, _chkWholeWord, _chkShowReplace, _chkLiveFilter })
+                chk.CheckedChanged += (s, e) => UpdateOverflowButton();
+            _cboMode.SelectedIndexChanged += (s, e) => UpdateOverflowButton();
+
             _searchPanel.Resize += (s, e) => LayoutSearchBar();
             Controls.Add(_searchPanel);
 
@@ -716,64 +752,118 @@ namespace Supervertaler.Trados.Controls
         /// box labels give up their language names for codes.</summary>
         private const int MinComfortableBoxWidth = 120;
 
+        /// <summary>The narrowest the boxes get before the rest of the bar makes
+        /// way for them: first by wrapping onto a second row, then, on that row,
+        /// by putting the mode dropdown in the » menu.</summary>
+        private const int MinBoxWidth = 80;
+
+        /// <summary>
+        /// Lays the search bar out for the pane's width, giving way in stages
+        /// rather than piling controls on top of each other:
+        /// <list type="number">
+        /// <item>Wide: one row, the two boxes sharing whatever the rest leaves.</item>
+        /// <item>Once the boxes would drop below <see cref="MinBoxWidth"/>: the
+        /// options and scope buttons wrap onto a second row, under the boxes.</item>
+        /// <item>Once that row is too narrow as well: they go into the » menu,
+        /// least used first (<see cref="_overflowOrder"/>).</item>
+        /// </list>
+        /// Until 20.203 everything was chained leftwards from the right edge with
+        /// nothing to stop it, so a narrow pane slid the buttons under the boxes
+        /// and off the left edge.
+        /// </summary>
         private void LayoutSearchBar()
         {
-            if (_searchPanel == null || _txtSearch == null) return;
+            if (_searchPanel == null || _txtSearch == null || _barItems == null) return;
 
+            const int margin = 4, rowTop = 5, rowGap = 6;
             int w = _searchPanel.ClientSize.Width;
-            int h = _searchPanel.ClientSize.Height;
-            int btnY = (h - _btnSearch.Height) / 2;         // vertically center buttons
-            int txtY = (h - _txtSearch.Height) / 2;          // vertically center text boxes
-            int chkY = (h - _chkCaseSensitive.Height) / 2;   // vertically center checkboxes
-            int cboY = (h - _cboMode.Height) / 2;            // vertically center combo
-            int lblY = (h - _lblSearchSource.Height) / 2;    // vertically center labels
+            int rowH = Math.Max(_btnSearch.Height, Math.Max(_txtSearch.Height, _cboMode.Height));
+            int row2Top = rowTop + rowH + rowGap;
+            int Mid(Control c, int top) => top + (rowH - c.Height) / 2;
 
-            // Right-anchored controls first (right to left): ?, 🌐, Web, TBs, TMs, Files
-            _btnHelp.Location = new Point(w - _btnHelp.Width - 4, btnY);
-            _btnWebGo.Location = new Point(_btnHelp.Left - _btnWebGo.Width - 4, btnY);
-            _btnWeb.Location = new Point(_btnWebGo.Left - _btnWeb.Width - 4, btnY);
-            _btnTbs.Location = new Point(_btnWeb.Left - _btnTbs.Width - 4, btnY);
-            _btnTms.Location = new Point(_btnTbs.Left - _btnTms.Width - 4, btnY);
-            _btnFiles.Location = new Point(_btnTms.Left - _btnFiles.Width - 4, btnY);
+            // The labels' narrowest form decides how the bar is arranged; the
+            // language names come back below wherever they fit.
+            _lblSearchSource.Text = _languages.SourceCode + ":";
+            _lblSearchTarget.Text = _languages.TargetCode + ":";
 
-            // Fixed controls from the right after the search boxes
-            int fixedLeft = _btnFiles.Left;
+            int searchW = _btnSearch.Width + 2 + _btnStop.Width;   // Stop's slot is kept while it is hidden
+            int comboW = 4 + _cboMode.Width;
+            int itemsW = _barItems.Sum(i => i.Gap + i.Item.Width);
+            int BoxRoom(int besides) => w - margin - besides - 6 - margin;   // for both labels and boxes
 
-            // Position from right: chkShowReplace, chkWholeWord, chkRegex, chkCaseSensitive, cboMode, btnStop, btnSearch
-            _chkLiveFilter.Location = new Point(fixedLeft - _chkLiveFilter.Width - 4, chkY);
-            _chkShowReplace.Location = new Point(_chkLiveFilter.Left - _chkShowReplace.Width - 4, chkY);
-            _chkWholeWord.Location = new Point(_chkShowReplace.Left - _chkWholeWord.Width - 2, chkY);
-            _chkRegex.Location = new Point(_chkWholeWord.Left - _chkRegex.Width - 2, chkY);
-            _chkCaseSensitive.Location = new Point(_chkRegex.Left - _chkCaseSensitive.Width - 2, chkY);
-            _cboMode.Location = new Point(_chkCaseSensitive.Left - _cboMode.Width - 6, cboY);
-            _btnStop.Location = new Point(_cboMode.Left - _btnStop.Width - 4, btnY);
-            _btnSearch.Location = new Point(_btnStop.Left - _btnSearch.Width - 2, btnY);
-
-            // Two text boxes (Dutch: | English:) split the remaining space on
-            // the left. The labels are the language names; where those would
-            // squeeze the boxes, they shrink to codes ("NL:" | "EN:").
-            int areaLeft = 4;
-            int areaRight = _btnSearch.Left - 6;
-            int available = Math.Max(160, areaRight - areaLeft);
-            Func<int> eachBoxWidth = () => Math.Max(60, (available
-                - (_lblSearchSource.Width + 3) - (_lblSearchTarget.Width + 3) - 8) / 2);
+            bool oneRow = EachBoxWidth(BoxRoom(searchW + comboW + itemsW)) >= MinBoxWidth;
+            bool comboShown = oneRow || EachBoxWidth(BoxRoom(searchW + comboW)) >= MinBoxWidth;
+            int room = BoxRoom(searchW + (comboShown ? comboW : 0) + (oneRow ? itemsW : 0));
 
             _lblSearchSource.Text = _languages.Source + ":";
             _lblSearchTarget.Text = _languages.Target + ":";
-            if (eachBoxWidth() < MinComfortableBoxWidth)
+            if (EachBoxWidth(room) < MinComfortableBoxWidth)
             {
                 _lblSearchSource.Text = _languages.SourceCode + ":";
                 _lblSearchTarget.Text = _languages.TargetCode + ":";
             }
-            int eachBox = eachBoxWidth();
+            int eachBox = Math.Max(60, EachBoxWidth(room));
 
-            _lblSearchSource.Location = new Point(areaLeft, lblY);
-            _txtSearch.Location = new Point(_lblSearchSource.Right + 3, txtY);
+            // Row 1, left to right: Dutch: [   ] English: [   ] Search (Stop) mode.
+            _lblSearchSource.Location = new Point(margin, Mid(_lblSearchSource, rowTop));
+            _txtSearch.Location = new Point(_lblSearchSource.Right + 3, Mid(_txtSearch, rowTop));
             _txtSearch.Width = eachBox;
-
-            _lblSearchTarget.Location = new Point(_txtSearch.Right + 8, lblY);
-            _txtSearchTarget.Location = new Point(_lblSearchTarget.Right + 3, txtY);
+            _lblSearchTarget.Location = new Point(_txtSearch.Right + 8, Mid(_lblSearchTarget, rowTop));
+            _txtSearchTarget.Location = new Point(_lblSearchTarget.Right + 3, Mid(_txtSearchTarget, rowTop));
             _txtSearchTarget.Width = eachBox;
+            _btnSearch.Location = new Point(_txtSearchTarget.Right + 6, Mid(_btnSearch, rowTop));
+            _btnStop.Location = new Point(_btnSearch.Right + 2, Mid(_btnStop, rowTop));
+            _cboMode.Location = new Point(_btnStop.Right + 4, Mid(_cboMode, rowTop));
+
+            // The rest: on one row, chained in from the right edge; on two, the
+            // options from the left and the scope buttons from the right, giving
+            // up items to » until they fit.
+            var shown = _barItems.ToList();
+            var gone = new HashSet<Control>();
+            if (!comboShown) gone.Add(_cboMode);
+            if (!oneRow)
+            {
+                int Need() => 2 * margin + shown.Sum(i => i.Gap + i.Item.Width)
+                    + (gone.Count > 0 ? 4 + _btnOverflow.Width : 0);
+                foreach (var c in _overflowOrder)
+                {
+                    if (Need() <= w) break;
+                    shown.RemoveAll(i => i.Item == c);
+                    gone.Add(c);
+                }
+            }
+
+            int top = oneRow ? rowTop : row2Top;
+            int right = w - margin;
+            if (gone.Count > 0)
+            {
+                _btnOverflow.Location = new Point(right - _btnOverflow.Width, Mid(_btnOverflow, top));
+                right = _btnOverflow.Left - 4;
+            }
+            var fromRight = oneRow ? shown : shown.Where(i => !(i.Item is CheckBox)).ToList();
+            for (int k = fromRight.Count - 1; k >= 0; k--)
+            {
+                var (item, gap) = fromRight[k];
+                item.Location = new Point(right - item.Width, Mid(item, top));
+                right = item.Left - gap;
+            }
+            if (!oneRow)
+            {
+                int left = margin;
+                foreach (var (item, gap) in shown.Where(i => i.Item is CheckBox))
+                {
+                    if (left > margin) left += gap;
+                    item.Location = new Point(left, Mid(item, top));
+                    left = item.Right;
+                }
+            }
+
+            _cboMode.Visible = comboShown;
+            foreach (var (item, _) in _barItems) item.Visible = !gone.Contains(item);
+            _btnOverflow.Visible = gone.Count > 0;
+            _overflowed = new[] { (Control)_cboMode }.Concat(_barItems.Select(i => i.Item))
+                .Where(gone.Contains).ToList();
+            UpdateOverflowButton();
 
             // A box that was narrow when its text went in (down to 60 px here) and
             // has just been widened keeps the scroll it needed then: "droge stof"
@@ -781,6 +871,104 @@ namespace Supervertaler.Trados.Controls
             // scrolls back by itself, so it is told to here.
             ResetHorizontalScroll(_txtSearch);
             ResetHorizontalScroll(_txtSearchTarget);
+            LayoutReplaceBar();   // its box follows the source box's width
+
+            // Last, because a new height raises Resize and lays the bar out again.
+            int height = oneRow ? 2 * rowTop + rowH : row2Top + rowH + rowTop;
+            if (_searchPanel.Height != height) _searchPanel.Height = height;
+        }
+
+        /// <summary>Each search box's width when the two labels and boxes share
+        /// <paramref name="room"/> pixels, at the labels' current text.</summary>
+        private int EachBoxWidth(int room)
+            => (room - (_lblSearchSource.Width + 3) - (_lblSearchTarget.Width + 3) - 8) / 2;
+
+        /// <summary>
+        /// Shows » in the accent colour while something in its menu is switched
+        /// on. Out of sight, Whole word or a TMs-only scope still changes every
+        /// search, with nothing left on the bar to say so.
+        /// </summary>
+        private void UpdateOverflowButton()
+        {
+            if (_btnOverflow == null) return;
+            var on = new List<string>();
+            foreach (var c in _overflowed)
+            {
+                if (c is CheckBox chk && chk.Checked) on.Add(OverflowLabel(c));
+                else if (c == _cboMode && _cboMode.SelectedIndex != 0) on.Add("Search in: " + _cboMode.Text);
+            }
+            var colour = on.Count > 0 ? TmNameColor : Color.FromArgb(80, 80, 80);
+            _btnOverflow.ForeColor = colour;
+            _btnOverflow.FlatAppearance.BorderColor = on.Count > 0 ? TmNameColor : BorderColor;
+            _searchTips?.SetToolTip(_btnOverflow, on.Count > 0
+                ? "More options. Switched on: " + string.Join(", ", on)
+                : "More options");
+        }
+
+        /// <summary>A bar item's name in the » menu.</summary>
+        private string OverflowLabel(Control c)
+        {
+            if (c == _cboMode) return "Search in";
+            if (c == _chkCaseSensitive) return "Case sensitive";
+            if (c == _chkRegex) return "Regular expressions";
+            if (c == _chkWholeWord) return "Whole word";
+            if (c == _chkShowReplace) return "Find and replace";
+            if (c == _chkLiveFilter) return "Live filter";
+            if (c == _btnWebGo) return "Search the web";
+            if (c == _btnHelp) return "Help";
+            return c.Text + "\u2026";   // Files (3)…, TMs (2)…, TBs (2)…, Web (9/43)…
+        }
+
+        /// <summary>
+        /// Opens the » menu: one entry per item the bar had no room for, in bar
+        /// order. Built afresh from the controls each time, so it always shows
+        /// their current state, and acting on an entry acts on the control.
+        /// </summary>
+        private void ShowOverflowMenu()
+        {
+            while (_overflowMenu.Items.Count > 0) _overflowMenu.Items[0].Dispose();
+
+            int lastGroup = -1;
+            foreach (var c in _overflowed)
+            {
+                int group = c == _cboMode ? 0 : c is CheckBox ? 1 : 2;
+                if (lastGroup >= 0 && group != lastGroup) _overflowMenu.Items.Add(new ToolStripSeparator());
+                lastGroup = group;
+
+                var entry = new ToolStripMenuItem(OverflowLabel(c)) { Enabled = c.Enabled };
+                if (c == _cboMode)
+                {
+                    for (int i = 0; i < _cboMode.Items.Count; i++)
+                    {
+                        int index = i;
+                        var mode = new ToolStripMenuItem(_cboMode.Items[i].ToString())
+                            { Checked = i == _cboMode.SelectedIndex };
+                        mode.Click += (s, e) => _cboMode.SelectedIndex = index;
+                        entry.DropDownItems.Add(mode);
+                    }
+                }
+                else if (c is CheckBox chk)
+                {
+                    entry.Checked = chk.Checked;
+                    entry.Click += (s, e) => chk.Checked = !chk.Checked;
+                }
+                else
+                {
+                    // Not PerformClick: it does nothing on a hidden button.
+                    Action run = c == _btnFiles ? ShowFileSelectionDialog
+                        : c == _btnTms ? ShowTmSelectionDialog
+                        : c == _btnTbs ? ShowTermbaseSelectionDialog
+                        : c == _btnWeb ? ShowWebSelectionDialog
+                        : c == _btnWebGo ? FireWebSearch
+                        : (Action)(() => HelpRequested?.Invoke(this, EventArgs.Empty));
+                    if (c == _btnWebGo) entry.ShortcutKeyDisplayString = "Alt+W";
+                    entry.Click += (s, e) => run();
+                }
+                _overflowMenu.Items.Add(entry);
+            }
+
+            _overflowMenu.Show(_btnOverflow, new Point(_btnOverflow.Width, _btnOverflow.Height),
+                ToolStripDropDownDirection.BelowLeft);
         }
 
         /// <summary>
@@ -872,7 +1060,7 @@ namespace Supervertaler.Trados.Controls
             var width = TextRenderer.MeasureText(button.Text, button.Font).Width + 16;
             if (button.Width == width) return;
             button.Width = width;
-            LayoutSearchBar();   // right-anchored chain: every neighbour shifts
+            LayoutSearchBar();   // its neighbours shift, and the bar may wrap or overflow
         }
 
         private void ShowFileSelectionDialog()

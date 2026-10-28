@@ -12,6 +12,9 @@
 ### Changed
 - **The tabs of the web search window (Alt+W) are easier to tell apart, and the one you are on stands out.** Windows outlined the tabs in a grey so light that the sites ran together, and the open tab differed from the rest only by standing a couple of pixels taller. Each tab now has a clearly visible outline, the open tab has a blue bar along its top, and the site names are a little larger. They are no wider than needed, so a window of the usual size still shows nine sites without scrolling.
 
+### Fixed
+- **SuperSearch's search bar no longer piles its controls on top of each other when the pane is narrow.** Every control was lined up from the right-hand edge with nothing to stop it, so in a narrow pane the buttons slid under the search boxes and off the left edge. The bar now gives way in stages. Where the search boxes would get too small to use, the options and the **Files**, **TMs**, **TBs** and **Web** buttons move to a second row underneath, and the boxes get the room back. Where even that row is too narrow, the least-used items move into a **»** menu at its right-hand end, which works like the controls themselves: options tick on and off, the buttons open their pickers, and **Search in** sets where to search. An option switched on in there still affects every search, so the **»** turns blue while one is on, and its tooltip says which. A wide pane looks as before.
+
 ## [18.20.202 / 19.20.202] – 2026-10-26
 
 ### Fixed
