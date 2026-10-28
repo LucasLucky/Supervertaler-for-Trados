@@ -861,34 +861,53 @@ namespace Supervertaler.Trados.Core
             var fileGroups = targetMatches.GroupBy(r => r.FilePath).ToList();
 
             var activeFilePath = GetActiveFilePath();
-            var hasNonActiveFiles = fileGroups.Any(g =>
+            var diskGroups = fileGroups.Where(g =>
                 activeFilePath == null ||
-                !string.Equals(g.Key, activeFilePath, StringComparison.OrdinalIgnoreCase));
+                !string.Equals(g.Key, activeFilePath, StringComparison.OrdinalIgnoreCase)).ToList();
 
-            var msg = $"Replace {targetMatches.Count} occurrence(s) in {fileGroups.Count} file(s)?\n\n";
+            // Files open in the editor are never edited on disk: Studio holds
+            // its own copy of each. Null when they cannot be told - then no file
+            // is edited on disk at all.
+            var openInEditor = FilesOpenInEditor();
+            var closedCount = openInEditor == null ? 0
+                : diskGroups.Count(g => !XliffDiskReplace.IsOpen(g.Key, openInEditor));
+            var activeCount = fileGroups.Count - diskGroups.Count;   // the active file, if it has matches
+            var leftCount = diskGroups.Count - closedCount;          // files this run leaves alone
 
-            if (hasNonActiveFiles)
+            // Nothing this run may change: say so, rather than ask to replace.
+            if (activeCount == 0 && closedCount == 0)
             {
-                msg += "WARNING: This will modify SDLXLIFF files directly on disk for files " +
-                       "not currently open in the editor. These changes CANNOT be undone.\n\n" +
-                       "Changes in the active file go through the Trados API and can be undone.\n\n" +
-                       "Save your project before proceeding.";
+                MessageBox.Show(openInEditor == null
+                        ? "Replace All could not tell which files are open in the editor, so it changes no file on disk. " +
+                          "Go to the file and run Replace All there."
+                        : $"All {targetMatches.Count} occurrence(s) are in files open in the editor, other than the one you are in, " +
+                          "so Replace All would change nothing. Go to that file and run Replace All there.",
+                    "SuperSearch – Replace All", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
             }
-            else
-            {
-                msg += "All changes go through the Trados API and can be undone with Ctrl+Z.";
-            }
+
+            var msg = $"Replace {targetMatches.Count} occurrence(s) in {fileGroups.Count} file(s)?";
+            if (activeCount > 0)
+                msg += "\n\nChanges in the active file go through the Trados API and can be undone with Ctrl+Z.";
+            if (closedCount > 0)
+                msg += $"\n\n{closedCount} file(s) not open in the editor will be changed directly on disk. " +
+                       "Ctrl+Z cannot undo that, but a copy of each file as it was is kept first, in\n" +
+                       UserDataPath.ReplaceBackupsDir;
+            if (leftCount > 0)
+                msg += openInEditor == null
+                    ? $"\n\n{leftCount} file(s) are left unchanged: Replace All could not tell which files are open in the editor."
+                    : $"\n\n{leftCount} file(s) open in the editor, other than the one you are in, are left unchanged.";
 
             var dialogResult = MessageBox.Show(msg, "SuperSearch – Replace All",
                 MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
             if (dialogResult != DialogResult.OK) return;
 
-            // Second confirmation for irreversible disk modifications
-            if (hasNonActiveFiles)
+            // Second confirmation for disk modifications Ctrl+Z cannot undo
+            if (closedCount > 0)
             {
                 var confirm = MessageBox.Show(
-                    "Are you sure? Changes to files on disk cannot be undone.\n\n" +
-                    "Make sure you have saved your project or have a backup.",
+                    "Are you sure? Changes to files on disk cannot be undone with Ctrl+Z.\n\n" +
+                    "To undo them later, copy a file back from the backup folder while it is closed in Trados Studio.",
                     "SuperSearch – Final Confirmation",
                     MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation,
                     MessageBoxDefaultButton.Button2); // default to "No"
@@ -904,9 +923,8 @@ namespace Supervertaler.Trados.Core
 
             foreach (var group in fileGroups)
             {
-                var filePath = group.Key;
                 var isActiveFile = activeFilePath != null &&
-                    string.Equals(filePath, activeFilePath, StringComparison.OrdinalIgnoreCase);
+                    string.Equals(group.Key, activeFilePath, StringComparison.OrdinalIgnoreCase);
 
                 if (isActiveFile && _activeDocument != null)
                 {
@@ -949,20 +967,20 @@ namespace Supervertaler.Trados.Core
                         catch { errorCount++; }
                     }
                 }
-                else
-                {
-                    // Replace directly in the SDLXLIFF file on disk
-                    try
-                    {
-                        int count = ReplaceInXliffFile(filePath, group.ToList(),
-                            e.SearchText, e.ReplaceText, e.CaseSensitive, e.UseRegex, e.WholeWord,
-                            out var tagSpanInFile);
-                        replacedCount += count;
-                        skippedTagSpan += tagSpanInFile;
-                    }
-                    catch { errorCount += group.Count(); }
-                }
             }
+
+            // Every other file is changed on disk - unless it is open in the
+            // editor - with a backup taken first (XliffDiskReplace).
+            var disk = diskGroups.Count == 0 ? null
+                : XliffDiskReplace.Run(diskGroups, openInEditor,
+                    s => PerformReplace(s, e.SearchText, e.ReplaceText, e.CaseSensitive, e.UseRegex, e.WholeWord),
+                    UserDataPath.ReplaceBackupsDir, DateTime.Now);
+            var diskFiles = disk?.Files ?? new List<XliffDiskReplace.FileReport>();
+            replacedCount += diskFiles.Sum(f => f.Replaced);
+            skippedTagSpan += diskFiles.Sum(f => f.SpansMarkup);
+            var changedSinceSearch = diskFiles.Sum(f => f.ChangedSinceSearch);
+            var filesWritten = diskFiles.Count(f => f.Replaced > 0);
+            var filesNotWritten = diskFiles.Count(f => f.NotWritten != null);
 
             SafeInvoke(() =>
             {
@@ -973,71 +991,91 @@ namespace Supervertaler.Trados.Core
                 if (wholeSegmentCount > 0)
                     statusMsg += $", {wholeSegmentCount} not word by word: "
                         + string.Join("; ", wholeSegmentWhy.Select(w => w.TrimEnd('.')));
+                if (changedSinceSearch > 0) statusMsg += $", {changedSinceSearch} not replaced because the file changed since the search";
+                if (filesNotWritten > 0) statusMsg += $", {filesNotWritten} file(s) left unchanged";
                 if (errorCount > 0) statusMsg += $" ({errorCount} error(s))";
-                if (fileGroups.Any(g => !string.Equals(g.Key, activeFilePath, StringComparison.OrdinalIgnoreCase)))
-                    statusMsg += ". Non-active files were modified on disk – reopen to see changes.";
+                if (filesWritten > 0)
+                    statusMsg += $". {filesWritten} file(s) changed on disk – reopen to see the changes.";
                 _control.SetStatus(statusMsg);
             });
+
+            if (disk != null && (filesWritten > 0 || filesNotWritten > 0 || changedSinceSearch > 0))
+                ShowDiskSummary(disk);
         }
 
         /// <summary>
-        /// Replaces target text directly in an SDLXLIFF file on disk.
-        /// Used for files not currently open in the editor.
+        /// What Replace All did to the files on disk, file by file, and where the
+        /// backups are. Shown once the run is over, because the status line is
+        /// cut off in a narrow pane and a refused file must not go unnoticed.
         /// </summary>
-        private int ReplaceInXliffFile(string filePath, List<SearchResult> results,
-            string searchText, string replaceText, bool caseSensitive, bool useRegex, bool wholeWord,
-            out int tagSpanSkipped)
+        private static void ShowDiskSummary(XliffDiskReplace.RunReport disk)
         {
-            tagSpanSkipped = 0;
-            var doc = new XmlDocument();
-            doc.PreserveWhitespace = true;
-            doc.Load(filePath);
+            const int maxListed = 15;
+            string Label(XliffDiskReplace.FileReport f) =>
+                Path.Combine(Path.GetFileName(Path.GetDirectoryName(f.FilePath)) ?? "", Path.GetFileName(f.FilePath));
 
-            var nsMgr = new XmlNamespaceManager(doc.NameTable);
-            var root = doc.DocumentElement;
-            var xliffNs = root?.NamespaceURI ?? "";
-            if (!string.IsNullOrEmpty(xliffNs))
-                nsMgr.AddNamespace("x", xliffNs);
-
-            var prefix = string.IsNullOrEmpty(xliffNs) ? "" : "x:";
-            int count = 0;
-
-            foreach (var result in results)
+            string List(IEnumerable<string> lines)
             {
-                var unit = doc.SelectSingleNode(
-                    $"//{prefix}trans-unit[@id='{result.ParagraphUnitId}']", nsMgr);
-                if (unit == null) continue;
-
-                var targetNode = unit.SelectSingleNode($"{prefix}target", nsMgr);
-                if (targetNode == null) continue;
-
-                // Find the specific segment marker
-                XmlNode segNode = null;
-                if (!string.IsNullOrEmpty(result.SegmentId))
-                {
-                    segNode = targetNode.SelectSingleNode(
-                        $".//{prefix}mrk[@mtype='seg'][@mid='{result.SegmentId}']", nsMgr);
-                }
-
-                var node = segNode ?? targetNode;
-                var outcome = ReplaceInSegmentNode(node,
-                    s => PerformReplace(s, searchText, replaceText, caseSensitive, useRegex, wholeWord),
-                    out var newText);
-                if (outcome == TargetTextReplace.Outcome.Replaceable)
-                {
-                    result.TargetText = newText;
-                    count++;
-                }
-                else if (outcome == TargetTextReplace.Outcome.SpansMarkup)
-                {
-                    tagSpanSkipped++;
-                }
+                var all = lines.ToList();
+                var shown = all.Take(maxListed).Select(l => "  " + l);
+                var more = all.Count > maxListed ? new[] { $"  …and {all.Count - maxListed} more" } : new string[0];
+                return string.Join("\n", shown.Concat(more));
             }
 
-            if (count > 0)
-                doc.Save(filePath);
+            var sb = new System.Text.StringBuilder();
+            var written = disk.Files.Where(f => f.Replaced > 0).ToList();
+            var notWritten = disk.Files.Where(f => f.NotWritten != null).ToList();
+            var changed = disk.Files.Sum(f => f.ChangedSinceSearch);
 
-            return count;
+            if (written.Count > 0)
+                sb.Append("Changed on disk:\n")
+                  .Append(List(written.Select(f => $"{Label(f)} – {f.Replaced} segment(s)"))).Append("\n\n");
+            if (notWritten.Count > 0)
+                sb.Append("Left unchanged:\n")
+                  .Append(List(notWritten.Select(f => $"{Label(f)} – {f.NotWritten}"))).Append("\n\n");
+            if (changed > 0)
+                sb.Append($"{changed} segment(s) no longer read as the search found them and were left alone. " +
+                          "Search again to include them.\n\n");
+            if (notWritten.Any(f => f.NotWritten == "open in the editor"))
+                sb.Append("To change a file that is open in the editor, go to it and run Replace All there.\n\n");
+
+            if (disk.BackupDir == null)
+            {
+                MessageBox.Show(sb.ToString().TrimEnd(), "SuperSearch – Replace All",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            sb.Append("The files as they were before are in:\n").Append(disk.BackupDir).Append("\n\n")
+              .Append("Open that folder now?");
+            if (MessageBox.Show(sb.ToString(), "SuperSearch – Replace All",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Information,
+                    MessageBoxDefaultButton.Button2) == DialogResult.Yes)
+            {
+                try { Process.Start("explorer.exe", "\"" + disk.BackupDir + "\""); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// The full paths of the files in every document open in the editor -
+        /// all files of a merged document, and every tab, not only the active
+        /// one. Null if Studio would not say, and then nothing is edited on disk.
+        /// </summary>
+        private HashSet<string> FilesOpenInEditor()
+        {
+            try
+            {
+                var open = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var doc in _editorController.GetDocuments())
+                    foreach (var file in doc.Files)
+                        if (!string.IsNullOrEmpty(file?.LocalFilePath))
+                            open.Add(Path.GetFullPath(file.LocalFilePath));
+                return open;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>

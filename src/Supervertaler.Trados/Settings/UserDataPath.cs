@@ -1305,6 +1305,12 @@ namespace Supervertaler.Trados.Settings
         public static string BatchBackupsDir => Path.Combine(TradosDir, "batch_backups");
 
         /// <summary>
+        /// Folder where SuperSearch's Replace All keeps a copy of each SDLXLIFF file
+        /// it changes on disk, one subfolder per run (see XliffDiskReplace).
+        /// </summary>
+        public static string ReplaceBackupsDir => Path.Combine(TradosDir, "replace_backups");
+
+        /// <summary>
         /// Returns a timestamped TMX backup path for a batch translate run.
         /// The project name is embedded in the filename for easy identification.
         /// </summary>
