@@ -171,6 +171,14 @@
   <ItemGroup>
     <PackageReference Include="iTextSharp" Version="5.5.13.5" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.0" />
+    <!-- The native SQLite engine, pinned above what Microsoft.Data.Sqlite 8.0.0
+         asks for: its SQLitePCLRaw 2.1.6 is SQLite 3.41.2, which has
+         CVE-2025-6965 (fixed in 3.50.2). 2.1.13 is SQLite 3.53.3. The bundle
+         brings core, provider and lib at one version; lib is also named here
+         for its package path, which the win-arm64 copy below reads. Keep the
+         two versions equal (a lower lib fails the restore with NU1605). -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.13" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.13" GeneratePathProperty="true" />
     <!-- OpenXml (DOCX read/write) for the Import / Export tab added in v4.20.7.
          Pinned at 2.x — the 2.x line targets .NET Framework 4.6+ and ships a
          single DocumentFormat.OpenXml.dll with no native dependencies, so it
@@ -187,6 +195,17 @@
     <PackageReference Include="System.Memory" Version="4.5.5" />
     <PackageReference Include="System.Buffers" Version="4.5.1" />
     <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="6.0.0" />
+  </ItemGroup>
+
+  <!-- SQLitePCLRaw's own targets copy only the x86 and x64 engines for .NET
+       Framework. The win-arm64 one (Windows on ARM, Parallels on Apple Silicon)
+       is copied here, from the same package version. Always, not
+       PreserveNewest: build.sh used to copy it only when missing, so an old
+       engine sat in bin/ and shipped after the package moved on. -->
+  <ItemGroup>
+    <Content Include="$(PkgSQLitePCLRaw_lib_e_sqlite3)\runtimes\win-arm64\native\e_sqlite3.dll"
+             Link="runtimes\win-arm64\native\e_sqlite3.dll"
+             CopyToOutputDirectory="Always" Visible="false" />
   </ItemGroup>
 
   <!-- Canonical LLM price list, bundled into the assembly as an embedded

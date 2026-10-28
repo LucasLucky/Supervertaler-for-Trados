@@ -58,6 +58,11 @@ namespace Supervertaler.Trados.Core
 
                 _connection = new SqliteConnection(connStr);
                 _connection.Open();
+                // The engine this connection really runs on. Studio 2026 loads
+                // its own, older e_sqlite3.dll beside ours, so the file we ship
+                // proves nothing on its own; this line does (CVE-2025-6965 is
+                // fixed from 3.50.2).
+                DiagnosticLog.LogIfChanged("SQLite", "engine " + _connection.ServerVersion);
                 _hasNonTranslatableColumn = HasColumn(_connection, "termbase_terms", "is_nontranslatable");
                 _hasTermUuidColumn = HasColumn(_connection, "termbase_terms", "term_uuid");
                 _hasAbbreviationColumns = HasColumn(_connection, "termbase_terms", "source_abbreviation");

@@ -22,10 +22,9 @@ BUILD_DIR_17="$PROJECT_DIR/bin/Studio17/Release"
 BUILD_DIR_18="$PROJECT_DIR/bin/Studio18/Release"
 BUILD_DIR_19="$PROJECT_DIR/bin/Studio19/Release"
 
-# NuGet restore downloads the ARM64 native SQLite binary but MSBuild only copies
-# x64/x86/arm to the output, so each build copies it in. Needed for Windows on
-# ARM (Parallels on Apple Silicon, Surface Pro X, etc.).
-ARM64_SRC="$USERPROFILE/.nuget/packages/sqlitepclraw.lib.e_sqlite3/2.1.6/runtimes/win-arm64/native/e_sqlite3.dll"
+# The win-arm64 native SQLite (Windows on ARM) is copied into each build by the
+# csproj, from the pinned package version. It used to be copied here, from a
+# hard-coded 2.1.6 path and only when missing, so it never followed an update.
 
 # Studio 2022 deploys like 2024: Local, the "This computer for me only" scope.
 PACKAGES_DIR_17="$LOCALAPPDATA/Trados/Trados Studio/17/Plugins/Packages"
@@ -272,13 +271,6 @@ if [ -d "$STUDIO18_INSTALL" ]; then
     echo "=== [Studio18] Building Supervertaler for Trados 2024 ==="
     "$DOTNET" build "$PROJECT_DIR/Supervertaler.Trados.csproj" -c Release -p:TradosStudioVersion=18
 
-    ARM64_DST_18="$BUILD_DIR_18/runtimes/win-arm64/native"
-    if [ -f "$ARM64_SRC" ] && [ ! -f "$ARM64_DST_18/e_sqlite3.dll" ]; then
-        echo "  Copying win-arm64 native e_sqlite3.dll..."
-        mkdir -p "$ARM64_DST_18"
-        cp "$ARM64_SRC" "$ARM64_DST_18/e_sqlite3.dll"
-    fi
-
     echo ""
     echo "=== [Studio18] Packaging $PLUGIN_FILENAME_18 (OPC format) ==="
     mkdir -p "$DIST_DIR"
@@ -343,13 +335,6 @@ if [ -d "$STUDIO19_INSTALL" ]; then
     echo "=== [Studio19] Building Supervertaler for Trados 2026 ==="
     "$DOTNET" build "$PROJECT_DIR/Supervertaler.Trados.csproj" -c Release -p:TradosStudioVersion=19
 
-    ARM64_DST_19="$BUILD_DIR_19/runtimes/win-arm64/native"
-    if [ -f "$ARM64_SRC" ] && [ ! -f "$ARM64_DST_19/e_sqlite3.dll" ]; then
-        echo "  Copying win-arm64 native e_sqlite3.dll..."
-        mkdir -p "$ARM64_DST_19"
-        cp "$ARM64_SRC" "$ARM64_DST_19/e_sqlite3.dll"
-    fi
-
     echo ""
     echo "=== [Studio19] Packaging $PLUGIN_FILENAME_19 (OPC format) ==="
     mkdir -p "$DIST_DIR"
@@ -400,13 +385,6 @@ fi
 if [ -f "$STUDIO17_INSTALL/Sdl.Desktop.IntegrationApi.dll" ]; then
     echo "=== [Studio17] Building Supervertaler for Trados 2022 ==="
     "$DOTNET" build "$PROJECT_DIR/Supervertaler.Trados.csproj" -c Release -p:TradosStudioVersion=17
-
-    ARM64_DST_17="$BUILD_DIR_17/runtimes/win-arm64/native"
-    if [ -f "$ARM64_SRC" ] && [ ! -f "$ARM64_DST_17/e_sqlite3.dll" ]; then
-        echo "  Copying win-arm64 native e_sqlite3.dll..."
-        mkdir -p "$ARM64_DST_17"
-        cp "$ARM64_SRC" "$ARM64_DST_17/e_sqlite3.dll"
-    fi
 
     echo ""
     echo "=== [Studio17] Packaging $PLUGIN_FILENAME_17 (OPC format) ==="

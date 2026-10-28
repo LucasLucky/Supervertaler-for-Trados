@@ -144,7 +144,7 @@ namespace Supervertaler.Trados
             // by short name. Assembly.Load("SQLitePCLRaw.batteries_v2") returns
             // whatever Trados already has loaded (Studio 2026 has its own SQLitePCL
             // 2.1.2 loaded by startup), but Microsoft.Data.Sqlite is bound via our
-            // AssemblyResolve handler to OUR plugin-folder SQLitePCLRaw 2.1.6 copy.
+            // AssemblyResolve handler to OUR plugin-folder SQLitePCLRaw copy.
             // Calling Batteries_V2.Init() on Trados's instance sets the provider on
             // Trados's `raw` static state — invisible to our Microsoft.Data.Sqlite,
             // which then errors with "You need to call SQLitePCL.raw.SetProvider()".
@@ -685,11 +685,17 @@ namespace Supervertaler.Trados
                         // SQLitePCLRaw detects the MACHINE architecture (ARM64) rather
                         // than the PROCESS architecture (x86), so its runtimes/ search
                         // picks the wrong binary.  Its fallback is {pluginDir}/e_sqlite3.dll.
+                        //
+                        // Replaced whenever it differs, not only when missing: the
+                        // copy is not in the package, so a plugin update that
+                        // re-extracts without emptying this folder would otherwise
+                        // leave the previous SQLite engine here, still loadable,
+                        // after the update that replaced it (CVE-2025-6965).
                         try
                         {
                             var rootCopy = Path.Combine(pluginDir, "e_sqlite3.dll");
-                            if (!File.Exists(rootCopy))
-                                File.Copy(path, rootCopy);
+                            if (!SameBytes(path, rootCopy))
+                                File.Copy(path, rootCopy, overwrite: true);
                         }
                         catch
                         {
@@ -702,6 +708,21 @@ namespace Supervertaler.Trados
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// True when both files exist with identical contents. Reads both in full:
+        /// they are the ~2 MB SQLite engine, compared once per Studio start.
+        /// </summary>
+        private static bool SameBytes(string a, string b)
+        {
+            if (!File.Exists(a) || !File.Exists(b)) return false;
+            if (new FileInfo(a).Length != new FileInfo(b).Length) return false;
+            var x = File.ReadAllBytes(a);
+            var y = File.ReadAllBytes(b);
+            for (int i = 0; i < x.Length; i++)
+                if (x[i] != y[i]) return false;
+            return true;
         }
 
         /// <summary>
