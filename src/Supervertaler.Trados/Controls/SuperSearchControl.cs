@@ -2107,9 +2107,21 @@ namespace Supervertaler.Trados.Controls
             string src = _txtSearch.Text, tgt = _txtSearchTarget.Text;
             bool cs = _chkCaseSensitive.Checked, rx = _chkRegex.Checked, ww = _chkWholeWord.Checked;
 
-            var filtered = _unfilteredResults.Where(r =>
-                LiveMatches(r.SourceText, src, cs, rx, ww) &&
-                LiveMatches(r.TargetText, tgt, cs, rx, ww)).ToList();
+            // This runs on the UI thread as the user types: a pattern that runs
+            // out of time (UserRegex) stops the whole pass at the first row, and
+            // the rows shown stay as they were.
+            List<SearchResult> filtered;
+            try
+            {
+                filtered = _unfilteredResults.Where(r =>
+                    LiveMatches(r.SourceText, src, cs, rx, ww) &&
+                    LiveMatches(r.TargetText, tgt, cs, rx, ww)).ToList();
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                SetStatus("Live filter stopped. " + UserRegex.TooSlow);
+                return;
+            }
 
             _highlightSource = src;
             _highlightTarget = tgt;
@@ -2119,7 +2131,8 @@ namespace Supervertaler.Trados.Controls
         }
 
         /// <summary>Client-side match used only by the live filter. An empty
-        /// query is no constraint; an invalid regex (while typing) matches nothing.</summary>
+        /// query is no constraint; an invalid regex (while typing) matches nothing;
+        /// a match that runs out of time (<see cref="UserRegex"/>) throws.</summary>
         private static bool LiveMatches(string text, string query,
             bool caseSensitive, bool useRegex, bool wholeWord)
         {
@@ -2129,13 +2142,14 @@ namespace Supervertaler.Trados.Controls
             {
                 if (useRegex)
                     return Regex.IsMatch(text, query,
-                        caseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase);
+                        caseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase, UserRegex.MatchTimeout);
                 if (wholeWord)
                     return Regex.IsMatch(text, @"\b" + Regex.Escape(query) + @"\b",
-                        caseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase);
+                        caseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase, UserRegex.MatchTimeout);
                 return text.IndexOf(query,
                     caseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase) >= 0;
             }
+            catch (RegexMatchTimeoutException) { throw; }
             catch { return false; }
         }
 

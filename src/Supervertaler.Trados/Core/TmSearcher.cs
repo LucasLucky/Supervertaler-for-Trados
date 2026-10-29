@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Xml.Linq;
 using Sdl.LanguagePlatform.TranslationMemory;
@@ -193,12 +194,14 @@ namespace Supervertaler.Trados.Core
                 {
                     try { SearchServerTm(entry, query, scope, caseSensitive, useRegex, wholeWord, pair, results, connections, ct); }
                     catch (OperationCanceledException) { throw; }
+                    catch (RegexMatchTimeoutException) { throw; }   // the pattern, not the TM (UserRegex)
                     catch { /* skip a server TM that can't be opened / authenticated */ }
                 }
                 else
                 {
                     try { SearchFileTm(entry, query, scope, caseSensitive, useRegex, wholeWord, pair, results, ct); }
                     catch (OperationCanceledException) { throw; }
+                    catch (RegexMatchTimeoutException) { throw; }   // the pattern, not the TM (UserRegex)
                     catch { /* skip a TM that can't be opened (locked, corrupt) */ }
                 }
             }

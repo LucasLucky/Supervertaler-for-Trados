@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml;
 
 namespace Supervertaler.Trados.Core
@@ -50,7 +51,14 @@ namespace Supervertaler.Trados.Core
             public readonly List<FileReport> Files = new List<FileReport>();
             /// <summary>The folder this run's backups went to; null if nothing was backed up.</summary>
             public string BackupDir;
+            /// <summary>The pattern ran out of time (<see cref="UserRegex"/>) in one
+            /// file. That file and every later one were left unchanged; the files
+            /// before it were written as usual.</summary>
+            public bool TooSlow;
         }
+
+        internal const string TooSlowHere = "the regular expression took too long on one of its segments";
+        internal const string NotReached = "not reached: Replace All stopped at the slow regular expression";
 
         /// <summary>
         /// Replaces in each file of <paramref name="files"/> (results grouped by
@@ -76,8 +84,19 @@ namespace Supervertaler.Trados.Core
                     file.NotWritten = "could not tell which files are open in the editor";
                 else if (IsOpen(group.Key, openInEditor))
                     file.NotWritten = "open in the editor";
+                else if (report.TooSlow)
+                    file.NotWritten = NotReached;
                 else
-                    ReplaceInFile(file, group.ToList(), perform, backup);
+                {
+                    // The replace is made in memory and written only once every
+                    // segment is done, so a pattern out of time writes nothing.
+                    try { ReplaceInFile(file, group.ToList(), perform, backup); }
+                    catch (RegexMatchTimeoutException)
+                    {
+                        file.NotWritten = TooSlowHere;
+                        report.TooSlow = true;
+                    }
+                }
             }
 
             report.BackupDir = backup.Dir;
@@ -167,6 +186,7 @@ namespace Supervertaler.Trados.Core
                 foreach (var p in pending) p.Key.TargetText = p.Value;
                 file.Replaced = pending.Count;
             }
+            catch (RegexMatchTimeoutException) { throw; }   // Run stops the run
             catch (Exception ex)
             {
                 file.NotWritten = ex.Message;

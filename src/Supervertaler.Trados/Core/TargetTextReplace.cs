@@ -57,17 +57,20 @@ namespace Supervertaler.Trados.Core
         /// <summary>
         /// Replaces inside each text node of the accepted view, in place; deleted
         /// text is not touched. For use inside ProcessSegmentPair, on a target
-        /// <see cref="Plan"/> found <see cref="Outcome.Replaceable"/>.
+        /// <see cref="Plan"/> found <see cref="Outcome.Replaceable"/>. Every new
+        /// text is worked out before the first is written, so a replace that
+        /// throws - a pattern out of time (<see cref="UserRegex"/>) - leaves the
+        /// target as it was, never half replaced.
         /// </summary>
         public static void Apply(IAbstractMarkupDataContainer target, Func<string, string> replace)
         {
-            foreach (var t in SegmentTagHandler.AcceptedTexts(target))
+            var texts = SegmentTagHandler.AcceptedTexts(target).Where(t => t.Properties != null).ToList();
+            var newValues = texts.Select(t => replace(t.Properties.Text ?? "")).ToList();
+            for (int i = 0; i < texts.Count; i++)
             {
-                if (t.Properties == null) continue;
-                var oldVal = t.Properties.Text ?? "";
-                var newVal = replace(oldVal);
-                if (!string.Equals(oldVal, newVal, StringComparison.Ordinal))
-                    t.Properties.Text = newVal;
+                var oldVal = texts[i].Properties.Text ?? "";
+                if (!string.Equals(oldVal, newValues[i], StringComparison.Ordinal))
+                    texts[i].Properties.Text = newValues[i];
             }
         }
     }

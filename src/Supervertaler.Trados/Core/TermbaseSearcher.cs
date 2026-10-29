@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using Supervertaler.Trados.Models;
 using Supervertaler.Trados.Settings;
@@ -324,6 +325,7 @@ namespace Supervertaler.Trados.Core
                     }
                 }
                 catch (OperationCanceledException) { throw; }
+                catch (RegexMatchTimeoutException) { throw; }   // the pattern, not the termbase (UserRegex)
                 catch (Exception ex)
                 {
                     DiagnosticLog.Log("SuperSearch",

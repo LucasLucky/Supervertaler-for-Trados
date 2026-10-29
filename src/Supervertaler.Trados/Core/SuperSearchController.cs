@@ -640,6 +640,14 @@ namespace Supervertaler.Trados.Core
                     _control.SetSearching(false);
                 });
             }
+            catch (RegexMatchTimeoutException)
+            {
+                SafeInvoke(() =>
+                {
+                    _control.SetStatus("Search stopped. " + UserRegex.TooSlow);
+                    _control.SetSearching(false);
+                });
+            }
             catch (Exception ex)
             {
                 SafeInvoke(() =>
@@ -835,6 +843,10 @@ namespace Supervertaler.Trados.Core
                         : "Replaced in 1 segment – " + wholeSegment);
                 });
             }
+            catch (RegexMatchTimeoutException)
+            {
+                SafeInvoke(() => _control.SetStatus("Not replaced. " + UserRegex.TooSlow));
+            }
             catch (Exception ex)
             {
                 SafeInvoke(() => _control.SetStatus($"Replace error: {ex.Message}"));
@@ -846,10 +858,24 @@ namespace Supervertaler.Trados.Core
             if (_lastResults == null || _lastResults.Count == 0) return;
 
             // Count target matches. TM concordance hits aren't in any document,
-            // so Replace All only ever touches SDLXLIFF segment results.
-            var targetMatches = _lastResults.Where(r =>
-                r.Kind == ResultKind.XliffSegment &&
-                IsTargetMatch(r.TargetText, e.SearchText, e.CaseSensitive, e.UseRegex, e.WholeWord)).ToList();
+            // so Replace All only ever touches SDLXLIFF segment results. This
+            // runs the pattern over every target before anything is changed, so
+            // a pattern that runs out of time (UserRegex) usually stops here,
+            // with nothing replaced.
+            List<SearchResult> targetMatches;
+            try
+            {
+                targetMatches = _lastResults.Where(r =>
+                    r.Kind == ResultKind.XliffSegment &&
+                    IsTargetMatch(r.TargetText, e.SearchText, e.CaseSensitive, e.UseRegex, e.WholeWord)).ToList();
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                SafeInvoke(() => _control.SetStatus("Nothing replaced. " + UserRegex.TooSlow));
+                MessageBox.Show("Nothing was replaced.\n\n" + UserRegex.TooSlow,
+                    "SuperSearch – Replace All", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
 
             if (targetMatches.Count == 0)
             {
@@ -920,6 +946,9 @@ namespace Supervertaler.Trados.Core
             int protectedCount = 0;   // tracked changes Studio protects (SegmentWriteCheck)
             int wholeSegmentCount = 0;   // Track Changes on, but not recorded word by word
             var wholeSegmentWhy = new List<string>();
+            // The pattern ran out of time (UserRegex) on a segment: the run stops
+            // there. Every later segment would only be tried and given up on.
+            bool tooSlow = false;
 
             foreach (var group in fileGroups)
             {
@@ -964,17 +993,22 @@ namespace Supervertaler.Trados.Core
                                 protectedCount++;
                             }
                         }
+                        catch (RegexMatchTimeoutException) { tooSlow = true; break; }
                         catch { errorCount++; }
                     }
                 }
             }
+            int activeReplaced = replacedCount;
 
             // Every other file is changed on disk - unless it is open in the
-            // editor - with a backup taken first (XliffDiskReplace).
-            var disk = diskGroups.Count == 0 ? null
+            // editor - with a backup taken first (XliffDiskReplace). Not after
+            // the pattern ran out of time in the active file.
+            var disk = diskGroups.Count == 0 || tooSlow ? null
                 : XliffDiskReplace.Run(diskGroups, openInEditor,
                     s => PerformReplace(s, e.SearchText, e.ReplaceText, e.CaseSensitive, e.UseRegex, e.WholeWord),
                     UserDataPath.ReplaceBackupsDir, DateTime.Now);
+            bool tooSlowOnDisk = disk?.TooSlow == true;
+            tooSlow |= tooSlowOnDisk;
             var diskFiles = disk?.Files ?? new List<XliffDiskReplace.FileReport>();
             replacedCount += diskFiles.Sum(f => f.Replaced);
             skippedTagSpan += diskFiles.Sum(f => f.SpansMarkup);
@@ -985,7 +1019,9 @@ namespace Supervertaler.Trados.Core
             SafeInvoke(() =>
             {
                 _control.SetResults(_lastResults);
-                var statusMsg = $"Replaced {replacedCount} segment(s)";
+                var statusMsg = tooSlow
+                    ? $"Replace All stopped: the regular expression took too long – simplify it. Replaced {replacedCount} segment(s) before that"
+                    : $"Replaced {replacedCount} segment(s)";
                 if (skippedTagSpan > 0) statusMsg += $", skipped {skippedTagSpan} (match spans inline tags or a tracked change)";
                 if (protectedCount > 0) statusMsg += $", not replaced in {protectedCount} (tracked changes Studio protects while Track Changes is off: accept or reject them first)";
                 if (wholeSegmentCount > 0)
@@ -1001,6 +1037,13 @@ namespace Supervertaler.Trados.Core
 
             if (disk != null && (filesWritten > 0 || filesNotWritten > 0 || changedSinceSearch > 0))
                 ShowDiskSummary(disk);
+            else if (tooSlow && !tooSlowOnDisk)
+                MessageBox.Show("Replace All stopped.\n\n" + UserRegex.TooSlow + "\n\n"
+                        + (activeReplaced > 0
+                            ? $"{activeReplaced} segment(s) in the open file had already been replaced; Ctrl+Z undoes them. "
+                            : "Nothing was replaced. ")
+                        + "No file on disk was changed.",
+                    "SuperSearch – Replace All", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
         /// <summary>
@@ -1023,6 +1066,8 @@ namespace Supervertaler.Trados.Core
             }
 
             var sb = new System.Text.StringBuilder();
+            if (disk.TooSlow)
+                sb.Append("Replace All stopped.\n\n").Append(UserRegex.TooSlow).Append("\n\n");
             var written = disk.Files.Where(f => f.Replaced > 0).ToList();
             var notWritten = disk.Files.Where(f => f.NotWritten != null).ToList();
             var changed = disk.Files.Sum(f => f.ChangedSinceSearch);
@@ -1139,7 +1184,9 @@ namespace Supervertaler.Trados.Core
         /// doesn't match what a flat replace would produce – in that case we
         /// refuse to apply rather than try to be clever, and return
         /// <see cref="ActiveReplaceOutcome.SpansInlineTags"/> so the caller can
-        /// surface a clear "match spans tags – skipped" message.
+        /// surface a clear "match spans tags – skipped" message. A pattern that
+        /// runs out of time (<see cref="UserRegex"/>) throws
+        /// <see cref="RegexMatchTimeoutException"/>, with the segment unchanged.
         /// </summary>
         /// <param name="wholeSegment">With Track Changes on, why a replace was
         /// recorded as one whole-segment change rather than word by word (the
@@ -1169,13 +1216,19 @@ namespace Supervertaler.Trados.Core
             // Safe to apply. With Track Changes on, recorded word by word, as
             // update_segments records a rewrite (#138); until 201 Studio tracked
             // the in-place edit, which it records as the whole segment replaced.
+            // A pattern that runs out of time here is caught inside the edit, not
+            // thrown through Studio: Apply has changed nothing, the edit is
+            // cancelled, and the timeout goes to the caller once Studio is done.
+            RegexMatchTimeoutException tooSlow = null;
+            TrackedWrite tracked;
             try
             {
-                var tracked = SegmentWriteCheck.ProcessChecked(_activeDocument, pair, "Supervertaler",
-                    (sp, cancel) => TargetTextReplace.Apply(sp.Target, perform), wordLevel: true);
-                newFlatTarget = expected;
-                wholeSegment = tracked?.Note;
-                return ActiveReplaceOutcome.Replaced;
+                tracked = SegmentWriteCheck.ProcessChecked(_activeDocument, pair, "Supervertaler",
+                    (sp, cancel) =>
+                    {
+                        try { TargetTextReplace.Apply(sp.Target, perform); }
+                        catch (RegexMatchTimeoutException ex) { tooSlow = ex; cancel.Cancel = true; }
+                    }, wordLevel: true);
             }
             catch (SegmentWriteDeclinedException)
             {
@@ -1185,6 +1238,11 @@ namespace Supervertaler.Trados.Core
             {
                 return ActiveReplaceOutcome.Error;
             }
+            if (tooSlow != null) throw tooSlow;
+
+            newFlatTarget = expected;
+            wholeSegment = tracked?.Note;
+            return ActiveReplaceOutcome.Replaced;
         }
 
         /// <summary>
@@ -1202,13 +1260,17 @@ namespace Supervertaler.Trados.Core
             return null;
         }
 
+        /// <summary>The replace itself. A bad pattern leaves the text as it was;
+        /// a match that runs out of time (<see cref="UserRegex"/>) throws, and
+        /// is never taken for "no match".</summary>
         private static string PerformReplace(string text, string search, string replace,
             bool caseSensitive, bool useRegex, bool wholeWord)
         {
             if (useRegex)
             {
                 var options = caseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase;
-                try { return Regex.Replace(text, search, replace, options); }
+                try { return Regex.Replace(text, search, replace, options, UserRegex.MatchTimeout); }
+                catch (RegexMatchTimeoutException) { throw; }
                 catch { return text; }
             }
             if (wholeWord)
@@ -1219,8 +1281,9 @@ namespace Supervertaler.Trados.Core
                 try
                 {
                     return Regex.Replace(text, @"\b" + Regex.Escape(search) + @"\b",
-                        (replace ?? "").Replace("$", "$$"), options);
+                        (replace ?? "").Replace("$", "$$"), options, UserRegex.MatchTimeout);
                 }
+                catch (RegexMatchTimeoutException) { throw; }
                 catch { return text; }
             }
             return ReplaceString(text, search, replace, caseSensitive);
@@ -1259,14 +1322,16 @@ namespace Supervertaler.Trados.Core
             if (useRegex)
             {
                 var options = caseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase;
-                try { return Regex.IsMatch(targetText, search, options); }
+                try { return Regex.IsMatch(targetText, search, options, UserRegex.MatchTimeout); }
+                catch (RegexMatchTimeoutException) { throw; }
                 catch { return false; }
             }
 
             if (wholeWord)
             {
                 var options = caseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase;
-                try { return Regex.IsMatch(targetText, @"\b" + Regex.Escape(search) + @"\b", options); }
+                try { return Regex.IsMatch(targetText, @"\b" + Regex.Escape(search) + @"\b", options, UserRegex.MatchTimeout); }
+                catch (RegexMatchTimeoutException) { throw; }
                 catch { return false; }
             }
 

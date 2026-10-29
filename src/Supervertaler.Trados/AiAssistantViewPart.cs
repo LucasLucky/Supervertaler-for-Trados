@@ -6542,6 +6542,7 @@ namespace Supervertaler.Trados
                 new List<KeyValuePair<ISegmentPair, Sdl.Core.Globalization.ConfirmationLevel>>();
             string notWrittenReason = null;   // why the first declined segment was declined
             int trackedWholeSegment = 0;      // Track Changes on, but not recorded word by word
+            string tooSlowAt = null;          // the segment the pattern ran out of time on (Core.UserRegex)
 
             foreach (var pair in _activeDocument.SegmentPairs)
             {
@@ -6626,10 +6627,18 @@ namespace Supervertaler.Trados
                         // on, recorded word by word as update_segments records a
                         // rewrite (#138): until 201 Studio tracked the in-place
                         // edit, which it records as the whole segment replaced.
+                        // A pattern out of time is caught inside the edit, not
+                        // thrown through Studio: Apply has changed nothing, and
+                        // the edit is cancelled.
+                        System.Text.RegularExpressions.RegexMatchTimeoutException tooSlow = null;
                         try
                         {
                             tracked = Core.SegmentWriteCheck.ProcessChecked(_activeDocument, pair, "Supervertaler MCP",
-                                (sp, cancel) => Core.TargetTextReplace.Apply(sp.Target, perform), wordLevel: true);
+                                (sp, cancel) =>
+                                {
+                                    try { Core.TargetTextReplace.Apply(sp.Target, perform); }
+                                    catch (System.Text.RegularExpressions.RegexMatchTimeoutException ex) { tooSlow = ex; cancel.Cancel = true; }
+                                }, wordLevel: true);
                         }
                         catch (Core.SegmentWriteDeclinedException declined)
                         {
@@ -6638,6 +6647,7 @@ namespace Supervertaler.Trados
                             notWrittenReason = notWrittenReason ?? declined.Message;
                             continue;
                         }
+                        if (tooSlow != null) throw tooSlow;
                         BridgeRecordWrite(id); // coverage: this segment was written this session
 
                         pendingStatus.Add(
@@ -6660,6 +6670,14 @@ namespace Supervertaler.Trados
                             Warning = tracked?.Note
                         });
                     }
+                }
+                catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+                {
+                    // Stop here: every later segment would only be tried and
+                    // given up on in turn. The segments already written still
+                    // get their status back in the pass below.
+                    tooSlowAt = pair.Properties?.Id.Id ?? "?";
+                    break;
                 }
                 catch (Exception ex)
                 {
@@ -6721,13 +6739,28 @@ namespace Supervertaler.Trados
             }
             if (req.DryRun && response.SegmentsChanged > 0)
                 response.Note += " Nothing was written – call again with dryRun=false to apply.";
+
+            if (tooSlowAt != null)
+            {
+                response.Ok = false;
+                response.Error = $"the regex took longer than {Core.UserRegex.MatchTimeout.TotalSeconds:0} seconds on segment " +
+                    $"{tooSlowAt}, so find_and_replace stopped there. Simplify the pattern (nested repeats such as (a+)+ " +
+                    "are the usual cause) before trying again. " +
+                    (req.DryRun || response.SegmentsChanged == 0
+                        ? "Nothing was changed."
+                        : $"{response.SegmentsChanged} segment(s) before it had already been changed (listed in changes): " +
+                          "they are in the open document, unsaved. Tell the user.");
+                if (req.DryRun) response.Note = null;
+            }
             return response;
         }
 
         /// <summary>Text replacement matching SuperSearch's PerformReplace:
         /// regex, whole-word (\b-bounded literal), or plain substring, all with
         /// optional case sensitivity. Bad regex/pattern yields the input
-        /// unchanged (validated up front by the caller).</summary>
+        /// unchanged (validated up front by the caller); a match that runs out
+        /// of time (Core.UserRegex) throws RegexMatchTimeoutException, never
+        /// "no match".</summary>
         private static string FindReplacePerform(string text, string search, string replace,
             bool caseSensitive, bool useRegex, bool wholeWord)
         {
@@ -6737,7 +6770,8 @@ namespace Supervertaler.Trados
 
             if (useRegex)
             {
-                try { return System.Text.RegularExpressions.Regex.Replace(text, search, replace, opts); }
+                try { return System.Text.RegularExpressions.Regex.Replace(text, search, replace, opts, Core.UserRegex.MatchTimeout); }
+                catch (System.Text.RegularExpressions.RegexMatchTimeoutException) { throw; }
                 catch { return text; }
             }
             if (wholeWord)
@@ -6746,8 +6780,9 @@ namespace Supervertaler.Trados
                 {
                     return System.Text.RegularExpressions.Regex.Replace(text,
                         @"\b" + System.Text.RegularExpressions.Regex.Escape(search) + @"\b",
-                        (replace ?? "").Replace("$", "$$"), opts);
+                        (replace ?? "").Replace("$", "$$"), opts, Core.UserRegex.MatchTimeout);
                 }
+                catch (System.Text.RegularExpressions.RegexMatchTimeoutException) { throw; }
                 catch { return text; }
             }
             if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(search)) return text;

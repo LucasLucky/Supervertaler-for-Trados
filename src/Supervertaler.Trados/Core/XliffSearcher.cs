@@ -209,11 +209,13 @@ namespace Supervertaler.Trados.Core
             Regex regex = null;
             string queryLower = null;
 
+            // A match that runs out of time (UserRegex) is thrown to the caller,
+            // never taken for "no match" or an unreadable file.
             if (useRegex)
             {
                 var options = RegexOptions.Compiled;
                 if (!caseSensitive) options |= RegexOptions.IgnoreCase;
-                try { regex = new Regex(query, options); }
+                try { regex = new Regex(query, options, UserRegex.MatchTimeout); }
                 catch { return new List<SearchResult>(); }
             }
             else if (wholeWord)
@@ -221,7 +223,7 @@ namespace Supervertaler.Trados.Core
                 // Whole-word literal search: reuse the regex path with \b boundaries.
                 var options = RegexOptions.Compiled;
                 if (!caseSensitive) options |= RegexOptions.IgnoreCase;
-                try { regex = new Regex(@"\b" + Regex.Escape(query) + @"\b", options); }
+                try { regex = new Regex(@"\b" + Regex.Escape(query) + @"\b", options, UserRegex.MatchTimeout); }
                 catch { return new List<SearchResult>(); }
             }
             else if (!caseSensitive)
@@ -246,6 +248,7 @@ namespace Supervertaler.Trados.Core
                     results.AddRange(fileResults);
                 }
                 catch (OperationCanceledException) { throw; }
+                catch (RegexMatchTimeoutException) { throw; }
                 catch { /* skip unreadable files */ }
             }
 
@@ -523,7 +526,8 @@ namespace Supervertaler.Trados.Core
         /// Standalone match test honouring the same case / regex / whole-word
         /// rules as the file search. Used by <see cref="TmSearcher"/> to
         /// post-filter TM concordance hits so they obey the user's Aa / .* /
-        /// Word checkboxes just like file results do.
+        /// Word checkboxes just like file results do. A match that runs out of
+        /// time (<see cref="UserRegex"/>) throws.
         /// </summary>
         public static bool QueryMatches(string text, string query,
             bool caseSensitive, bool useRegex, bool wholeWord)
@@ -533,14 +537,16 @@ namespace Supervertaler.Trados.Core
             if (useRegex)
             {
                 var options = caseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase;
-                try { return Regex.IsMatch(text, query, options); }
+                try { return Regex.IsMatch(text, query, options, UserRegex.MatchTimeout); }
+                catch (RegexMatchTimeoutException) { throw; }
                 catch { return false; }
             }
 
             if (wholeWord)
             {
                 var options = caseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase;
-                try { return Regex.IsMatch(text, @"\b" + Regex.Escape(query) + @"\b", options); }
+                try { return Regex.IsMatch(text, @"\b" + Regex.Escape(query) + @"\b", options, UserRegex.MatchTimeout); }
+                catch (RegexMatchTimeoutException) { throw; }
                 catch { return false; }
             }
 
