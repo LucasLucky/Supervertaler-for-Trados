@@ -92,7 +92,7 @@ namespace Supervertaler.Trados.Controls
             {
                 (LlmModels.ProviderClaude, "claude-opus-5-5"),
                 (LlmModels.ProviderOpenAi, "gpt-6.1-sol"),
-                (LlmModels.ProviderGemini, "gemini-3.1-pro-preview"),
+                (LlmModels.ProviderGemini, "gemini-4-argon"),
             };
             for (int i = 0; i < 3; i++)
             {
